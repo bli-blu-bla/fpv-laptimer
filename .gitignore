@@ -1,0 +1,22 @@
+# Firmware build output and generated config
+firmware/.pio/
+firmware/sdkconfig.*
+!firmware/sdkconfig.defaults
+!firmware/sdkconfig.defaults.*
+firmware/managed_components/
+firmware/cmake-build-*/
+.idea/
+
+# Rust
+server/target/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Python tools
+tools/.venv*/
+__pycache__/
+
+# Recordings
+recordings/
