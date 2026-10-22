@@ -82,8 +82,8 @@ export default function PilotCard({ label, channel, live, result, consecutive, o
             {result.holeshot_us != null && <li className="muted">Holeshot {secs(result.holeshot_us)}</li>}
           </ul>
           {onAddPass && (
-            <button className="add" title="Jetzt einen verpassten Durchflug eintragen" onClick={onAddPass}>
-              + Durchflug jetzt
+            <button className="add" title="Verpasster Durchflug in den letzten 2 Sekunden: am Gipfel eintragen" onClick={onAddPass}>
+              + Durchflug eben verpasst
             </button>
           )}
         </>

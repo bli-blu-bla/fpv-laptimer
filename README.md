@@ -43,7 +43,9 @@ cargo run --release -- serve                     # alle angesteckten Boards
 
 Dann im Browser `http://<Rechner>:5800` öffnen (auf dem Rechner selbst `http://localhost:5800`),
 auch vom Handy im selben WLAN. Training oder Rennen starten, Runden live, Korrekturen per
-× (Durchflug löschen) und „+ Durchflug jetzt“, alte Sessions unter „Sessions“. Die Datenbank
+× (Durchflug löschen) und „+ Durchflug eben verpasst“. Unter „Sessions“ → „Pegel“ der
+Signalverlauf jedes Piloten: dort Durchflüge antippen zum Löschen oder neben einem Gipfel
+tippen zum Einfügen. Die Datenbank
 liegt in `server/data/` (dort auch die Pegel jeder Session).
 
 Ohne Boards, zum Ausprobieren: `cargo run --release -- serve --replay recordings/<aufnahme>.csv`

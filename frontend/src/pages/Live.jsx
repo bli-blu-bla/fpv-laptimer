@@ -76,7 +76,13 @@ export default function Live({ server, state }) {
             consecutive={s.config.consecutive}
             onDeletePass={(id) => run(() => api(`/passes/${id}`, { body: { deleted: true } }))}
             onAddPass={() =>
-              run(() => api(`/sessions/${s.id}/passes`, { body: { channel: seat.channel, time_us: serverNow(clockOffset) } }))
+              // The pass was a moment ago: look for its peak in the last 2 s
+              // (the server snaps within ±1 s of the time given).
+              run(() =>
+                api(`/sessions/${s.id}/passes`, {
+                  body: { channel: seat.channel, time_us: Math.round(serverNow(clockOffset) - 1e6), snap: true },
+                }),
+              )
             }
           />
         ))}

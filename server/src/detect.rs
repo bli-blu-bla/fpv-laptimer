@@ -111,6 +111,25 @@ pub struct Detector {
     channels: Vec<ChannelDetector>,
     /// The next slot to finish; None before the first level.
     next_slot: Option<i64>,
+    /// With `with_trace`: what each slot looked like, per channel (for the
+    /// level graph of a session).
+    trace: Option<Vec<Vec<TracePoint>>>,
+}
+
+/// Boards kept in a trace point.
+pub const TRACE_BOARDS: usize = 4;
+
+/// One slot of one channel, as the detector saw it. Levels are codes
+/// (0.25 dB, see `rssi_dbfs`); 0 means "none".
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TracePoint {
+    /// Host time, µs (envelope delay taken out, as pass times).
+    pub time_us: i64,
+    /// The boards combined.
+    pub level: u8,
+    pub boards: [u8; TRACE_BOARDS],
+    pub enter: u8,
+    pub exit: u8,
 }
 
 struct BoardState {
@@ -137,7 +156,20 @@ impl Detector {
             boards: Vec::new(),
             channels: (0..n_channels).map(|c| ChannelDetector::new(c as u8)).collect(),
             next_slot: None,
+            trace: None,
         }
+    }
+
+    /// A detector that also records every slot (`take_trace`).
+    pub fn with_trace(n_channels: usize, config: DetectConfig) -> Detector {
+        let mut d = Detector::new(n_channels, config);
+        d.trace = Some(vec![Vec::new(); n_channels]);
+        d
+    }
+
+    /// The recorded slots, per channel (empty without `with_trace`).
+    pub fn take_trace(&mut self) -> Vec<Vec<TracePoint>> {
+        self.trace.take().unwrap_or_default()
     }
 
     /// Adds one board's levels (in the order the board sent them).
@@ -203,13 +235,28 @@ impl Detector {
             for c in 0..self.n_channels {
                 // The combined envelope: the highest of the boards'.
                 let mut combined: Option<u8> = None;
-                for b in &mut self.boards {
+                let mut per_board = [0u8; TRACE_BOARDS];
+                for (i, b) in self.boards.iter_mut().enumerate() {
                     if let Some(e) = b.channels[c].finish_slot(slot) {
                         combined = Some(combined.map_or(e, |x| x.max(e)));
+                        if i < TRACE_BOARDS {
+                            per_board[i] = e;
+                        }
                     }
                 }
                 let time_us = slot * SLOT_US - ENVELOPE_DELAY_US;
                 self.channels[c].step(time_us, combined, &self.config, &mut events);
+                if let Some(trace) = &mut self.trace {
+                    let ch = &self.channels[c];
+                    let code = |x: Option<f32>| x.map_or(0, |v| v.round().clamp(1.0, 255.0) as u8);
+                    trace[c].push(TracePoint {
+                        time_us,
+                        level: combined.unwrap_or(0),
+                        boards: per_board,
+                        enter: code(ch.enter),
+                        exit: code(ch.exit),
+                    });
+                }
             }
             slot += 1;
         }

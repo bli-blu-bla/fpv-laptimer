@@ -133,6 +133,11 @@ pub struct Core {
 impl Core {
     pub fn new(db: Db, data_dir: PathBuf, origin: Instant, sounds: Sounds, tx: broadcast::Sender<String>) -> Core {
         let settings: Settings = db.get_setting("settings").ok().flatten().unwrap_or_default();
+        if let Ok(n) = db.close_open_sessions()
+            && n > 0
+        {
+            eprintln!("closed {n} session(s) left open by an earlier run");
+        }
         let detector = Detector::new(settings.channels.len(), detect_config(&settings));
         let now = unix_now_us();
         Core {
@@ -380,6 +385,17 @@ impl Core {
         self.db.end_session(a.row.id, unix_now_us())?;
         self.scheduled.clear();
         self.broadcast_state();
+        Ok(())
+    }
+
+    /// Writes out the active session's buffered levels (before its file is read).
+    pub fn flush_levels(&mut self, session_id: i64) -> Result<()> {
+        if let Some(a) = self.active.as_mut()
+            && a.row.id == session_id
+            && let Some(out) = a.levels_out.as_mut()
+        {
+            out.flush()?;
+        }
         Ok(())
     }
 

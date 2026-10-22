@@ -8,6 +8,7 @@
 //!
 //! `Core` sits in a `std::sync::Mutex`: never hold it across an `.await`.
 
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
@@ -17,7 +18,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -29,9 +30,11 @@ use tower_http::services::{ServeDir, ServeFile};
 
 use crate::core::{BoardView, Core, Settings, results};
 use crate::db::Db;
+use crate::detect::DetectConfig;
 use crate::esp::board::{Event, ScanConfig};
 use crate::sound::Sounds;
 use crate::source::{self, Source};
+use crate::trace::{self, SessionTrace};
 
 pub struct ServeOptions {
     pub port: u16,
@@ -50,6 +53,9 @@ struct App {
     source: Mutex<Option<Source>>,
     events: Sender<Event>,
     replay: Option<PathBuf>,
+    /// Level graphs of sessions: (size of the level file, graph). A file
+    /// that grew (the running session) is read again.
+    traces: Mutex<HashMap<i64, (u64, Arc<SessionTrace>)>>,
 }
 
 pub fn run(opts: ServeOptions) -> Result<()> {
@@ -71,6 +77,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         source: Mutex::new(None),
         events,
         replay: opts.replay.clone(),
+        traces: Mutex::new(HashMap::new()),
     });
     restart_source(&app)?;
 
@@ -101,6 +108,8 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .route("/sessions", get(list_sessions))
         .route("/sessions/{id}", get(get_session).delete(delete_session))
         .route("/sessions/{id}/passes", post(add_pass))
+        .route("/sessions/{id}/graph", get(get_graph))
+        .route("/sessions/{id}/snap", get(get_snap))
         .route("/passes/{id}", post(set_pass_deleted))
         .route("/settings", get(get_settings).put(put_settings))
         .route("/pilots", post(add_pilot))
@@ -237,18 +246,104 @@ async fn delete_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> Api
     Ok(Json(json!({})))
 }
 
+/// A session's level graph, from the cache or computed. Reads a file of up
+/// to hundreds of MB: call it off the async threads (`spawn_blocking`); it
+/// doesn't hold the core lock while it reads.
+fn session_trace(app: &App, id: i64) -> Result<Arc<SessionTrace>> {
+    let (path, config) = {
+        let mut core = app.core.lock().unwrap();
+        let s = core.db.session(id)?.context("no such session")?;
+        core.flush_levels(id)?;
+        let path = s.levels_file.context("this session has no level file")?;
+        (
+            PathBuf::from(path),
+            DetectConfig {
+                min_lap_us: (s.config.min_lap_s * 1e6) as i64,
+            },
+        )
+    };
+    let size = std::fs::metadata(&path)
+        .with_context(|| format!("{}", path.display()))?
+        .len();
+    if let Some((cached_size, t)) = app.traces.lock().unwrap().get(&id)
+        && *cached_size == size
+    {
+        return Ok(Arc::clone(t));
+    }
+    let t = Arc::new(trace::load(&path, config)?);
+    let mut traces = app.traces.lock().unwrap();
+    if traces.len() >= 4 {
+        traces.clear(); // keep the memory small; the next request reads again
+    }
+    traces.insert(id, (size, Arc::clone(&t)));
+    Ok(t)
+}
+
+#[derive(Deserialize)]
+struct GraphQuery {
+    channel: usize,
+    /// Wall clock µs; missing: from the start / to the end of the session.
+    from_us: Option<i64>,
+    to_us: Option<i64>,
+    /// At most this many points (about the width in pixels).
+    points: Option<usize>,
+}
+
+async fn get_graph(State(app): State<Arc<App>>, Path(id): Path<i64>, Query(q): Query<GraphQuery>) -> ApiResult {
+    let t = tokio::task::spawn_blocking(move || session_trace(&app, id)).await??;
+    let Some((start, end)) = t.bounds(q.channel) else {
+        return Ok(Json(json!({ "start_us": null, "end_us": null, "graph": null })));
+    };
+    let g = t.graph(
+        q.channel,
+        q.from_us.unwrap_or(start),
+        q.to_us.unwrap_or(end),
+        q.points.unwrap_or(800).min(5000),
+    );
+    Ok(Json(json!({ "start_us": start, "end_us": end, "graph": g })))
+}
+
+#[derive(Deserialize)]
+struct SnapQuery {
+    channel: usize,
+    time_us: i64,
+}
+
+/// Where a pass added at `time_us` would go (see `add_pass` with `snap`).
+async fn get_snap(State(app): State<Arc<App>>, Path(id): Path<i64>, Query(q): Query<SnapQuery>) -> ApiResult {
+    let t = tokio::task::spawn_blocking(move || session_trace(&app, id)).await??;
+    Ok(Json(match t.snap(q.channel, q.time_us, SNAP_WINDOW_US) {
+        Some((time_us, peak_db)) => json!({ "time_us": time_us, "peak_db": peak_db }),
+        None => json!({ "time_us": null, "peak_db": null }),
+    }))
+}
+
+/// A tap this close to a peak snaps to it.
+const SNAP_WINDOW_US: i64 = 1_000_000;
+
 #[derive(Deserialize)]
 struct AddPass {
     channel: u8,
     time_us: i64,
+    /// Move it to the nearest peak of the level graph (within 1 s).
+    #[serde(default)]
+    snap: bool,
 }
 
 /// A pass the detection missed, added by hand.
 async fn add_pass(State(app): State<Arc<App>>, Path(id): Path<i64>, Json(req): Json<AddPass>) -> ApiResult {
+    let (mut time_us, mut peak_db) = (req.time_us, 0.0);
+    if req.snap {
+        let app2 = Arc::clone(&app);
+        let t = tokio::task::spawn_blocking(move || session_trace(&app2, id)).await??;
+        if let Some((t, p)) = t.snap(req.channel as usize, req.time_us, SNAP_WINDOW_US) {
+            (time_us, peak_db) = (t, p);
+        }
+    }
     let mut core = app.core.lock().unwrap();
-    let pass = core.db.add_pass(id, req.channel, req.time_us, 0.0, true)?;
+    let pass = core.db.add_pass(id, req.channel, time_us, peak_db, true)?;
     core.session_changed(id)?;
-    Ok(Json(json!({ "id": pass })))
+    Ok(Json(json!({ "id": pass, "time_us": time_us })))
 }
 
 #[derive(Deserialize)]

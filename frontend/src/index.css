@@ -392,3 +392,113 @@ td {
   margin-bottom: 8px;
   word-break: break-all;
 }
+
+/* level graph */
+.graph-panel {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  margin: 12px 0;
+}
+.graph {
+  margin-top: 8px;
+}
+.graph svg {
+  display: block;
+  touch-action: pan-y; /* horizontal drags move the graph, vertical ones scroll */
+  user-select: none;
+}
+.graph .overview {
+  cursor: pointer;
+  margin-bottom: 6px;
+}
+.graph .detail {
+  cursor: crosshair;
+}
+.graph .window {
+  fill: var(--accent);
+  opacity: 0.15;
+}
+.graph .grid {
+  stroke: var(--line);
+}
+.graph .axis {
+  fill: var(--muted);
+  font-size: 11px;
+}
+.graph path {
+  fill: none;
+}
+.graph .combined {
+  stroke: var(--accent);
+  stroke-width: 1.6;
+}
+.graph .board {
+  stroke: var(--muted);
+  stroke-width: 1;
+  opacity: 0.45;
+}
+.graph .threshold {
+  stroke: var(--text);
+  stroke-dasharray: 5 4;
+  stroke-width: 1;
+  opacity: 0.6;
+}
+.graph .threshold.exit {
+  opacity: 0.35;
+}
+.graph .pass line {
+  stroke: var(--ok);
+  stroke-width: 2;
+}
+.graph .pass.manual line {
+  stroke: var(--race);
+}
+.graph .pass.ignored line {
+  stroke: var(--muted);
+}
+.graph .pass.deleted line {
+  stroke: var(--muted);
+  stroke-dasharray: 3 3;
+  opacity: 0.6;
+}
+.graph .lap-label {
+  fill: var(--text);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.graph .pass-tick {
+  stroke: var(--ok);
+  opacity: 0.7;
+}
+.graph .cursor {
+  stroke: var(--bad);
+  stroke-width: 1.5;
+}
+.graph .cursor.faint {
+  stroke-dasharray: 2 3;
+  opacity: 0.6;
+}
+.graph-tools,
+.graph-action {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+.graph-action {
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 8px;
+}
+.small {
+  font-size: 0.8rem;
+}
+.card-head button {
+  margin-left: auto;
+}
+.card-head .chan + button {
+  margin-left: 8px;
+}

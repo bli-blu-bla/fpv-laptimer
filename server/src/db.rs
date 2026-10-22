@@ -192,6 +192,17 @@ impl Db {
         Ok(())
     }
 
+    /// Sessions still open from a server that stopped while they ran: they
+    /// end at their last pass (or where they began).
+    pub fn close_open_sessions(&self) -> Result<usize> {
+        Ok(self.conn.execute(
+            "UPDATE sessions SET ended_us = COALESCE(
+                 (SELECT MAX(time_us) FROM passes WHERE passes.session_id = sessions.id), created_us)
+             WHERE ended_us IS NULL",
+            [],
+        )?)
+    }
+
     pub fn delete_session(&self, id: i64) -> Result<()> {
         self.conn.execute("DELETE FROM sessions WHERE id = ?1", [id])?;
         Ok(())
@@ -255,11 +266,17 @@ impl Db {
         Ok(self.conn.last_insert_rowid())
     }
 
-    /// Deleting by hand only marks the pass, so it can be restored.
+    /// Deleting a detected pass only marks it, so it can be restored. A pass
+    /// added by hand is removed (to undo, add it again). Returns its session.
     pub fn set_pass_deleted(&self, id: i64, deleted: bool) -> Result<Option<i64>> {
+        let session = self.pass_session(id)?;
         self.conn
             .execute("UPDATE passes SET deleted = ?2 WHERE id = ?1", params![id, deleted])?;
-        self.pass_session(id)
+        if deleted {
+            self.conn
+                .execute("DELETE FROM passes WHERE id = ?1 AND manual = 1", [id])?;
+        }
+        Ok(session)
     }
 
     /// The session a pass belongs to.
@@ -324,7 +341,9 @@ mod tests {
         let id = db.create_session(&config, 100, 5_000_100, &seats, None).unwrap();
         let p1 = db.add_pass(id, 1, 6_000_000, -18.0, false).unwrap();
         db.add_pass(id, 1, 12_000_000, -19.0, false).unwrap();
+        let by_hand = db.add_pass(id, 1, 9_000_000, 0.0, true).unwrap();
         db.set_pass_deleted(p1, true).unwrap();
+        assert_eq!(db.set_pass_deleted(by_hand, true).unwrap(), Some(id)); // removed
         db.remove_auto_pass(id, 1, 12_000_000).unwrap();
         let passes = db.passes(id).unwrap();
         assert_eq!(passes.len(), 1);

@@ -72,10 +72,21 @@ USB-Ports, an einem dritten 2,4 ms; also ±0,4 bis ±1,2 ms Unsicherheit.
 | `src/core.rs` | `Core`: Settings (DB-Key `settings`), aktive Session, Durchflüge → DB → `results` → `state`-Nachricht; Ansagen (Countdown geplant, `runde`, `bestzeit` im Training, `pilotN_fertig`, `rennen_beendet`); `live` mit 10 Hz. Zeiten in der DB: Wanduhr-µs (`origin_unix_us + host_us`) |
 | `src/laps.rs` | Runden aus Durchflügen (rein, getestet): Start `holeshot`/`from_start`/`flying`, Ende `open`/`laps`/`seconds`, beste Runde, beste N in Folge, ignorierte Durchflüge |
 | `src/db.rs` | Tabellen `pilots`, `sessions` (Config als JSON, damit alte Ergebnisse bleiben), `seats`, `passes` (`manual`, `deleted` fürs Rückgängigmachen; vom Detektor zurückgenommene werden gelöscht), `settings` |
+| `src/trace.rs` | Pegelgraph einer Session: die Pegel-Datei noch einmal durch den Detektor (`Detector::with_trace` zeichnet pro 10-ms-Slot Hüllkurve kombiniert, je Board, Eintritt, Austritt auf), dann `graph` (Zeitbereich auf N Punkte, je Punkt das Maximum, damit kein Gipfel verloren geht) und `snap` (höchster Punkt ±1 s, von dort ±50 ms-weise bergauf, Buckel bis 3 dB darunter, darin Mitte zwischen erstem und letztem Punkt innerhalb 1 dB, wie der Detektor). Im Server zwischengespeichert pro Session und Dateigröße (höchstens 4); gelesen ohne die Core-Sperre (`spawn_blocking`). `/api/sessions/{id}/graph?channel&from_us&to_us&points`, `/api/sessions/{id}/snap?channel&time_us`; `POST …/passes` mit `snap: true` |
 | `src/source.rs` | Boards oder Replay |
 | `src/sound.rs` | MP3s nacheinander in eigenem Thread (`afplay` auf macOS, `mpg123 -q` sonst); fehlende Dateien werden übersprungen |
 
-Laps werden nie gespeichert, nur Durchflüge: jede Korrektur rechnet alles neu.
+Laps werden nie gespeichert, nur Durchflüge: jede Korrektur rechnet alles neu. Löschen
+markiert erkannte Durchflüge (wiederherstellbar), von Hand eingefügte werden entfernt. Beim
+Start schließt der Server Sessions, die ein früherer Lauf offen gelassen hat
+(`close_open_sessions`: Ende = letzter Durchflug).
+
+Einrasten gemessen an der Aufnahme 2026-10-22_15-12-35: Tipp bis ±1 s neben dem Gipfel
+landet auf dem Zeitpunkt der Erkennung (bei einem Durchflug 165 ms daneben: dort hat der
+Detektor zwei Buckel innerhalb der Mindestrunde zusammengelegt), weiter weg 0,1–0,4 s
+daneben oder an einem anderen Buckel; deshalb zeigt die Seite die Stelle vor dem Einfügen.
+Der Graph einer 2,4-min-Session braucht auf dem Mac ~80 ms (erstes Mal), auf dem Pi 3
+vermutlich ein Vielfaches: für lange Sessions später den Verlauf beim Beenden speichern.
 
 ## Frontend (`frontend/`)
 
@@ -84,8 +95,11 @@ Vite + React, JavaScript mit JSDoc und `// @ts-check`; `npm run check` (tsc übe
 `src/api.js`: `api()` für REST, `useServer()` hält `state`/`live` über den WebSocket
 (Reconnect) und den Uhrversatz zum Server. Seiten: `Live` (Start/Stopp, Countdown, Karte
 pro Pilot mit Pegelbalken und Schwellen, × löscht den Durchflug am Ende einer Runde,
-„+ Durchflug jetzt“), `Sessions` (Liste, Detail mit allen Durchflügen, löschen/wiederherstellen,
-Session löschen), `Einstellungen`. `npm run dev` proxied `/api` und `/ws` auf Port 5800.
+„+ Durchflug eben verpasst“ rastet am Gipfel der letzten 2 s ein), `Sessions` (Liste, Detail
+mit allen Durchflügen, löschen/wiederherstellen, Session löschen, „Pegel“ öffnet
+`components/LevelGraph.jsx`: SVG ohne Bibliothek, Übersicht + Ausschnitt, ziehen/◀▶/±,
+Tipp auf einen Durchflug: löschen/wiederherstellen, Tipp daneben: Vorschau der eingerasteten
+Stelle, dann einfügen), `Einstellungen`. `npm run dev` proxied `/api` und `/ws` auf Port 5800.
 Hell als Standard (Sonnenlicht), dunkel nach Systemeinstellung; auf 390 px Breite geprüft
 (Screenshots mit puppeteer-core und dem installierten Chrome, Handy-Emulation; Chrome
 headless ohne Emulation wird nicht schmaler als ~500 px).

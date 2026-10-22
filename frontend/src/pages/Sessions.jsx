@@ -4,6 +4,7 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api.js'
 import { dateTime, secs, sessionKind } from '../format.js'
+import LevelGraph from '../components/LevelGraph.jsx'
 import Ranking from '../components/Ranking.jsx'
 
 /**
@@ -54,15 +55,19 @@ function SessionView({ id, changed, onBack }) {
   const [d, setD] = useState(/** @type {import('../types').SessionDetail | null} */ (null))
   const [confirm, setConfirm] = useState(false)
   const [error, setError] = useState('')
+  /** The channel whose level graph is open. */
+  const [graph, setGraph] = useState(/** @type {number | null} */ (null))
 
   useEffect(() => {
     api(`/sessions/${id}`).then(setD).catch((e) => setError(e.message))
   }, [id, changed])
 
+  const reload = async () => setD(await api(`/sessions/${id}`))
+
   /** @param {number} passId @param {boolean} deleted */
   async function setDeleted(passId, deleted) {
     await api(`/passes/${passId}`, { body: { deleted } })
-    setD(await api(`/sessions/${id}`))
+    await reload()
   }
 
   async function remove() {
@@ -85,19 +90,37 @@ function SessionView({ id, changed, onBack }) {
       </h2>
       {error && <p className="error">{error}</p>}
       <Ranking session={s} results={d.results} />
+      {graph != null && (
+        <section className="graph-panel">
+          <div className="card-head">
+            <span className="name">Pegel: {s.seats.find((x) => x.channel === graph)?.label}</span>
+            <button onClick={() => setGraph(null)}>Schließen</button>
+          </div>
+          <LevelGraph
+            key={graph}
+            sessionId={s.id}
+            channel={graph}
+            t0={t0}
+            passes={(d.passes ?? []).filter((p) => p.channel === graph)}
+            result={d.results[s.seats.findIndex((x) => x.channel === graph)]}
+            onChanged={reload}
+          />
+        </section>
+      )}
       <div className="cards">
         {s.seats.map((seat, i) => {
           const r = d.results[i]
           const passes = (d.passes ?? []).filter((p) => p.channel === seat.channel)
-          if (!passes.length) return null
           /** @type {Map<number, number>} pass id → lap that it ended */
           const lapOf = new Map(r.laps.map((l) => [l.pass_id, l.number]))
           return (
             <div className="card" key={seat.channel}>
               <div className="card-head">
                 <span className="name">{seat.label}</span>
-                <span className="chan">{seat.channel_name}</span>
+                {seat.label !== seat.channel_name && <span className="chan">{seat.channel_name}</span>}
+                <button onClick={() => setGraph(seat.channel)}>Pegel</button>
               </div>
+              {!passes.length && <p className="muted">Keine Durchflüge.</p>}
               <table className="passes">
                 <tbody>
                   {passes.map((p) => {
