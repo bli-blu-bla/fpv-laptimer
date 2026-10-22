@@ -114,6 +114,13 @@ export default function SettingsPage({ state }) {
               </span>
               <span className={s.sound ? 'switch on' : 'switch'} />
             </button>
+            <button className="row-toggle" disabled={!s.sound} onClick={() => save({ lap_callout: !s.lap_callout })}>
+              <span className="text">
+                <span>Jede Runde ansagen</span>
+                <span className="hint">„Anna ist in Runde 3“ statt des Rundenpieps (Sprachausgabe; auf dem Pi pico2wave oder espeak-ng)</span>
+              </span>
+              <span className={s.lap_callout ? 'switch on' : 'switch'} />
+            </button>
           </div>
         </div>
         {error && <p className="error">{error}</p>}

@@ -31,7 +31,8 @@ use tower_http::services::{ServeDir, ServeFile};
 use crate::core::{BoardView, Core, Settings, results};
 use crate::db::{Db, PassEdit};
 use crate::detect::DetectConfig;
-use crate::esp::board::{Event, ScanConfig};
+use crate::esp::board::{Event, ScanConfig, find_ports};
+use crate::esp::flash;
 use crate::sound::Sounds;
 use crate::source::{self, Source};
 use crate::stats;
@@ -57,6 +58,22 @@ struct App {
     /// Level graphs of sessions: (size of the level file, graph). A file
     /// that grew (the running session) is read again.
     traces: Mutex<HashMap<i64, (u64, Arc<SessionTrace>)>>,
+    /// The firmware the page offers (`<web>/firmware`, `tools/stage_firmware.py`).
+    firmware_dir: PathBuf,
+    /// The flash in progress or the last one (`/api/firmware`).
+    flash: Mutex<Option<FlashStatus>>,
+}
+
+/// What the page shows while a board is flashed; also sent as the
+/// WebSocket message `flash`.
+#[derive(Clone, serde::Serialize)]
+struct FlashStatus {
+    port: String,
+    stage: String,
+    /// 0–1 while writing.
+    progress: Option<f64>,
+    done: bool,
+    error: Option<String>,
 }
 
 pub fn run(opts: ServeOptions) -> Result<()> {
@@ -79,6 +96,8 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         events,
         replay: opts.replay.clone(),
         traces: Mutex::new(HashMap::new()),
+        firmware_dir: opts.web_dir.join("firmware"),
+        flash: Mutex::new(None),
     });
     restart_source(&app)?;
 
@@ -116,7 +135,9 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .route("/settings", get(get_settings).put(put_settings))
         .route("/pilots", post(add_pilot))
         .route("/pilots/{id}", axum::routing::put(update_pilot).delete(delete_pilot))
-        .route("/stats", get(get_stats));
+        .route("/stats", get(get_stats))
+        .route("/firmware", get(get_firmware))
+        .route("/firmware/flash", post(flash_board));
     let web = ServeDir::new(&opts.web_dir).fallback(ServeFile::new(opts.web_dir.join("index.html")));
     let router = Router::new()
         .nest("/api", api)
@@ -143,6 +164,12 @@ pub fn run(opts: ServeOptions) -> Result<()> {
 /// Talks to the boards, so it takes a moment: not on a tokio thread.
 fn restart_source(app: &App) -> Result<()> {
     let mut source = app.source.lock().unwrap();
+    start_source(app, &mut source)
+}
+
+/// `restart_source` with the source lock already held (the flash holds it
+/// while it has a board's port).
+fn start_source(app: &App, source: &mut Option<Source>) -> Result<()> {
     *source = None; // dropping the old source stops it
     let (settings, origin) = {
         let core = app.core.lock().unwrap();
@@ -523,6 +550,121 @@ async fn get_stats(State(app): State<Arc<App>>) -> ApiResult {
         .map_or(0, |t| t.timestamp_micros());
     let n = core.settings.consecutive as usize;
     Ok(Json(serde_json::to_value(stats::compute(&sessions, today_start, n))?))
+}
+
+/// The firmware on offer, the boards' ports (also those without our
+/// firmware) and the flash in progress or the last one.
+async fn get_firmware(State(app): State<Arc<App>>) -> ApiResult {
+    let (firmware, error) = match flash::load_manifest(&app.firmware_dir) {
+        Ok(m) => (Some(m), None),
+        Err(e) => (None, Some(format!("{e:#}"))),
+    };
+    let ports = if app.replay.is_some() { Vec::new() } else { find_ports()? };
+    let core = app.core.lock().unwrap();
+    let ports: Vec<Value> = ports
+        .into_iter()
+        .map(|p| {
+            // A board that runs our firmware and was set up has its INFO.
+            let board = core.boards.iter().find(|b| b.port == p.name);
+            json!({ "port": p.name, "id": p.id, "info": board.map(|b| b.info.clone()) })
+        })
+        .collect();
+    Ok(Json(json!({
+        "firmware": firmware,
+        "error": error,
+        "ports": ports,
+        "flash": *app.flash.lock().unwrap(),
+    })))
+}
+
+#[derive(Deserialize)]
+struct FlashRequest {
+    port: String,
+}
+
+/// Writes the firmware to the board at `port`, in a thread of its own:
+/// the boards stop for that time and start again afterwards. Progress goes
+/// out as `flash` messages over the WebSocket.
+async fn flash_board(State(app): State<Arc<App>>, Json(req): Json<FlashRequest>) -> ApiResult {
+    if app.replay.is_some() {
+        return Err(anyhow::anyhow!("Im Wiedergabe-Modus gibt es keine Boards.").into());
+    }
+    if app.core.lock().unwrap().session_running() {
+        return Err(anyhow::anyhow!("Erst die laufende Session beenden.").into());
+    }
+    if !find_ports()?.iter().any(|p| p.name == req.port) {
+        return Err(anyhow::anyhow!("{} ist nicht (mehr) angesteckt.", req.port).into());
+    }
+    flash::load_manifest(&app.firmware_dir)?;
+    {
+        let mut status = app.flash.lock().unwrap();
+        if status.as_ref().is_some_and(|s| !s.done) {
+            return Err(anyhow::anyhow!("Es wird schon ein Board geflasht.").into());
+        }
+        *status = Some(FlashStatus {
+            port: req.port.clone(),
+            stage: "Boards anhalten …".into(),
+            progress: None,
+            done: false,
+            error: None,
+        });
+    }
+    let app2 = Arc::clone(&app);
+    thread::spawn(move || run_flash(&app2, &req.port));
+    Ok(Json(json!({})))
+}
+
+fn run_flash(app: &App, port: &str) {
+    // Holding the source lock keeps a settings change from starting the
+    // boards again while the port is in use here.
+    let mut source = app.source.lock().unwrap();
+    *source = None; // stops all boards: frees the port
+    app.core.lock().unwrap().boards_started(Vec::new());
+
+    let mut last_sent = Instant::now() - Duration::from_secs(1);
+    let mut report = |stage: &str, progress: Option<f64>| {
+        // At most 10 messages a second, but every new stage.
+        let same_stage = app.flash.lock().unwrap().as_ref().is_some_and(|s| s.stage == stage);
+        if same_stage && progress != Some(1.0) && last_sent.elapsed() < Duration::from_millis(100) {
+            return;
+        }
+        last_sent = Instant::now();
+        set_flash(app, stage, progress, false, None);
+    };
+    let result = flash::flash(port, &app.firmware_dir, &mut report);
+
+    // The board restarts and comes back on USB.
+    report("Boards wieder starten …", None);
+    thread::sleep(Duration::from_secs(2));
+    let restarted = start_source(app, &mut source);
+    drop(source);
+
+    let error = match (result, restarted) {
+        (Err(e), _) => Some(format!("{e:#}")),
+        (Ok(_), Err(e)) => Some(format!("Geflasht, aber die Boards starten nicht: {e:#}")),
+        (Ok(version), Ok(())) => {
+            let info = app.core.lock().unwrap().boards.iter().find(|b| b.port == port).map(|b| b.info.clone());
+            match info {
+                Some(i) if i.split('|').nth(3) == Some(version.as_str()) => None,
+                Some(i) => Some(format!("Geflasht, aber das Board meldet eine andere Version: {i}")),
+                None => Some("Geflasht, aber das Board meldet sich nicht. RESET drücken.".into()),
+            }
+        }
+    };
+    let stage = if error.is_none() { "Fertig" } else { "Fehlgeschlagen" };
+    set_flash(app, stage, None, true, error);
+}
+
+fn set_flash(app: &App, stage: &str, progress: Option<f64>, done: bool, error: Option<String>) {
+    let mut status = app.flash.lock().unwrap();
+    let Some(s) = status.as_mut() else { return };
+    s.stage = stage.to_string();
+    s.progress = progress;
+    s.done = done;
+    s.error = error;
+    let mut msg = serde_json::to_value(&*s).unwrap_or_default();
+    msg["type"] = json!("flash");
+    let _ = app.tx.send(msg.to_string());
 }
 
 /// The WebSocket: first the whole state, then every message the core sends.

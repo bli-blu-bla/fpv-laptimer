@@ -6,6 +6,7 @@
 
 import { Cpu, FlagCheckered, ShieldCheck } from '@phosphor-icons/react'
 import { saveSettings } from '../api.js'
+import FirmwarePanel from '../components/FirmwarePanel.jsx'
 import { channelMode } from '../model.js'
 
 /** The bar spans this range, dBFS. */
@@ -16,8 +17,8 @@ const pct = (db) => (db == null ? 0 : Math.max(0, Math.min(100, ((db - BAR_MIN) 
 /** The end of the id (the MAC's last three bytes). @param {string} id */
 const shortId = (id) => (id.length > 8 ? '…' + id.slice(-8) : id)
 
-/** @param {{state: import('../types').State, live: import('../types').Live | null}} props */
-export default function Boards({ state, live }) {
+/** @param {{state: import('../types').State, live: import('../types').Live | null, flash: import('../types').FlashStatus | null}} props */
+export default function Boards({ state, live, flash }) {
   const s = state.settings
   const boards = live?.boards ?? state.boards
   /** @param {Partial<import('../types').Settings>} patch */
@@ -104,6 +105,8 @@ export default function Boards({ state, live }) {
           }
         />
       </div>
+
+      <FirmwarePanel state={state} flash={flash} />
     </>
   )
 }

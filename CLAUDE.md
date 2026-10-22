@@ -16,7 +16,7 @@ Ownership-/async-Stellen kommentieren), Frontend in JavaScript mit JSDoc (`// @t
 | `firmware/` | widscan58 (ESP32-C5 als SDR, 5,8 GHz), per `git subtree` von [CapnBry/widscan58](https://github.com/CapnBry/widscan58), plus `LEVELBATCH`/`TIME?` (unten). GPL-3.0-or-later |
 | `server/` | Rust (Crate `laptimer`, Server `laptimer serve`) auf einem Raspberry Pi 3 (für den Pi auf dem Mac cross-kompilieren, der Pi 3 schafft keinen Rust-Build): ESPs per USB lesen, Durchflüge erkennen, SQLite (Sessions, Durchflüge, Rohpegel), MP3-Ansagen (`mpg123`), Web/WebSocket |
 | `frontend/` | React, JavaScript + JSDoc |
-| `tools/` | Flash-Script, Python-Scripts zum Messen und Auswerten |
+| `tools/` | Flash-Script, `stage_firmware.py` (Firmware für die Seite), Python-Scripts zum Messen und Auswerten |
 
 Netz: Pi per LAN am Mini-Router des Nutzers, Handys per WLAN; kein Pi-Hotspot. Bluetooth von
 den ESPs geht nicht (das Funkmodul ist durch das Scannen belegt).
@@ -27,7 +27,8 @@ Setup am Stammtisch: meist 4 Piloten auf R1, R3, R6, R8; 3–4 ESP32-C5 vorhande
 
 ## Firmware
 
-Bauen und flashen: `tools/flash_c5_many.sh` (siehe README). Die vollständige Firmware-Doku
+Bauen und flashen: `tools/flash_c5_many.sh` (siehe README), oder über die Web-Seite (unten,
+„Firmware über die Seite“). Die vollständige Firmware-Doku
 (Befehle, Messwerte, Flash-Probleme, RotorHazard-Modus) steht im Upstream-Repo in
 `CLAUDE.md` und `PLAN.md`; hier nur, was der Laptimer braucht.
 
@@ -75,7 +76,7 @@ USB-Ports, an einem dritten 2,4 ms; also ±0,4 bis ±1,2 ms Unsicherheit.
 | `src/trace.rs` | Pegelgraph einer Session: die Pegel-Datei noch einmal durch den Detektor (`Detector::with_trace` zeichnet pro 10-ms-Slot Hüllkurve kombiniert, je Board, Eintritt, Austritt auf), dann `graph` (Zeitbereich auf N Punkte, je Punkt das Maximum, damit kein Gipfel verloren geht) und `snap` (höchster Punkt ±1 s, von dort ±50 ms-weise bergauf, Buckel bis 3 dB darunter, darin Mitte zwischen erstem und letztem Punkt innerhalb 1 dB, wie der Detektor). Im Server zwischengespeichert pro Session und Dateigröße (höchstens 4); gelesen ohne die Core-Sperre (`spawn_blocking`). `/api/sessions/{id}/graph?channel&from_us&to_us&points`, `/api/sessions/{id}/snap?channel&time_us`; `POST …/passes` mit `snap: true`; `POST …/edit {channel, moves: [[id, t]], deletes, restores, adds: [t]}` (alles in einer Transaktion, `Db::edit_passes`; verschobene Durchflüge gelten danach als von Hand; abgelehnt, wenn zwei Durchflüge näher als die Mindestrunde liegen) |
 | `src/stats.rs` | Bestzeit, Sessions, Rennen, Siege pro Pilot (nach `pilot_id`, sonst nach Label), gesamt und heute; `race_order` (mehr Runden, dann frühere Gesamtzeit). `/api/stats` |
 | `src/source.rs` | Boards oder Replay (Replay liefert die Pegel nach Kanal-Position der Aufnahme, nicht nach Frequenz: nach einem Kanaltausch passen sie nicht mehr) |
-| `src/sound.rs` | MP3s nacheinander in eigenem Thread (`afplay` auf macOS, `mpg123 -q` sonst); fehlende Dateien werden übersprungen |
+| `src/sound.rs` | MP3s und gesprochene Texte nacheinander in eigenem Thread (`afplay` auf macOS, `mpg123 -q` sonst); fehlende Dateien werden übersprungen. Texte (`speak`): `say -v Anna` auf macOS, sonst `pico2wave` + `aplay`, ersatzweise `espeak-ng` |
 
 **Boards und Gates:** Jedes Board hat eine feste Kennung, die USB-Seriennummer (= MAC,
 `find_ports`; macOS über `serialport`, Linux aus `/dev/serial/by-id`; Replay: `replay-N`).
@@ -106,7 +107,8 @@ Hand eingefügter oder wiederhergestellter Durchflug näher als die Mindestrunde
 anderen wird abgelehnt. Ein Rennen stoppt von selbst, wenn alle Slots im Ziel sind.
 Piloten: `name` ist der Callsign (eindeutig), `full_name` optional (Spalte wird in alten
 Datenbanken beim Öffnen ergänzt). Settings: `seats[].enabled` (freie Slots fehlen in der
-Session), `sound` (Ansagen an/aus). Fehlermeldungen der API sind deutsch, die Seite zeigt
+Session), `sound` (Ansagen an/aus), `lap_callout` („<Label> ist in Runde <n+1>“ nach jeder
+Runde statt des Pieps; „Neue Bestzeit“ und „Pilot N fertig“ bleiben). Fehlermeldungen der API sind deutsch, die Seite zeigt
 sie direkt an. Löschen
 markiert erkannte Durchflüge (wiederherstellbar), von Hand eingefügte werden entfernt. Beim
 Start schließt der Server Sessions, die ein früherer Lauf offen gelassen hat
@@ -203,6 +205,26 @@ zurückgesetzt wurden; Ursache unbekannt, nicht wieder aufgetreten.
 `serialport` ohne `libudev` (`default-features = false`), damit der Cross-Build für den Pi
 keine C-Bibliothek braucht; Boards werden am Portnamen erkannt (`/dev/cu.usbmodem*`,
 `/dev/ttyACM*`).
+
+**Firmware über die Seite** (Boards → Firmware, `components/FirmwarePanel.jsx`):
+`tools/stage_firmware.py` kopiert den Build nach `frontend/public/firmware/` (nicht im Git) mit
+`manifest.json` (ESP-Web-Tools-Format plus Größe und sha256; `version` = `project_version` des
+Builds, wie es `INFO` meldet). Vite nimmt das nach `dist/firmware/` mit. Zwei Wege:
+- **Server** (`src/esp/flash.rs`, Crate `espflash` ohne CLI): `GET /api/firmware` (Manifest,
+  alle Ports aus `find_ports` mit `INFO` der laufenden Boards, Flash-Status), `POST
+  /api/firmware/flash {port}` (nicht während einer Session). Ein Thread hält die
+  Source-Sperre, stoppt alle Boards, flasht (erst Reset über USB, dann ohne Reset für ein
+  Board im Download-Modus per BOOT + RESET), startet die Boards neu und vergleicht die
+  Version im `INFO`. Fortschritt als WebSocket-Nachricht `flash` (`useServer().flash`).
+  espflash kennt die Watchdog-Register des C5 nicht: Abschalten vor dem Schreiben und
+  Watchdog-Reset danach (ein USB-Reset lässt den C5 im Download-Modus) machen wir selbst,
+  Register wie in esptool. Gemessen 2026-10-22: ~10 s pro Board, beide Boards danach mit
+  richtiger Version zurück.
+- **Browser** (`src/flasher.js`, esptool-js, aus widscan58s `web/src/serial/flasher.ts`):
+  Web Serial gibt es nur in sicherem Kontext (localhost/HTTPS), also nicht von
+  `http://<pi>:5800`; dann zeigt die Seite nur einen Hinweis. esptool-js wird erst beim
+  Flashen geladen (eigene Chunks). Nicht automatisch getestet (die Port-Auswahl braucht einen
+  Klick).
 
 **Upstream-Updates holen:** `tools/update_firmware.sh` (zieht `firmware/` aus
 CapnBry/widscan58 per `git subtree`).

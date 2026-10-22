@@ -258,6 +258,10 @@ body {
   text-align: left;
   cursor: pointer;
 }
+.row-toggle:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
 .row-toggle .text {
   flex: 1;
   display: flex;

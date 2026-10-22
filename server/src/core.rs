@@ -40,6 +40,10 @@ pub struct Settings {
     /// Announcements on.
     #[serde(default = "yes")]
     pub sound: bool,
+    /// After every lap: "<pilot> ist in Runde <n>" (speech synthesis)
+    /// instead of the lap beep.
+    #[serde(default)]
+    pub lap_callout: bool,
     /// Auto or classic (fixed) thresholds.
     #[serde(default)]
     pub detection: DetectionSettings,
@@ -118,6 +122,7 @@ impl Default for Settings {
             min_lap_s: 3.0,
             consecutive: 3,
             sound: true,
+            lap_callout: false,
             detection: DetectionSettings::default(),
             board_roles: BTreeMap::new(),
         }
@@ -250,6 +255,10 @@ impl Core {
         self.origin
     }
 
+    pub fn session_running(&self) -> bool {
+        self.active.is_some()
+    }
+
     // --- input from the boards ---
 
     pub fn on_board_event(&mut self, ev: BoardEvent) -> Result<()> {
@@ -374,6 +383,7 @@ impl Core {
         let new = results(&a.row, &a.passes);
         if announce {
             let mut sounds = Vec::new();
+            let mut callouts = Vec::new();
             let mut lap_done = false;
             for (i, r) in new.iter().enumerate() {
                 let old_laps = a.results.get(i).map_or(0, |o| o.laps.len());
@@ -382,6 +392,9 @@ impl Core {
                     a.announced[i] = true;
                     // "Pilot N" is the slot (channel position), as on the page.
                     sounds.push(format!("pilot{}_fertig", a.row.seats[i].channel + 1));
+                } else if r.laps.len() > old_laps && r.finished_us.is_none() {
+                    // After n laps the pilot flies lap n + 1.
+                    callouts.push(format!("{} ist in Runde {}", a.row.seats[i].label, r.laps.len() + 1));
                 }
             }
             let best = new.iter().filter_map(|r| r.best_lap_us).min();
@@ -392,11 +405,17 @@ impl Core {
             if a.row.config.race && !a.announced.is_empty() && a.announced.iter().all(|&x| x) && !sounds.is_empty() {
                 sounds.push("rennen_beendet".into());
             }
-            if sounds.is_empty() && lap_done {
+            let callout = self.settings.lap_callout && !callouts.is_empty();
+            if sounds.is_empty() && lap_done && (new_best || !callout) {
                 sounds.push(if new_best { "bestzeit" } else { "runde" }.into());
             }
             for s in sounds {
                 self.sounds.play(&s);
+            }
+            if callout {
+                for text in callouts {
+                    self.sounds.speak(&text);
+                }
             }
         }
         a.results = new;

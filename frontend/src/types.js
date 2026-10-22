@@ -23,6 +23,7 @@
  * @property {number} min_lap_s
  * @property {number} consecutive
  * @property {boolean} sound
+ * @property {boolean} lap_callout   after every lap: "<pilot> ist in Runde <n>"
  * @property {DetectionSettings} detection
  * @property {Record<string, BoardRole>} board_roles   by board id; missing: finish
  *
@@ -141,6 +142,24 @@
  * @property {ChannelLive[]} channels   the finish gate
  * @property {ChannelLive[] | null} arming   the arming gate, if a board watches it
  * @property {Board[]} boards
+ *
+ * @typedef {object} FlashStatus   flashing over the server (the `flash` message)
+ * @property {string} port
+ * @property {string} stage
+ * @property {number | null} progress   0–1 while writing
+ * @property {boolean} done
+ * @property {string | null} error
+ *
+ * @typedef {object} FirmwarePort
+ * @property {string} port
+ * @property {string} id
+ * @property {string | null} info   the board's INFO; null: not running our firmware, or not set up
+ *
+ * @typedef {object} FirmwareState   /api/firmware
+ * @property {import('./flasher.js').Manifest | null} firmware   the firmware on offer
+ * @property {string | null} error   why there is none
+ * @property {FirmwarePort[]} ports
+ * @property {FlashStatus | null} flash
  */
 
 export {}

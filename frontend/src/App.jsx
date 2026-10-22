@@ -143,7 +143,7 @@ export default function App() {
           ) : page === 'pilots' ? (
             <Pilots state={state} stats={stats} />
           ) : page === 'boards' ? (
-            <Boards state={state} live={server.live} />
+            <Boards state={state} live={server.live} flash={server.flash} />
           ) : (
             <SettingsPage state={state} />
           )}

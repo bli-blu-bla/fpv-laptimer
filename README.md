@@ -21,7 +21,7 @@ Status: im Aufbau.
 | `firmware/` | ESP32-C5-Firmware: [widscan58](https://github.com/CapnBry/widscan58) von Bryan Mayland (per `git subtree`) plus unsere Erweiterungen |
 | `server/` | Rust: der Server (`laptimer serve`), dazu `record`/`replay` für Testflüge |
 | `frontend/` | Oberfläche in React mit JavaScript + JSDoc |
-| `sounds/` | Ansagen als MP3 (Platzhalter von `tools/make_sounds.sh`, gern durch eigene ersetzen) |
+| `sounds/` | Ansagen als MP3 (Platzhalter von `tools/make_sounds.sh`, gern durch eigene ersetzen); „Jede Runde ansagen“ spricht die Namen per Sprachausgabe: auf dem Pi `sudo apt install libttspico-utils` (oder `espeak-ng`) |
 | `tools/` | Flash-Script, Mess- und Auswerte-Scripts |
 
 ## Firmware flashen
@@ -32,6 +32,27 @@ tools/flash_c5_many.sh --all    # alle gerade angesteckten Boards
 ```
 
 Braucht [PlatformIO](https://platformio.org) (`pio`) und Python 3.
+
+**Über die Web-Seite:** Firmware einmal bauen und für die Seite bereitstellen:
+
+```sh
+(cd firmware && pio run -e esp32c5)
+tools/stage_firmware.py                          # → frontend/public/firmware
+(cd frontend && npm run build)                   # nimmt sie mit nach dist/
+```
+
+Dann unter **Boards → Firmware**:
+
+- **Aufspielen** neben einem Board: Der Server flasht ein Board, das an ihm steckt (z. B. am
+  Pi am Gate), auch vom Handy aus. Alle Boards pausieren dafür etwa 15 s; während einer
+  Session geht es nicht.
+- **Board wählen …**: Ein Board am Rechner mit dem Browser flashen (Web Serial). Das geht nur in
+  Chrome oder Edge und nur, wenn die Seite über `localhost` oder HTTPS offen ist, also nicht über
+  `http://<pi>:5800`. Läuft auf demselben Rechner `laptimer serve`, hat der Server die Ports
+  offen; dann über „Aufspielen“ flashen.
+
+Neben jedem Board steht seine Firmware-Version, und „aktuell“ oder „veraltet“ im Vergleich zur
+bereitgestellten.
 
 ## Zeitmessung starten
 

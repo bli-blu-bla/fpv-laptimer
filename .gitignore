@@ -23,3 +23,6 @@ recordings/
 
 # Server data (database, session levels)
 server/data/
+
+# Staged firmware (tools/stage_firmware.py)
+frontend/public/firmware/

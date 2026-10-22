@@ -15,7 +15,8 @@
     ],
     "skipLibCheck": true,
     "types": [
-      "vite/client"
+      "vite/client",
+      "w3c-web-serial"
     ]
   },
   "include": [

@@ -24,12 +24,14 @@ export async function api(path, opts = {}) {
  * The server's state, kept current over the WebSocket (reconnects by itself).
  * `clockOffset`: server clock − browser clock, µs, for running timers.
  * `changed`: counts `session_changed` messages (pages reload on a change).
+ * `flash`: the latest `flash` message (a board being flashed by the server).
  */
 export function useServer() {
   const [state, setState] = useState(/** @type {import('./types').State | null} */ (null))
   const [live, setLive] = useState(/** @type {import('./types').Live | null} */ (null))
   const [connected, setConnected] = useState(false)
   const [changed, setChanged] = useState(0)
+  const [flash, setFlash] = useState(/** @type {import('./types').FlashStatus | null} */ (null))
   const clockOffset = useRef(0)
 
   useEffect(() => {
@@ -53,6 +55,7 @@ export function useServer() {
         if (msg.type === 'state') setState(msg)
         else if (msg.type === 'live') setLive(msg)
         else if (msg.type === 'session_changed') setChanged((n) => n + 1)
+        else if (msg.type === 'flash') setFlash(msg)
       }
     }
     connect()
@@ -63,7 +66,7 @@ export function useServer() {
     }
   }, [])
 
-  return { state, live, connected, changed, clockOffset }
+  return { state, live, connected, changed, flash, clockOffset }
 }
 
 /** Server time now, µs. @param {{current: number}} clockOffset */
