@@ -41,6 +41,9 @@ pub struct PassRecord {
     pub manual: bool,
     /// Deleted by hand (a pass that wasn't one); kept to allow undo.
     pub deleted: bool,
+    /// 0: the finish gate; 1: the arming gate (no laps of its own).
+    #[serde(default)]
+    pub gate: u8,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -83,7 +86,10 @@ pub fn compute(
     start_us: i64,
     consecutive: u32,
 ) -> PilotResult {
-    let mut times: Vec<&PassRecord> = passes.iter().filter(|p| !p.deleted && p.channel == channel).collect();
+    let mut times: Vec<&PassRecord> = passes
+        .iter()
+        .filter(|p| !p.deleted && p.channel == channel && p.gate == 0)
+        .collect();
     times.sort_by_key(|p| p.time_us);
 
     let mut r = PilotResult {
@@ -160,6 +166,7 @@ mod tests {
                 peak_db: -20.0,
                 manual: false,
                 deleted: false,
+                gate: 0,
             })
             .collect()
     }

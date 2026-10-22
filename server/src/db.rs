@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS passes (
     time_us INTEGER NOT NULL,
     peak_db REAL NOT NULL,
     manual INTEGER NOT NULL DEFAULT 0,
-    deleted INTEGER NOT NULL DEFAULT 0
+    deleted INTEGER NOT NULL DEFAULT 0,
+    gate INTEGER NOT NULL DEFAULT 0   -- 0: the finish gate (laps), 1: the arming gate
 );
 CREATE INDEX IF NOT EXISTS passes_by_session ON passes(session_id);
 CREATE TABLE IF NOT EXISTS settings (
@@ -50,7 +51,7 @@ CREATE TABLE IF NOT EXISTS settings (
 
 /// How a session runs. Stored with the session, so changing the settings
 /// later doesn't change old results.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionConfig {
     pub race: bool,
     pub start_mode: StartMode,
@@ -60,6 +61,10 @@ pub struct SessionConfig {
     pub min_lap_s: f64,
     /// Laps in a row for "best consecutive".
     pub consecutive: u32,
+    /// The detection settings when the session started (to draw its level
+    /// graph with the same thresholds). Missing in older sessions.
+    #[serde(default)]
+    pub detection: Option<crate::detect::DetectionSettings>,
 }
 
 /// Who flies on a channel in a session.
@@ -121,6 +126,12 @@ impl Db {
         let has_full_name = conn
             .prepare("SELECT 1 FROM pragma_table_info('pilots') WHERE name = 'full_name'")?
             .exists([])?;
+        let has_gate = conn
+            .prepare("SELECT 1 FROM pragma_table_info('passes') WHERE name = 'gate'")?
+            .exists([])?;
+        if !has_gate {
+            conn.execute_batch("ALTER TABLE passes ADD COLUMN gate INTEGER NOT NULL DEFAULT 0")?;
+        }
         if !has_full_name {
             conn.execute_batch("ALTER TABLE pilots ADD COLUMN full_name TEXT NOT NULL DEFAULT ''")?;
         }
@@ -301,7 +312,8 @@ impl Db {
         // The closure runs the changes; `?` inside it ends it early with the
         // error, and then everything is rolled back.
         let result = (|| -> Result<()> {
-            let ids = "WHERE id = ?1 AND session_id = ?2 AND channel = ?3";
+            // Only finish-gate passes are edited.
+            let ids = "WHERE id = ?1 AND session_id = ?2 AND channel = ?3 AND gate = 0";
             for &(id, time_us) in &e.moves {
                 self.conn.execute(
                     &format!("UPDATE passes SET time_us = ?4, manual = 1 {ids}"),
@@ -334,6 +346,15 @@ impl Db {
             Err(_) => self.conn.execute_batch("ROLLBACK")?,
         }
         result
+    }
+
+    /// A pass of the arming gate (it doesn't make laps; see `core.rs`).
+    pub fn add_arming_pass(&self, session_id: i64, channel: u8, time_us: i64, peak_db: f32) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO passes (session_id, channel, time_us, peak_db, gate) VALUES (?1, ?2, ?3, ?4, 1)",
+            params![session_id, channel, time_us, peak_db],
+        )?;
+        Ok(self.conn.last_insert_rowid())
     }
 
     pub fn add_pass(&self, session_id: i64, channel: u8, time_us: i64, peak_db: f32, manual: bool) -> Result<i64> {
@@ -377,7 +398,7 @@ impl Db {
 
     pub fn passes(&self, session_id: i64) -> Result<Vec<PassRecord>> {
         let mut st = self.conn.prepare(
-            "SELECT id, channel, time_us, peak_db, manual, deleted FROM passes WHERE session_id = ?1 ORDER BY time_us",
+            "SELECT id, channel, time_us, peak_db, manual, deleted, gate FROM passes WHERE session_id = ?1 ORDER BY time_us",
         )?;
         let rows = st.query_map([session_id], |r| {
             Ok(PassRecord {
@@ -387,6 +408,7 @@ impl Db {
                 peak_db: r.get(3)?,
                 manual: r.get(4)?,
                 deleted: r.get(5)?,
+                gate: r.get(6)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -417,6 +439,7 @@ mod tests {
             countdown_s: 5,
             min_lap_s: 3.0,
             consecutive: 3,
+            detection: None,
         };
         let pilot = db.add_pilot("Anna", "").unwrap();
         assert!(db.add_pilot("Anna", "x").is_err()); // callsigns are unique

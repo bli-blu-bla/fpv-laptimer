@@ -83,7 +83,7 @@ export function standings(s, results) {
 export function passLog(d) {
   const out = []
   for (const p of d.passes ?? []) {
-    if (p.deleted) continue
+    if (p.deleted || p.gate) continue // arming-gate passes make no laps
     const i = d.session.seats.findIndex((s) => s.channel === p.channel)
     if (i < 0) continue
     const r = d.results[i]

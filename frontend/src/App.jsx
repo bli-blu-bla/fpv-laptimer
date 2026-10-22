@@ -140,7 +140,7 @@ export default function App() {
           ) : page === 'pilots' ? (
             <Pilots state={state} stats={stats} />
           ) : (
-            <SettingsPage state={state} />
+            <SettingsPage state={state} live={server.live} />
           )}
         </main>
       </div>

@@ -1035,3 +1035,57 @@ body {
     bottom: 76px;
   }
 }
+.graph .arming-tick {
+  stroke: #f2d45c;
+  stroke-width: 1.5;
+  stroke-dasharray: 1 4;
+  stroke-linecap: round;
+}
+.level-bar {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: var(--n900);
+  flex: 1;
+  min-width: 80px;
+}
+.level-bar .fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  border-radius: 5px;
+  background: var(--lane, var(--accent));
+  opacity: 0.8;
+  transition: width 0.1s linear;
+}
+.level-bar .mark {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 2px;
+}
+.level-bar .mark.enter {
+  background: var(--accent);
+}
+.level-bar .mark.exit {
+  background: var(--n400);
+}
+.level-bar .mark.peak {
+  background: var(--text);
+  width: 1px;
+  opacity: 0.6;
+}
+.thresh-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 0;
+  border-top: 1px solid var(--n900);
+}
+.thresh-row.wide {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 20px;
+}

@@ -5,6 +5,7 @@
 //! One `Core` lives behind a mutex (`server.rs`). Everything here runs while
 //! that lock is held, so it must be quick: no waiting for boards or audio.
 
+use std::collections::BTreeMap;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
@@ -16,7 +17,7 @@ use serde_json::json;
 use tokio::sync::broadcast;
 
 use crate::db::{Db, Seat, SessionConfig, SessionRow};
-use crate::detect::{ChannelStatus, DetectConfig, Detector, Event as DetectEvent};
+use crate::detect::{ChannelStatus, DetectConfig, DetectionSettings, Detector, Event as DetectEvent};
 use crate::esp::board::{Event as BoardEvent, Level, LinkStats};
 use crate::laps::{self, EndRule, PassRecord, PilotResult, StartMode};
 use crate::sound::Sounds;
@@ -39,6 +40,27 @@ pub struct Settings {
     /// Announcements on.
     #[serde(default = "yes")]
     pub sound: bool,
+    /// Auto or classic (fixed) thresholds.
+    #[serde(default)]
+    pub detection: DetectionSettings,
+    /// Which gate each board watches, by its id (USB serial number). Boards
+    /// not listed watch the finish gate.
+    #[serde(default)]
+    pub board_roles: BTreeMap<String, BoardRole>,
+}
+
+/// Which gate a board watches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BoardRole {
+    /// The gate that counts laps.
+    #[default]
+    Finish,
+    /// A pass at the finish only counts after one here (since the last
+    /// counted pass).
+    Arming,
+    /// Not used.
+    Off,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -96,6 +118,8 @@ impl Default for Settings {
             min_lap_s: 3.0,
             consecutive: 3,
             sound: true,
+            detection: DetectionSettings::default(),
+            board_roles: BTreeMap::new(),
         }
     }
 }
@@ -110,6 +134,10 @@ pub struct BoardView {
     pub levels_per_s: f64,
     pub stats: Option<LinkStats>,
     pub failed: Option<String>,
+    pub role: BoardRole,
+    /// The board's current level (highest envelope of its channels), dBFS:
+    /// to tell the boards apart when assigning their roles.
+    pub level_db: Option<f32>,
     #[serde(skip)]
     count: u64,
 }
@@ -139,7 +167,13 @@ struct Active {
 pub struct Core {
     pub db: Db,
     pub settings: Settings,
-    detector: Detector,
+    /// The detection of the finish gate (laps) and of the arming gate.
+    finish: Detector,
+    arming: Detector,
+    /// Per channel: the last arming-gate pass, and the last pass that counted
+    /// at the finish (wall µs), for the arming rule.
+    armed_at: Vec<Option<i64>>,
+    last_counted: Vec<Option<i64>>,
     /// Host time (µs since `origin`) → wall clock: origin_unix_us + host_us.
     origin: Instant,
     origin_unix_us: i64,
@@ -162,12 +196,15 @@ impl Core {
         {
             eprintln!("closed {n} session(s) left open by an earlier run");
         }
-        let detector = Detector::new(settings.channels.len(), detect_config(&settings));
+        let (finish, arming) = detectors(&settings);
         sounds.set_enabled(settings.sound);
         let now = unix_now_us();
         Core {
             db,
-            detector,
+            finish,
+            arming,
+            armed_at: Vec::new(),
+            last_counted: Vec::new(),
             settings,
             origin,
             origin_unix_us: now - origin.elapsed().as_micros() as i64,
@@ -186,11 +223,27 @@ impl Core {
         self.origin_unix_us + host_us
     }
 
-    /// The boards are (re)started: new board list, a fresh detector.
+    /// The boards are (re)started: new board list, fresh detectors.
     pub fn boards_started(&mut self, boards: Vec<BoardView>) {
         self.boards = boards;
-        self.detector = Detector::new(self.settings.channels.len(), detect_config(&self.settings));
+        self.apply_roles();
+        (self.finish, self.arming) = detectors(&self.settings);
         self.broadcast_state();
+    }
+
+    /// Each board's role from the settings.
+    fn apply_roles(&mut self) {
+        for b in &mut self.boards {
+            b.role = self.settings.board_roles.get(&b.id).copied().unwrap_or_default();
+        }
+    }
+
+    /// True when a working board watches the arming gate: then the arming
+    /// rule applies.
+    fn has_arming(&self) -> bool {
+        self.boards
+            .iter()
+            .any(|b| b.role == BoardRole::Arming && b.failed.is_none())
     }
 
     pub fn origin(&self) -> Instant {
@@ -206,9 +259,20 @@ impl Core {
                     b.count += levels.len() as u64;
                 }
                 self.write_levels(board, &levels)?;
-                self.detector.push(board, &levels);
-                for e in self.detector.advance() {
-                    self.on_detect(e)?;
+                match self.boards.get(board).map(|b| b.role).unwrap_or_default() {
+                    BoardRole::Finish => {
+                        self.finish.push(board, &levels);
+                        for e in self.finish.advance() {
+                            self.on_detect(e)?;
+                        }
+                    }
+                    BoardRole::Arming => {
+                        self.arming.push(board, &levels);
+                        for e in self.arming.advance() {
+                            self.on_arming(e)?;
+                        }
+                    }
+                    BoardRole::Off => {}
                 }
             }
             BoardEvent::Stats { board, stats } => {
@@ -247,17 +311,57 @@ impl Core {
         match e {
             DetectEvent::Pass(p) => {
                 let time_us = self.wall_us(p.time_us);
-                if time_us < self.active.as_ref().unwrap().row.created_us {
+                let row = &self.active.as_ref().unwrap().row;
+                if time_us < row.created_us {
                     return Ok(()); // from before Start was pressed
                 }
-                self.db.add_pass(session_id, p.channel, time_us, p.peak_db, false)?;
-                self.refresh(true)?;
+                let t0 = if row.config.race { row.start_us } else { row.created_us };
+                // The arming rule: after the first counted pass, a pass only
+                // counts if the arming gate saw the pilot since the last one.
+                let c = p.channel as usize;
+                let last = self.last_counted.get(c).copied().flatten();
+                let armed = self.armed_at.get(c).copied().flatten();
+                let counts = !self.has_arming() || last.is_none() || armed.is_some_and(|a| Some(a) > last);
+                let id = self.db.add_pass(session_id, p.channel, time_us, p.peak_db, false)?;
+                if !counts {
+                    // Kept as deleted: the pass editor can restore it.
+                    self.db.set_pass_deleted(id, true)?;
+                } else if time_us >= t0
+                    && let Some(l) = self.last_counted.get_mut(c)
+                {
+                    *l = Some(time_us);
+                }
+                self.refresh(counts)?;
             }
             DetectEvent::Retract(p) => {
                 let time_us = self.wall_us(p.time_us);
                 self.db.remove_auto_pass(session_id, p.channel, time_us)?;
                 self.refresh(false)?;
             }
+        }
+        Ok(())
+    }
+
+    /// A pass at the arming gate: remembered for the arming rule, and stored
+    /// (the pass editor shows it).
+    fn on_arming(&mut self, e: DetectEvent) -> Result<()> {
+        let DetectEvent::Pass(p) = e else {
+            if let (DetectEvent::Retract(p), Some(a)) = (e, &self.active) {
+                let id = a.row.id;
+                self.db.remove_auto_pass(id, p.channel, self.wall_us(p.time_us))?;
+            }
+            return Ok(());
+        };
+        let time_us = self.wall_us(p.time_us);
+        if let Some(a) = self.armed_at.get_mut(p.channel as usize) {
+            *a = Some(time_us);
+        }
+        if let Some(a) = &self.active
+            && time_us >= a.row.created_us
+        {
+            let id = a.row.id;
+            self.db.add_arming_pass(id, p.channel, time_us, p.peak_db)?;
+            self.refresh(false)?;
         }
         Ok(())
     }
@@ -321,6 +425,7 @@ impl Core {
                 countdown_s: s.race.countdown_s,
                 min_lap_s: s.min_lap_s,
                 consecutive: s.consecutive,
+                detection: Some(s.detection.clone()),
             }
         } else {
             SessionConfig {
@@ -330,6 +435,7 @@ impl Core {
                 countdown_s: 0,
                 min_lap_s: s.min_lap_s,
                 consecutive: s.consecutive,
+                detection: Some(s.detection.clone()),
             }
         };
         let pilots = self.db.pilots()?;
@@ -379,6 +485,18 @@ impl Core {
             "# gain: {}; host_us + {} = wall clock µs",
             s.gain, self.origin_unix_us
         )?;
+        let roles: Vec<String> = self
+            .boards
+            .iter()
+            .enumerate()
+            .map(|(i, b)| {
+                format!(
+                    "{i}={}",
+                    serde_json::to_value(b.role).unwrap().as_str().unwrap_or("finish")
+                )
+            })
+            .collect();
+        writeln!(out, "# roles: {}", roles.join(" "))?;
         writeln!(out, "board,channel,host_us,board_us,rssi,flags")?;
         // Remember the file (the row was made before we knew the id).
         self.db.set_levels_file(id, &levels_path.to_string_lossy())?;
@@ -398,6 +516,8 @@ impl Core {
 
         let row = self.db.session(id)?.expect("just created");
         let n = row.seats.len();
+        self.armed_at = vec![None; s.channels.len()];
+        self.last_counted = vec![None; s.channels.len()];
         self.active = Some(Active {
             row,
             passes: Vec::new(),
@@ -452,10 +572,14 @@ impl Core {
         }
         self.db.set_setting("settings", &s)?;
         self.sounds.set_enabled(s.sound);
-        if s.min_lap_s != self.settings.min_lap_s {
-            self.detector = Detector::new(s.channels.len(), detect_config(&s));
-        }
+        let redetect = s.min_lap_s != self.settings.min_lap_s
+            || s.detection != self.settings.detection
+            || s.board_roles != self.settings.board_roles;
         self.settings = s;
+        if redetect {
+            self.apply_roles();
+            (self.finish, self.arming) = detectors(&self.settings);
+        }
         self.broadcast_state();
         Ok(())
     }
@@ -487,10 +611,22 @@ impl Core {
         }
         if now >= self.next_live_us {
             self.next_live_us = now + LIVE_EVERY_US;
+            for (i, b) in self.boards.iter_mut().enumerate() {
+                b.level_db = match b.role {
+                    BoardRole::Finish => self.finish.board_level(i),
+                    BoardRole::Arming => self.arming.board_level(i),
+                    BoardRole::Off => None,
+                };
+            }
+            let n = self.settings.channels.len();
+            let arming: Option<Vec<ChannelStatus>> = self
+                .has_arming()
+                .then(|| (0..n).map(|c| self.arming.status(c)).collect());
             let channels: Vec<ChannelStatus> = (0..self.settings.channels.len())
-                .map(|c| self.detector.status(c))
+                .map(|c| self.finish.status(c))
                 .collect();
-            let msg = json!({ "type": "live", "now_us": now, "channels": channels, "boards": self.boards });
+            let msg =
+                json!({ "type": "live", "now_us": now, "channels": channels, "arming": arming, "boards": self.boards });
             let _ = self.tx.send(msg.to_string());
         }
     }
@@ -529,6 +665,16 @@ pub fn results(row: &SessionRow, passes: &[PassRecord]) -> Vec<PilotResult> {
         .iter()
         .map(|s| laps::compute(s.channel, passes, c.start_mode, c.end_rule, start, c.consecutive))
         .collect()
+}
+
+/// Fresh detectors for the finish and the arming gate.
+fn detectors(s: &Settings) -> (Detector, Detector) {
+    let n = s.channels.len();
+    let mut finish = Detector::new(n, detect_config(s));
+    finish.set_fixed(s.detection.fixed(false, n).as_deref());
+    let mut arming = Detector::new(n, detect_config(s));
+    arming.set_fixed(s.detection.fixed(true, n).as_deref());
+    (finish, arming)
 }
 
 fn detect_config(s: &Settings) -> DetectConfig {

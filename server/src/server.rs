@@ -253,18 +253,21 @@ async fn delete_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> Api
 /// to hundreds of MB: call it off the async threads (`spawn_blocking`); it
 /// doesn't hold the core lock while it reads.
 fn session_trace(app: &App, id: i64) -> Result<Arc<SessionTrace>> {
-    let (path, config) = {
+    let (path, config, fixed) = {
         let mut core = app.core.lock().unwrap();
         let s = core.db.session(id)?.context("Diese Session gibt es nicht.")?;
         core.flush_levels(id)?;
         let path = s
             .levels_file
             .context("Für diese Session sind keine Pegel aufgezeichnet.")?;
+        // Fixed thresholds for every possible channel (8); unused ones don't matter.
+        let fixed = s.config.detection.as_ref().and_then(|d| d.fixed(false, 8));
         (
             PathBuf::from(path),
             DetectConfig {
                 min_lap_us: (s.config.min_lap_s * 1e6) as i64,
             },
+            fixed,
         )
     };
     let size = std::fs::metadata(&path)
@@ -275,7 +278,7 @@ fn session_trace(app: &App, id: i64) -> Result<Arc<SessionTrace>> {
     {
         return Ok(Arc::clone(t));
     }
-    let t = Arc::new(trace::load(&path, config)?);
+    let t = Arc::new(trace::load(&path, config, fixed)?);
     let mut traces = app.traces.lock().unwrap();
     if traces.len() >= 4 {
         traces.clear(); // keep the memory small; the next request reads again
@@ -358,7 +361,11 @@ fn check_room(core: &Core, session: i64, channel: u8, time_us: i64, except: Opti
     let s = core.db.session(session)?.context("Diese Session gibt es nicht.")?;
     let min_lap_us = (s.config.min_lap_s * 1e6) as i64;
     let clash = core.db.passes(session)?.into_iter().find(|p| {
-        p.channel == channel && !p.deleted && Some(p.id) != except && (p.time_us - time_us).abs() < min_lap_us
+        p.channel == channel
+            && p.gate == 0
+            && !p.deleted
+            && Some(p.id) != except
+            && (p.time_us - time_us).abs() < min_lap_us
     });
     if clash.is_some() {
         anyhow::bail!(
@@ -386,7 +393,7 @@ async fn edit_passes(State(app): State<Arc<App>>, Path(id): Path<i64>, Json(req)
         .db
         .passes(id)?
         .into_iter()
-        .filter(|p| p.channel == req.channel)
+        .filter(|p| p.channel == req.channel && p.gate == 0)
         .filter(|p| (!p.deleted || e.restores.contains(&p.id)) && !e.deletes.contains(&p.id))
         .map(|p| e.moves.iter().find(|(m, _)| *m == p.id).map_or(p.time_us, |(_, t)| *t))
         .chain(e.adds.iter().copied())

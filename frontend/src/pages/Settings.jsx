@@ -1,14 +1,16 @@
 // @ts-check
-// Settings that rarely change: which channels are scanned, the detection,
-// the sound, the boards. (Slots and the race format: on the live page.)
+// Settings that rarely change: which channels are scanned, the boards and
+// their gates, the detection, the sound. (Slots and the race format: on the
+// race control page.)
 
 import { useEffect, useRef, useState } from 'react'
 import { Cpu, Minus, Plus, SpeakerHigh, Sliders, Trash, Broadcast } from '@phosphor-icons/react'
 import { saveSettings } from '../api.js'
 import { RACEBAND, slotColor } from '../format.js'
+import { Gauge } from '@phosphor-icons/react'
 
-/** @param {{state: import('../types').State}} props */
-export default function SettingsPage({ state }) {
+/** @param {{state: import('../types').State, live: import('../types').Live | null}} props */
+export default function SettingsPage({ state, live }) {
   const s = state.settings
   const running = state.active != null
   const [error, setError] = useState('')
@@ -114,26 +116,11 @@ export default function SettingsPage({ state }) {
             </button>
           </div>
         </div>
-        <div className="panel">
-          <div className="panel-head">
-            <Cpu size={18} /> Boards
-          </div>
-          {!state.boards.length && <div className="empty">Keine Boards gefunden – ESPs anstecken und den Server neu starten.</div>}
-          {state.boards.map((b, i) => (
-            <div key={i} className="list-row" style={{ flexWrap: 'wrap', padding: '8px 16px', alignItems: 'flex-start' }}>
-              <span className={b.failed ? 'status-dot bad' : 'status-dot'} style={{ marginTop: 6 }} />
-              <span style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
-                <span style={{ fontWeight: 500, wordBreak: 'break-all' }}>{b.port}</span>
-                <span className="muted small">
-                  {b.levels_per_s.toFixed(0)} Messungen/s · {b.stats?.lost ?? 0} verloren
-                  {b.stats ? ` · Uhr ±${(b.stats.clock_uncertainty_us / 1000).toFixed(1)} ms` : ''}
-                </span>
-                {b.failed && <span className="error small">{b.failed}</span>}
-              </span>
-            </div>
-          ))}
-        </div>
+        <BoardsPanel state={state} live={live} save={save} />
         {error && <p className="error">{error}</p>}
+      </div>
+      <div style={{ gridColumn: '1 / -1' }}>
+        <DetectionPanel state={state} live={live} save={save} />
       </div>
     </div>
   )
@@ -192,5 +179,203 @@ function MhzInput({ value, disabled, onSet }) {
       onBlur={() => Number(v) !== value && onSet(Number(v))}
       title="Frequenz in MHz"
     />
+  )
+}
+
+/** Shown with the boards: the last 8 characters of the id (the MAC's end). @param {string} id */
+const shortId = (id) => (id.length > 8 ? '…' + id.slice(-8) : id)
+
+/** The bar spans this range, dBFS. */
+const BAR_MIN = -64
+const BAR_MAX = -5
+/** @param {number | null | undefined} db */
+const pct = (db) => (db == null ? 0 : Math.max(0, Math.min(100, ((db - BAR_MIN) / (BAR_MAX - BAR_MIN)) * 100)))
+
+/**
+ * The boards: which gate each watches, its live level (wave a quad in front of
+ * one to find it), link health.
+ * @param {{state: import('../types').State, live: import('../types').Live | null, save: (p: Partial<import('../types').Settings>) => unknown}} props
+ */
+function BoardsPanel({ state, live, save }) {
+  const s = state.settings
+  const boards = live?.boards ?? state.boards
+  const finish = boards.filter((b) => b.role === 'finish' && !b.failed).length
+  const arming = boards.some((b) => b.role === 'arming' && !b.failed)
+  /** @param {string} id @param {import('../types').BoardRole} role */
+  const setRole = (id, role) => save({ board_roles: { ...s.board_roles, [id]: role } })
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <Cpu size={18} /> Boards
+      </div>
+      {!boards.length && <div className="empty">Keine Boards gefunden – ESPs anstecken und den Server neu starten.</div>}
+      {boards.map((b) => (
+        <div key={b.id} className="thresh-row" style={{ padding: '12px 16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <span className={b.failed ? 'status-dot bad' : 'status-dot'} />
+            <span style={{ fontWeight: 600 }} className="tnum" title={b.id}>
+              {shortId(b.id)}
+            </span>
+            <span className="muted small" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {b.port}
+            </span>
+            <div className="seg" style={{ flex: 'none' }}>
+              {/** @type {const} */ ([
+                ['finish', 'Ziel'],
+                ['arming', 'Freigabe'],
+                ['off', 'Aus'],
+              ]).map(([r, label]) => (
+                <button key={r} className={b.role === r ? 'on' : ''} onClick={() => setRole(b.id, r)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div className="level-bar">
+              <div className="fill" style={{ width: pct(b.level_db) + '%' }} />
+            </div>
+            <span className="muted small tnum" style={{ width: 70, textAlign: 'right' }}>
+              {b.level_db != null ? `${b.level_db.toFixed(1)} dBFS` : b.role === 'off' ? 'aus' : '–'}
+            </span>
+          </div>
+          <span className="muted small">
+            {b.levels_per_s.toFixed(0)} Messungen/s · {b.stats?.lost ?? 0} verloren
+            {b.stats ? ` · Uhr ±${(b.stats.clock_uncertainty_us / 1000).toFixed(1)} ms` : ''}
+          </span>
+          {b.failed && <span className="error small">{b.failed}</span>}
+        </div>
+      ))}
+      <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <span className="muted small">Welches Board welches ist: mit dem Quad (Sender an) davor wedeln, der Balken schlägt aus.</span>
+        {finish === 0 && boards.length > 0 && <span className="error small">Kein Board am Zielgate – es werden keine Runden gezählt.</span>}
+        {finish === 1 && s.detection.mode === 'auto' && (
+          <span className="small" style={{ color: 'var(--accent-300)' }}>
+            Nur ein Board am Zielgate: Auto funktioniert, zwei Boards sind aber deutlich zuverlässiger.
+          </span>
+        )}
+        {arming && (
+          <span className="muted small">
+            Freigabe-Gate aktiv: Ein Durchflug am Ziel zählt erst, wenn der Pilot seit dem letzten gezählten Durchflug durchs
+            Freigabe-Gate geflogen ist (der erste nach dem Start zählt immer). Abgelehnte Durchflüge lassen sich in der
+            Nachbearbeitung wiederherstellen.
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/** Peak levels of the last 10 s, per channel, from the live messages.
+ * @param {import('../types').ChannelLive[] | null | undefined} channels */
+function usePeaks(channels) {
+  const hist = useRef(/** @type {{t: number, db: number}[][]} */ ([]))
+  const now = Date.now()
+  channels?.forEach((c, i) => {
+    const h = (hist.current[i] ??= [])
+    if (c.level_db != null && (!h.length || h[h.length - 1].t !== now)) h.push({ t: now, db: c.level_db })
+    while (h.length && h[0].t < now - 10_000) h.shift()
+  })
+  return hist.current.map((h) => (h.length ? Math.max(...h.map((x) => x.db)) : null))
+}
+
+/**
+ * Auto or classic detection; in classic, Enter/Exit per channel (and gate),
+ * with the live level and the peak of the last 10 s to find them.
+ * @param {{state: import('../types').State, live: import('../types').Live | null, save: (p: Partial<import('../types').Settings>) => unknown}} props
+ */
+function DetectionPanel({ state, live, save }) {
+  const s = state.settings
+  const d = s.detection
+  const finishPeaks = usePeaks(live?.channels)
+  const armingPeaks = usePeaks(live?.arming)
+  const hasArming = (live?.boards ?? state.boards).some((b) => b.role === 'arming')
+  /** @param {'finish' | 'arming'} gate @param {number} i @param {Partial<import('../types').Thresholds>} part */
+  function setThresh(gate, i, part) {
+    const list = s.channels.map((_, j) => d[gate][j] ?? { enter_db: -25, exit_db: -30 })
+    list[i] = { ...list[i], ...part }
+    save({ detection: { ...d, [gate]: list } })
+  }
+  /** @param {'finish' | 'arming'} gate */
+  const table = (gate) => {
+    const peaks = gate === 'finish' ? finishPeaks : armingPeaks
+    const chans = gate === 'finish' ? live?.channels : live?.arming
+    return s.channels.map((c, i) => {
+      const t = d[gate][i] ?? { enter_db: -25, exit_db: -30 }
+      const now = chans?.[i]?.level_db
+      const peak = peaks[i]
+      return (
+        <div key={gate + i} className="thresh-row wide" style={/** @type {React.CSSProperties} */ ({ '--lane': slotColor(i) })}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: '1 1 260px' }}>
+            <span className="dot" style={{ background: slotColor(i) }} />
+            <span style={{ width: 40, fontWeight: 600 }}>{c.name}</span>
+            <div className="level-bar">
+              <div className="fill" style={{ width: pct(now) + '%' }} />
+              {peak != null && <div className="mark peak" style={{ left: pct(peak) + '%' }} />}
+              <div className="mark exit" style={{ left: pct(t.exit_db) + '%' }} />
+              <div className="mark enter" style={{ left: pct(t.enter_db) + '%' }} />
+            </div>
+          </div>
+          <span className="muted small tnum" style={{ flex: '0 1 230px' }}>
+            Jetzt {now != null ? now.toFixed(1) : '–'} · Spitze (10 s) {peak != null ? peak.toFixed(1) : '–'} dBFS
+            {chans?.[i]?.in_pass ? ' · im Gate' : ''}
+          </span>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+            <Stepper label="Enter" value={t.enter_db} unit="dB" step={0.5} min={-60} max={0} delayed onSet={(v) => setThresh(gate, i, { enter_db: v })} />
+            <Stepper label="Exit" value={t.exit_db} unit="dB" step={0.5} min={-60} max={0} delayed onSet={(v) => setThresh(gate, i, { exit_db: v })} />
+            <button
+              className="btn btn-secondary"
+              disabled={peak == null}
+              title="Enter 4 dB unter die Spitze der letzten 10 s, Exit 5 dB darunter: einmal durchs Gate fliegen, dann tippen"
+              onClick={() => peak != null && setThresh(gate, i, { enter_db: Math.round((peak - 4) * 2) / 2, exit_db: Math.round((peak - 9) * 2) / 2 })}
+            >
+              <Gauge size={16} /> Aus Spitze
+            </button>
+          </div>
+        </div>
+      )
+    })
+  }
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <Sliders size={18} /> Erkennung
+      </div>
+      <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="seg">
+          <button className={d.mode === 'auto' ? 'on' : ''} onClick={() => save({ detection: { ...d, mode: 'auto' } })}>
+            Auto
+          </button>
+          <button className={d.mode === 'classic' ? 'on' : ''} onClick={() => save({ detection: { ...d, mode: 'classic' } })}>
+            Klassisch
+          </button>
+        </div>
+        {d.mode === 'auto' ? (
+          <span className="muted small">
+            Die Schwellen lernt die Zeitmessung aus dem Flug: Kurspegel und die Gipfel der Durchflüge, pro Pilot. Nichts einzustellen; mit
+            zwei Boards pro Gate am zuverlässigsten.
+          </span>
+        ) : (
+          <>
+            <span className="muted small">
+              Feste Schwellen wie bei RotorHazard: Ein Durchflug beginnt über Enter und endet unter Exit. Einmal durchs Gate fliegen, dann
+              „Aus Spitze“ tippen, oder von Hand einstellen. Bei mehreren Boards gilt der höhere Pegel.
+            </span>
+            <span className="kicker" style={{ marginTop: 8 }}>
+              Zielgate
+            </span>
+            {table('finish')}
+            {hasArming && (
+              <>
+                <span className="kicker" style={{ marginTop: 8 }}>
+                  Freigabe-Gate
+                </span>
+                {table('arming')}
+              </>
+            )}
+          </>
+        )}
+      </div>
+    </div>
   )
 }

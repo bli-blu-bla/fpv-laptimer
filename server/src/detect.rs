@@ -27,6 +27,8 @@
 
 use std::collections::VecDeque;
 
+use serde::{Deserialize, Serialize};
+
 use crate::esp::board::Level;
 use crate::esp::frame::rssi_dbfs;
 
@@ -64,6 +66,62 @@ const BOOT_MIN_RISE: f32 = 8.0 * 4.0;
 const HOLD_US: i64 = 1_000_000;
 /// A board that sent nothing for this long no longer holds the others back.
 const BOARD_TIMEOUT_US: i64 = 500_000;
+
+/// How the thresholds come about (the user's choice, in the settings).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DetectMode {
+    /// Learned from the flight (steps 4 and 7 above).
+    #[default]
+    Auto,
+    /// Fixed per channel, as RotorHazard's EnterAt/ExitAt.
+    Classic,
+}
+
+/// Fixed thresholds of one channel, dBFS.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct Thresholds {
+    pub enter_db: f32,
+    pub exit_db: f32,
+}
+
+impl Default for Thresholds {
+    fn default() -> Self {
+        Thresholds {
+            enter_db: -25.0,
+            exit_db: -30.0,
+        }
+    }
+}
+
+/// The detection settings: the mode and, for "classic", the thresholds per
+/// channel of the finish gate and of the arming gate.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+pub struct DetectionSettings {
+    #[serde(default)]
+    pub mode: DetectMode,
+    #[serde(default)]
+    pub finish: Vec<Thresholds>,
+    #[serde(default)]
+    pub arming: Vec<Thresholds>,
+}
+
+impl DetectionSettings {
+    /// For `Detector::set_fixed`: None in auto mode, else (enter, exit) per
+    /// channel (missing ones: the default).
+    pub fn fixed(&self, arming: bool, n_channels: usize) -> Option<Vec<(f32, f32)>> {
+        if self.mode != DetectMode::Classic {
+            return None;
+        }
+        let list = if arming { &self.arming } else { &self.finish };
+        Some(
+            (0..n_channels)
+                .map(|c| list.get(c).copied().unwrap_or_default())
+                .map(|t| (t.enter_db, t.exit_db))
+                .collect(),
+        )
+    }
+}
 
 /// Settings the user may change.
 #[derive(Debug, Clone, Copy)]
@@ -151,6 +209,8 @@ struct BoardChannel {
     recent_max: VecDeque<Option<u8>>,
     /// The last MEDIAN_SLOTS 20-ms maxima.
     recent_env: VecDeque<u8>,
+    /// The latest envelope (for showing each board's level).
+    last: Option<u8>,
 }
 
 impl Detector {
@@ -163,6 +223,21 @@ impl Detector {
             next_slot: None,
             trace: None,
         }
+    }
+
+    /// Fixed thresholds ("classic" mode, as RotorHazard's EnterAt/ExitAt),
+    /// dBFS per channel; None: learned from the flight (the default).
+    pub fn set_fixed(&mut self, fixed: Option<&[(f32, f32)]>) {
+        for (c, ch) in self.channels.iter_mut().enumerate() {
+            ch.fixed = fixed.and_then(|f| f.get(c)).map(|&(e, x)| (db_code_f(e), db_code_f(x)));
+            ch.update_thresholds();
+        }
+    }
+
+    /// One board's current level: the highest envelope of its channels, dBFS.
+    pub fn board_level(&self, board: usize) -> Option<f32> {
+        let b = self.boards.get(board)?;
+        b.channels.iter().filter_map(|c| c.last).max().map(rssi_dbfs)
     }
 
     /// A detector that also records every slot (`take_trace`).
@@ -211,7 +286,9 @@ impl Detector {
             .boards
             .iter()
             .map(|b| b.latest_us)
-            .filter(|&t| newest - t < BOARD_TIMEOUT_US)
+            // A board without any data yet (i64::MIN) waits for nobody; the
+            // subtraction is saturating so that it doesn't overflow.
+            .filter(|&t| t != i64::MIN && newest.saturating_sub(t) < BOARD_TIMEOUT_US)
             .min()
             .unwrap_or(i64::MIN);
         self.finish_slots_until(watermark)
@@ -298,7 +375,8 @@ impl BoardChannel {
         if self.recent_env.len() < MEDIAN_SLOTS {
             return None;
         }
-        Some(median(self.recent_env.iter().copied()))
+        self.last = Some(median(self.recent_env.iter().copied()));
+        self.last
     }
 }
 
@@ -319,6 +397,8 @@ struct ChannelDetector {
     /// Passes reported during start-up (step 7), until it is over.
     provisional: Vec<Pass>,
     started: bool,
+    /// Fixed (enter, exit) thresholds in codes, instead of learned ones.
+    fixed: Option<(f32, f32)>,
 }
 
 impl ChannelDetector {
@@ -335,6 +415,7 @@ impl ChannelDetector {
             last_reported_us: None,
             provisional: Vec::new(),
             started: false,
+            fixed: None,
         }
     }
 
@@ -421,7 +502,8 @@ impl ChannelDetector {
             self.peaks.pop_front();
         }
         out.push(Event::Pass(pass));
-        if !self.started {
+        // Learning (and taking back early passes) is only for learned thresholds.
+        if !self.started && self.fixed.is_none() {
             self.provisional.push(pass);
             if self.peaks.len() >= MIN_PEAKS {
                 self.review_start(out);
@@ -457,6 +539,11 @@ impl ChannelDetector {
     }
 
     fn update_thresholds(&mut self) {
+        if let Some((enter, exit)) = self.fixed {
+            self.enter = Some(enter);
+            self.exit = Some(exit.min(enter - 1.0));
+            return;
+        }
         let Some((course, high)) = self.stats.course_and_high() else {
             self.enter = None;
             self.exit = None;
@@ -548,6 +635,11 @@ fn code_db(code: f32) -> f32 {
     code / 4.0 - 63.75
 }
 
+/// dBFS → level code, unrounded (thresholds).
+fn db_code_f(db: f32) -> f32 {
+    (db + 63.75) * 4.0
+}
+
 fn db_code(db: f32) -> u8 {
     ((db + 63.75) * 4.0).round().clamp(0.0, 255.0) as u8
 }
@@ -637,6 +729,56 @@ mod tests {
         // ±1 dB of quick wobble around -30 dBFS, no pass.
         let found = simulate(&[], 40.0, |t| -30.0 + (t * 37.0).sin() * (t * 5.3).cos());
         assert!(found.is_empty(), "{found:?}");
+    }
+
+    #[test]
+    fn fixed_thresholds() {
+        // Classic mode with the enter level above the simulated peaks (-15
+        // dBFS): nothing counts; just below them: every pass from the first.
+        let run = |enter: f32| {
+            let mut det = Detector::new(1, DetectConfig::default());
+            det.set_fixed(Some(&[(enter, enter - 6.0)]));
+            let mut found = Vec::new();
+            for k in 0..15_000u64 {
+                let t = k as f64 * 0.002;
+                let mut db = -40.0f64;
+                for p in [5.0, 12.0, 19.0] {
+                    db = db.max(-15.0 - 30.0 * (1.0 - (-((t - p) / 0.2f64).powi(2)).exp()));
+                }
+                let l = Level {
+                    host_us: (t * 1e6) as i64,
+                    board_us: 0,
+                    channel: 0,
+                    rssi: db_code(db as f32),
+                    flags: 0,
+                };
+                det.push(0, &[l]);
+                found.extend(det.advance());
+            }
+            found.extend(det.flush());
+            final_passes(&found).len()
+        };
+        assert_eq!(run(-12.0), 0);
+        assert_eq!(run(-20.0), 3);
+    }
+
+    #[test]
+    fn only_board_1_sends() {
+        // E.g. the arming-gate detector: board 0 belongs to the finish gate.
+        let mut det = Detector::new(1, DetectConfig::default());
+        for k in 0..100 {
+            let l = Level {
+                host_us: k * 10_000,
+                board_us: 0,
+                channel: 0,
+                rssi: 100,
+                flags: 0,
+            };
+            det.push(1, &[l]);
+        }
+        det.advance();
+        assert!(det.next_slot.unwrap() >= 98);
+        assert!(det.board_level(1).is_some());
     }
 
     #[test]

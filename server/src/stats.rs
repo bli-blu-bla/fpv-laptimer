@@ -132,6 +132,7 @@ mod tests {
                 countdown_s: 0,
                 min_lap_s: 3.0,
                 consecutive: 2,
+                detection: None,
             },
             created_us,
             start_us: created_us,

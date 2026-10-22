@@ -23,6 +23,15 @@
  * @property {number} min_lap_s
  * @property {number} consecutive
  * @property {boolean} sound
+ * @property {DetectionSettings} detection
+ * @property {Record<string, BoardRole>} board_roles   by board id; missing: finish
+ *
+ * @typedef {'finish' | 'arming' | 'off'} BoardRole
+ * @typedef {{enter_db: number, exit_db: number}} Thresholds
+ * @typedef {object} DetectionSettings
+ * @property {'auto' | 'classic'} mode
+ * @property {Thresholds[]} finish   classic: per channel
+ * @property {Thresholds[]} arming
  *
  * @typedef {object} Pilot
  * @property {number} id
@@ -59,6 +68,7 @@
  * @property {number} peak_db
  * @property {boolean} manual
  * @property {boolean} deleted
+ * @property {number} gate   0: finish gate, 1: arming gate
  *
  * @typedef {object} Lap
  * @property {number} number
@@ -89,6 +99,9 @@
  *
  * @typedef {object} Board
  * @property {string} port
+ * @property {string} id         USB serial number (MAC)
+ * @property {BoardRole} role
+ * @property {number | null} level_db
  * @property {string} info
  * @property {number} levels_per_s
  * @property {LinkStats | null} stats
@@ -123,7 +136,8 @@
  *
  * @typedef {object} Live    the `live` message, 10 times a second
  * @property {number} now_us
- * @property {ChannelLive[]} channels
+ * @property {ChannelLive[]} channels   the finish gate
+ * @property {ChannelLive[] | null} arming   the arming gate, if a board watches it
  * @property {Board[]} boards
  */
 

@@ -78,9 +78,11 @@ export default function PassEditor({ detail, onSaved }) {
   /** @param {(d: Draft) => Draft} f */
   const setDraft = (f) => setDrafts((ds) => ({ ...ds, [channel]: f(ds[channel] ?? emptyDraft()) }))
   const markers = markersOf(
-    passes.filter((p) => p.channel === channel),
+    passes.filter((p) => p.channel === channel && !p.gate),
     draft,
   )
+  // Arming-gate passes: shown, not edited.
+  const arming = passes.filter((p) => p.channel === channel && p.gate === 1 && !p.deleted).map((p) => p.time_us)
   const counting = markers.filter((m) => m.kind !== 'deleted')
   const preview = computeLaps(
     counting.map((m) => ({ id: /** @type {any} */ (m.key), time_us: m.t })),
@@ -190,6 +192,7 @@ export default function PassEditor({ detail, onSaved }) {
         channel={channel}
         t0={t0}
         markers={markers}
+        arming={arming}
         lapEnds={new Map(preview.laps.map((l) => [String(l.pass_id), l.duration_us]))}
         selected={sel}
         onSelect={setSel}
@@ -238,7 +241,7 @@ export default function PassEditor({ detail, onSaved }) {
 
       <p className="muted small" style={{ margin: 0 }}>
         Ziehen verschiebt einen Durchflug (oder den Ausschnitt), Tippen wählt ihn aus, Tippen auf eine freie Stelle fügt einen
-        am nächsten Gipfel ein. Grün: erkannt, blau: von Hand, grau gestrichelt: gelöscht.
+        am nächsten Gipfel ein. Grün: erkannt, blau: von Hand, grau gestrichelt: gelöscht, gelb gepunktet: Freigabe-Gate.
       </p>
       {tooShort > 0 && (
         <p className="error" style={{ margin: 0 }}>
@@ -274,13 +277,14 @@ export default function PassEditor({ detail, onSaved }) {
  * @param {number} props.channel
  * @param {number} props.t0
  * @param {Marker[]} props.markers
+ * @param {number[]} props.arming   times of the arming-gate passes
  * @param {Map<string, number>} props.lapEnds   marker key → the lap it ends
  * @param {string | null} props.selected
  * @param {(key: string | null) => void} props.onSelect
  * @param {(key: string, t: number) => void} props.onMove
  * @param {(t: number) => void} props.onTapEmpty
  */
-function EditGraph({ sessionId, channel, t0, markers, lapEnds, selected, onSelect, onMove, onTapEmpty }) {
+function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected, onSelect, onMove, onTapEmpty }) {
   const box = useRef(/** @type {HTMLDivElement | null} */ (null))
   const width = useWidth(box)
   const [overview, setOverview] = useState(/** @type {GraphReply | null} */ (null))
@@ -429,6 +433,11 @@ function EditGraph({ sessionId, channel, t0, markers, lapEnds, selected, onSelec
             <path d={line(detail.time_us, detail.level, x, y)} className="combined" />
           </>
         )}
+        {arming
+          .filter((t) => t >= from && t <= to)
+          .map((t) => (
+            <line key={'arm' + t} x1={x(t)} x2={x(t)} y1={PAD_TOP} y2={plotH} className="arming-tick" />
+          ))}
         {visible.map((m) => {
           const lap = lapEnds.get(m.key)
           return (

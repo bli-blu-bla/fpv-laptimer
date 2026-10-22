@@ -77,6 +77,26 @@ USB-Ports, an einem dritten 2,4 ms; also ±0,4 bis ±1,2 ms Unsicherheit.
 | `src/source.rs` | Boards oder Replay (Replay liefert die Pegel nach Kanal-Position der Aufnahme, nicht nach Frequenz: nach einem Kanaltausch passen sie nicht mehr) |
 | `src/sound.rs` | MP3s nacheinander in eigenem Thread (`afplay` auf macOS, `mpg123 -q` sonst); fehlende Dateien werden übersprungen |
 
+**Boards und Gates:** Jedes Board hat eine feste Kennung, die USB-Seriennummer (= MAC,
+`find_ports`; macOS über `serialport`, Linux aus `/dev/serial/by-id`; Replay: `replay-N`).
+`settings.board_roles` ordnet sie zu: `finish` (Standard), `arming` (Freigabe-Gate) oder
+`off`. `Core` hat zwei `Detector`: Ziel und Freigabe; jedes Board speist den seiner Rolle,
+mehrere Boards pro Gate werden kombiniert (Maximum). Freigabe-Regel: Gibt es ein
+funktionierendes Freigabe-Board, zählt ein Ziel-Durchflug nur, wenn seit dem letzten
+gezählten Durchflug des Kanals ein Freigabe-Durchflug kam; der erste nach dem Start zählt
+immer. Abgelehnte werden als `deleted` gespeichert (im Editor wiederherstellbar).
+Freigabe-Durchflüge stehen mit `gate = 1` in `passes` (Spalte wird in alten Datenbanken
+ergänzt), machen keine Runden (`laps::compute` filtert `gate == 0`) und erscheinen im
+Editor als gelbe Punktlinien. Die Pegel-Datei einer Session hat `# roles: 0=finish 1=arming`;
+der Pegelgraph nimmt nur die Ziel-Boards. `live.boards[].level_db`: Pegel pro Board zum
+Zuordnen; `live.arming`: Status des Freigabe-Gates.
+
+**Erkennungsmodus** (`settings.detection`, `detect::DetectionSettings`): `auto` (gelernte
+Schwellen) oder `classic` (feste Enter/Exit in dBFS pro Kanal, getrennt für `finish` und
+`arming`, `Detector::set_fixed`; ohne Anlernen und Zurücknehmen). Die Session speichert die
+Einstellung in `config.detection`, damit ihr Graph dieselben Schwellen zeigt. Die Seite hilft
+mit Live-Pegel, Spitze der letzten 10 s und „Aus Spitze“ (Enter = Spitze − 4 dB, Exit = − 9 dB).
+
 Laps werden nie gespeichert, nur Durchflüge: jede Korrektur rechnet alles neu. Ein von
 Hand eingefügter oder wiederhergestellter Durchflug näher als die Mindestrunde an einem
 anderen wird abgelehnt. Ein Rennen stoppt von selbst, wenn alle Slots im Ziel sind.

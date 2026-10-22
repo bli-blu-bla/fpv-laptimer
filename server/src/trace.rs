@@ -35,16 +35,29 @@ pub struct Graph {
 }
 
 /// Reads a level file (`core.rs` writes one per session, `laptimer record`
-/// writes the same format) and runs it through the detector.
-pub fn load(path: &Path, config: DetectConfig) -> Result<SessionTrace> {
+/// writes the same format) and runs it through the detector: the finish-gate
+/// boards only (from the "# roles:" line; without it, all boards), with the
+/// session's fixed thresholds in classic mode.
+pub fn load(path: &Path, config: DetectConfig, fixed: Option<Vec<(f32, f32)>>) -> Result<SessionTrace> {
     let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut offset_us = 0;
     let mut det: Option<Detector> = None;
     let mut n_channels = 0;
+    // Boards that are not on the finish gate ("1=arming", "2=off").
+    let mut skip: Vec<usize> = Vec::new();
     for (n, line) in BufReader::new(file).lines().enumerate() {
         let line = line?;
         if let Some(rest) = line.strip_prefix("# channels:") {
             n_channels = rest.split_whitespace().count();
+            continue;
+        }
+        if let Some(rest) = line.strip_prefix("# roles:") {
+            skip = rest
+                .split_whitespace()
+                .filter_map(|r| r.split_once('='))
+                .filter(|(_, role)| *role != "finish")
+                .filter_map(|(b, _)| b.parse().ok())
+                .collect();
             continue;
         }
         if line.starts_with('#') {
@@ -58,7 +71,14 @@ pub fn load(path: &Path, config: DetectConfig) -> Result<SessionTrace> {
         if f.len() < 6 {
             continue; // the column names, or a line cut off at the end
         }
-        let d = det.get_or_insert_with(|| Detector::with_trace(n_channels.max(1), config));
+        if skip.contains(&(f[0] as usize)) {
+            continue;
+        }
+        let d = det.get_or_insert_with(|| {
+            let mut d = Detector::with_trace(n_channels.max(1), config);
+            d.set_fixed(fixed.as_deref());
+            d
+        });
         let level = Level {
             host_us: f[2],
             board_us: f[3] as u64,
