@@ -1,0 +1,394 @@
+/* Light by default (readable in sunlight), dark when the device asks for it. */
+:root {
+  --bg: #f4f5f7;
+  --card: #ffffff;
+  --text: #15181d;
+  --muted: #6b7280;
+  --line: #dde1e6;
+  --accent: #ff7a1a;
+  --race: #2563eb;
+  --ok: #16a34a;
+  --bad: #dc2626;
+  --gate: #fde68a;
+  --best: #7c3aed;
+  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  font-size: 16px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111418;
+    --card: #1b1f25;
+    --text: #e8eaed;
+    --muted: #9aa1ab;
+    --line: #2c323a;
+    --gate: #6b4e00;
+    --best: #b794f6;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+button,
+input,
+select {
+  font: inherit;
+  color: inherit;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 12px;
+}
+button {
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+input.narrow {
+  width: 5.5em;
+}
+h2 {
+  font-size: 1.1rem;
+  margin: 1.6em 0 0.6em;
+}
+.muted {
+  color: var(--muted);
+}
+.warn {
+  color: var(--accent);
+}
+.error {
+  color: var(--bad);
+}
+
+/* header */
+.top {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: var(--card);
+  border-bottom: 1px solid var(--line);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.top nav {
+  display: flex;
+  gap: 2px;
+  flex: 1;
+  flex-wrap: wrap;
+}
+@media (max-width: 480px) {
+  .top {
+    padding: 6px 8px;
+    gap: 6px;
+  }
+  .tab {
+    padding: 6px 8px;
+  }
+  .timer {
+    font-size: 1.4rem;
+  }
+  .stats .muted {
+    font-size: 0.65rem;
+  }
+}
+.tab {
+  border: none;
+  background: none;
+}
+.tab.active {
+  background: var(--accent);
+  color: #fff;
+}
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.dot.ok {
+  background: var(--ok);
+}
+.dot.bad {
+  background: var(--bad);
+}
+main {
+  padding: 12px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+/* start buttons */
+.start > .big {
+  margin: 0 12px 12px 0;
+}
+.big {
+  font-size: 1.3rem;
+  padding: 16px 28px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.big.race {
+  background: var(--race);
+}
+.big small {
+  font-size: 0.8rem;
+  opacity: 0.85;
+}
+.primary {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+}
+
+/* session bar */
+.session-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+.timer {
+  font-size: 1.8rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  flex: 1;
+}
+.stop {
+  background: var(--bad);
+  color: #fff;
+  border: none;
+  font-size: 1.1rem;
+  padding: 10px 24px;
+}
+.countdown {
+  font-size: 8rem;
+  font-weight: 700;
+  text-align: center;
+  color: var(--race);
+  line-height: 1;
+  margin: 8px 0 20px;
+}
+
+/* pilot cards */
+.cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr));
+  gap: 12px;
+  margin: 12px 0;
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 12px;
+  transition: background 0.15s;
+}
+.card.gate {
+  background: var(--gate);
+}
+.card.finished {
+  border-color: var(--ok);
+  border-width: 2px;
+}
+.card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.name {
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+.chan {
+  color: var(--muted);
+  font-weight: 600;
+}
+.level {
+  position: relative;
+  height: 14px;
+  background: var(--line);
+  border-radius: 7px;
+  margin: 10px 0 2px;
+  overflow: hidden;
+}
+.level .fill {
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.1s linear;
+}
+.level .mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+}
+.level .mark.enter {
+  background: var(--text);
+}
+.level .mark.exit {
+  background: var(--muted);
+}
+.level-text {
+  font-size: 0.8rem;
+}
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 10px 0;
+  font-variant-numeric: tabular-nums;
+}
+.stats .muted {
+  font-size: 0.75rem;
+}
+.stats > :first-child {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.big-num {
+  font-size: 2.2rem;
+  font-weight: 700;
+}
+.num {
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+.done {
+  color: var(--ok);
+  font-weight: 700;
+}
+.laps {
+  list-style: none;
+  margin: 6px 0;
+  padding-left: 0;
+  max-height: 12em;
+  overflow-y: auto;
+  font-variant-numeric: tabular-nums;
+}
+.laps li {
+  padding: 1px 0;
+}
+.laps li span {
+  display: inline-block;
+  min-width: 4em;
+}
+.laps li .lap-no {
+  min-width: 2.2em;
+  text-align: right;
+  padding-right: 0.4em;
+  color: var(--muted);
+}
+.laps li.best {
+  color: var(--best);
+  font-weight: 700;
+}
+.x {
+  border: none;
+  background: none;
+  color: var(--muted);
+  padding: 0 8px;
+  font-size: 1.1rem;
+}
+.x:hover {
+  color: var(--bad);
+}
+.add {
+  width: 100%;
+  margin-top: 6px;
+}
+
+/* tables */
+table {
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+th,
+td {
+  text-align: left;
+  padding: 4px 10px 4px 0;
+}
+.ranking {
+  width: 100%;
+  display: block;
+  overflow-x: auto;
+  background: var(--card);
+  border-radius: 12px;
+  margin-top: 8px;
+}
+.ranking th,
+.ranking td {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+.passes tr.deleted {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+
+/* sessions */
+.session-list {
+  list-style: none;
+  padding: 0;
+}
+.session-list li {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin-bottom: 8px;
+  cursor: pointer;
+}
+
+/* settings */
+.settings label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+  flex-wrap: wrap;
+}
+.settings table input {
+  width: 9em;
+}
+.settings table {
+  display: block;
+  overflow-x: auto;
+}
+.save-bar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin: 20px 0;
+  position: sticky;
+  bottom: 0;
+  background: var(--bg);
+  padding: 10px 0;
+}
+.pilots,
+.boards {
+  list-style: none;
+  padding: 0;
+}
+.pilots li {
+  margin-bottom: 4px;
+}
+.boards li {
+  margin-bottom: 8px;
+  word-break: break-all;
+}

@@ -14,7 +14,7 @@ Ownership-/async-Stellen kommentieren), Frontend in JavaScript mit JSDoc (`// @t
 | Teil | Technik |
 |---|---|
 | `firmware/` | widscan58 (ESP32-C5 als SDR, 5,8 GHz), per `git subtree` von [CapnBry/widscan58](https://github.com/CapnBry/widscan58), plus `LEVELBATCH`/`TIME?` (unten). GPL-3.0-or-later |
-| `server/` | Rust (Crate `laptimer`) auf einem Raspberry Pi 3 (für den Pi auf dem Mac cross-kompilieren, der Pi 3 schafft keinen Rust-Build): ESPs per USB lesen, Durchflüge erkennen, SQLite (Sessions, Durchflüge, Rohpegel), MP3-Ansagen (`mpg123`), Web/WebSocket |
+| `server/` | Rust (Crate `laptimer`, Server `laptimer serve`) auf einem Raspberry Pi 3 (für den Pi auf dem Mac cross-kompilieren, der Pi 3 schafft keinen Rust-Build): ESPs per USB lesen, Durchflüge erkennen, SQLite (Sessions, Durchflüge, Rohpegel), MP3-Ansagen (`mpg123`), Web/WebSocket |
 | `frontend/` | React, JavaScript + JSDoc |
 | `tools/` | Flash-Script, Python-Scripts zum Messen und Auswerten |
 
@@ -60,6 +60,37 @@ gleichzeitig): ~491–493 Pegel/s pro Kanal (alle 2,0 ms, längste Lücke ~3,0 m
 USB-Ports, an einem dritten 2,4 ms; also ±0,4 bis ±1,2 ms Unsicherheit.
 
 ## Server (`server/`)
+
+`laptimer serve` (Port 5800; 8080/8090 belegt Docker auf dem Mac des Nutzers): `--data`
+(SQLite `laptimer.db` + `levels/session_<id>.csv`), `--web ../frontend/dist`,
+`--sounds ../sounds`, `--replay <csv>` (Aufnahme in Schleife statt Boards; zum Testen
+`--sounds` auf einen leeren Ordner, sonst piept der Mac).
+
+| Datei | Inhalt |
+|---|---|
+| `src/server.rs` | axum: `/api/state`, `/api/session/start {race}`, `/api/session/stop`, `/api/sessions[/{id}]` (GET, DELETE), `/api/sessions/{id}/passes {channel,time_us}` (von Hand), `/api/passes/{id} {deleted}`, `/api/settings` (GET/PUT; Kanäle oder Gain ändern startet die Boards neu), `/api/pilots[/{id}]`; `/ws` (erst `state`, dann `state`/`live`/`session_changed`); sonst `frontend/dist`. Threads: Boards → std-Kanal → Core-Thread (`on_board_event`, `tick` alle 10 ms); `Core` in einem `std::sync::Mutex`, nie über ein `.await` halten |
+| `src/core.rs` | `Core`: Settings (DB-Key `settings`), aktive Session, Durchflüge → DB → `results` → `state`-Nachricht; Ansagen (Countdown geplant, `runde`, `bestzeit` im Training, `pilotN_fertig`, `rennen_beendet`); `live` mit 10 Hz. Zeiten in der DB: Wanduhr-µs (`origin_unix_us + host_us`) |
+| `src/laps.rs` | Runden aus Durchflügen (rein, getestet): Start `holeshot`/`from_start`/`flying`, Ende `open`/`laps`/`seconds`, beste Runde, beste N in Folge, ignorierte Durchflüge |
+| `src/db.rs` | Tabellen `pilots`, `sessions` (Config als JSON, damit alte Ergebnisse bleiben), `seats`, `passes` (`manual`, `deleted` fürs Rückgängigmachen; vom Detektor zurückgenommene werden gelöscht), `settings` |
+| `src/source.rs` | Boards oder Replay |
+| `src/sound.rs` | MP3s nacheinander in eigenem Thread (`afplay` auf macOS, `mpg123 -q` sonst); fehlende Dateien werden übersprungen |
+
+Laps werden nie gespeichert, nur Durchflüge: jede Korrektur rechnet alles neu.
+
+## Frontend (`frontend/`)
+
+Vite + React, JavaScript mit JSDoc und `// @ts-check`; `npm run check` (tsc über
+`jsconfig.json`, TypeScript nur als Prüfer). `src/types.js` spiegelt das JSON des Servers.
+`src/api.js`: `api()` für REST, `useServer()` hält `state`/`live` über den WebSocket
+(Reconnect) und den Uhrversatz zum Server. Seiten: `Live` (Start/Stopp, Countdown, Karte
+pro Pilot mit Pegelbalken und Schwellen, × löscht den Durchflug am Ende einer Runde,
+„+ Durchflug jetzt“), `Sessions` (Liste, Detail mit allen Durchflügen, löschen/wiederherstellen,
+Session löschen), `Einstellungen`. `npm run dev` proxied `/api` und `/ws` auf Port 5800.
+Hell als Standard (Sonnenlicht), dunkel nach Systemeinstellung; auf 390 px Breite geprüft
+(Screenshots mit puppeteer-core und dem installierten Chrome, Handy-Emulation; Chrome
+headless ohne Emulation wird nicht schmaler als ~500 px).
+
+## Aufzeichnen und Auswerten
 
 Bisher: Aufzeichnen mit Live-Erkennung (`laptimer record`), Erkennung auf einer Aufnahme
 (`laptimer replay <csv> [--board N]`), `laptimer ports`:

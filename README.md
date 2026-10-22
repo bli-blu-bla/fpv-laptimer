@@ -19,8 +19,9 @@ Status: im Aufbau.
 | Ordner | Inhalt |
 |---|---|
 | `firmware/` | ESP32-C5-Firmware: [widscan58](https://github.com/CapnBry/widscan58) von Bryan Mayland (per `git subtree`) plus unsere Erweiterungen |
-| `server/` | Rust: bisher `laptimer record` (Pegel aufzeichnen); später der Server |
-| `frontend/` | Oberfläche in React mit JavaScript + JSDoc (folgt) |
+| `server/` | Rust: der Server (`laptimer serve`), dazu `record`/`replay` für Testflüge |
+| `frontend/` | Oberfläche in React mit JavaScript + JSDoc |
+| `sounds/` | Ansagen als MP3 (Platzhalter von `tools/make_sounds.sh`, gern durch eigene ersetzen) |
 | `tools/` | Flash-Script, Mess- und Auswerte-Scripts |
 
 ## Firmware flashen
@@ -31,6 +32,26 @@ tools/flash_c5_many.sh --all    # alle gerade angesteckten Boards
 ```
 
 Braucht [PlatformIO](https://platformio.org) (`pio`) und Python 3.
+
+## Zeitmessung starten
+
+```sh
+(cd frontend && npm install && npm run build)   # einmal, und nach Änderungen an der Oberfläche
+cd server
+cargo run --release -- serve                     # alle angesteckten Boards
+```
+
+Dann im Browser `http://<Rechner>:5800` öffnen (auf dem Rechner selbst `http://localhost:5800`),
+auch vom Handy im selben WLAN. Training oder Rennen starten, Runden live, Korrekturen per
+× (Durchflug löschen) und „+ Durchflug jetzt“, alte Sessions unter „Sessions“. Die Datenbank
+liegt in `server/data/` (dort auch die Pegel jeder Session).
+
+Ohne Boards, zum Ausprobieren: `cargo run --release -- serve --replay recordings/<aufnahme>.csv`
+spielt eine Aufnahme in Endlosschleife ab.
+
+Entwickeln an der Oberfläche: Server wie oben starten, dann `cd frontend && npm run dev` und
+`http://localhost:5173` öffnen (lädt bei jeder Änderung neu). `npm run check` prüft die
+JSDoc-Typen.
 
 ## Pegel aufzeichnen (Testflüge)
 
