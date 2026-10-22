@@ -77,3 +77,15 @@ export function serverNow(clockOffset) {
 export function saveSettings(current, patch) {
   return api('/settings', { method: 'PUT', body: { ...current, ...patch } })
 }
+
+/** The server time, updated 10 times a second while `running`.
+ * @param {{current: number}} clockOffset @param {boolean} running */
+export function useNow(clockOffset, running) {
+  const [now, setNow] = useState(() => serverNow(clockOffset))
+  useEffect(() => {
+    if (!running) return
+    const id = setInterval(() => setNow(serverNow(clockOffset)), 100)
+    return () => clearInterval(id)
+  }, [clockOffset, running])
+  return now
+}

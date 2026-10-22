@@ -112,3 +112,38 @@ export function passLog(d) {
   }
   return out.sort((a, b) => b.pass.time_us - a.pass.time_us)
 }
+
+/**
+ * Laps of one channel from pass times, as the server computes them
+ * (server/src/laps.rs, `compute`): the pass editor shows the laps of its
+ * draft before it is saved.
+ * @param {{id: number, time_us: number}[]} passes   this channel's passes that count
+ * @param {import('./types').SessionConfig} c
+ * @param {number} startUs   race: the start signal; training: the session start
+ * @returns {{laps: {number: number, duration_us: number, end_us: number, pass_id: number}[], holeshot_us: number | null, finished_us: number | null, ignored: number[], best_lap_us: number | null}}
+ */
+export function computeLaps(passes, c, startUs) {
+  const sorted = [...passes].sort((a, b) => a.time_us - b.time_us)
+  /** @type {ReturnType<typeof computeLaps>} */
+  const r = { laps: [], holeshot_us: null, finished_us: null, ignored: [], best_lap_us: null }
+  let lapStart = c.start_mode === 'from_start' ? startUs : null
+  for (const p of sorted) {
+    if (p.time_us < startUs || r.finished_us != null) {
+      r.ignored.push(p.id)
+      continue
+    }
+    if (lapStart == null) {
+      if (c.start_mode === 'holeshot') r.holeshot_us = p.time_us - startUs
+      lapStart = p.time_us
+      continue
+    }
+    r.laps.push({ number: r.laps.length + 1, duration_us: p.time_us - lapStart, end_us: p.time_us, pass_id: p.id })
+    lapStart = p.time_us
+    const e = c.end_rule
+    if ((e.kind === 'laps' && r.laps.length >= e.value) || (e.kind === 'seconds' && p.time_us - startUs >= e.value * 1e6)) {
+      r.finished_us = p.time_us
+    }
+  }
+  r.best_lap_us = r.laps.length ? Math.min(...r.laps.map((l) => l.duration_us)) : null
+  return r
+}

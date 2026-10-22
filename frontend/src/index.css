@@ -508,9 +508,9 @@ body {
   bottom: 0;
   z-index: 10;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 4px;
-  padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+  grid-template-columns: repeat(6, 1fr);
+  gap: 2px;
+  padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
   background: color-mix(in srgb, var(--bg) 92%, transparent);
   backdrop-filter: blur(10px);
   border-top: 1px solid var(--n900);
@@ -521,8 +521,9 @@ body {
   gap: 2px;
   min-height: 54px;
   padding: 0;
-  font-size: 11px;
+  font-size: 10px;
   text-align: center;
+  overflow: hidden;
 }
 @media (max-width: 819px) {
   .sidebar {
@@ -813,6 +814,10 @@ body {
   background: var(--accent-900);
   color: var(--accent-300);
 }
+.lap-chips span.short {
+  background: color-mix(in srgb, var(--bad) 20%, transparent);
+  color: var(--bad);
+}
 
 /* — sessions — */
 .session-item {
@@ -933,20 +938,37 @@ body {
 .graph .threshold.exit {
   stroke: var(--n600);
 }
+.graph .pass {
+  --mark: var(--ok);
+  cursor: grab;
+}
+.graph .pass.manual,
+.graph .pass.moved,
+.graph .pass.added {
+  --mark: var(--manual);
+}
+.graph .pass.deleted {
+  --mark: var(--n600);
+}
 .graph .pass line {
-  stroke: var(--ok);
+  stroke: var(--mark);
   stroke-width: 2;
 }
-.graph .pass.manual line {
-  stroke: var(--manual);
-}
-.graph .pass.ignored line {
-  stroke: var(--n600);
+.graph .pass circle {
+  fill: var(--surface-2);
+  stroke: var(--mark);
+  stroke-width: 2;
 }
 .graph .pass.deleted line {
-  stroke: var(--n600);
   stroke-dasharray: 3 3;
   opacity: 0.6;
+}
+.graph .pass.sel line {
+  stroke-width: 3;
+}
+.graph .pass.sel circle {
+  fill: var(--mark);
+  r: 9;
 }
 .graph .lap-label {
   fill: var(--text);
@@ -980,4 +1002,36 @@ body {
 }
 .small {
   font-size: 12px;
+}
+
+/* — pass editor — */
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+}
+.editor-chans {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 6px;
+}
+.editor-save {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  position: sticky;
+  bottom: 0;
+  padding: 10px 0 0;
+  background: var(--surface);
+}
+.editor-save .muted {
+  margin-right: auto;
+}
+@media (max-width: 819px) {
+  .editor-save {
+    bottom: 76px;
+  }
 }

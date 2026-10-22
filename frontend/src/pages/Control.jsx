@@ -1,19 +1,19 @@
 // @ts-check
-// The live page: start a training or race, follow it, and afterwards look
-// at the result and correct it. Slot settings sit behind each slot's gear,
-// the race format behind the gear next to "Rennen starten".
+// Race control: start a training or race, follow it, and afterwards correct
+// it (the result, and the pass editor below it). Slot settings sit behind
+// each slot's gear, the race format behind the gear next to "Rennen starten".
 
 import { useEffect, useRef, useState } from 'react'
 import { ArrowCounterClockwise, FlagCheckered, GearSix, Infinity as InfinityIcon, Stop, X } from '@phosphor-icons/react'
-import { api, serverNow } from '../api.js'
+import { api, useNow } from '../api.js'
 import { clock, endRule, sessionKind, START_MODES } from '../format.js'
 import { slotsOf, standings } from '../model.js'
-import CorrectDialog from '../components/CorrectDialog.jsx'
-import DayBest from '../components/DayBest.jsx'
 import Dialog from '../components/Dialog.jsx'
 import Lane from '../components/Lane.jsx'
+import PassEditor from '../components/PassEditor.jsx'
 import PassLog from '../components/PassLog.jsx'
 import RaceDialog from '../components/RaceDialog.jsx'
+import Ranking from '../components/Ranking.jsx'
 import SlotDialog from '../components/SlotDialog.jsx'
 
 /** Seconds of signal history in the slot cards (10 points a second). */
@@ -24,15 +24,13 @@ const SPARK_POINTS = 150
  * @param {ReturnType<typeof import('../api.js').useServer>} props.server
  * @param {import('../types').State} props.state
  * @param {import('../types').Stats | null} props.stats
- * @param {() => void} props.onShowSessions
  */
-export default function Live({ server, state, stats, onShowSessions }) {
+export default function Control({ server, state, stats }) {
   const { live, clockOffset, changed } = server
   const active = state.active
   const [error, setError] = useState('')
   const [slotDialog, setSlotDialog] = useState(/** @type {number | null} */ (null))
   const [raceDialog, setRaceDialog] = useState(false)
-  const [correct, setCorrect] = useState(/** @type {number | null} */ (null))
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   // The session that just ended stays on the page until the next start or "Schließen".
   const [doneId, setDoneId] = useState(/** @type {number | null} */ (null))
@@ -155,7 +153,17 @@ export default function Live({ server, state, stats, onShowSessions }) {
       </div>
       {error && <p className="error">{error}</p>}
 
-      <div className="lanes">
+      {phase === 'done' && done && (
+        <>
+          <div className="panel" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <Ranking detail={done} />
+          </div>
+          <span className="kicker">Nachbearbeitung</span>
+          <PassEditor key={done.session.id} detail={done} onSaved={reloadDone} />
+        </>
+      )}
+
+      <div className="lanes" style={phase === 'done' ? { display: 'none' } : undefined}>
         {slotsOf(state).map((slot) => {
           const i = session ? session.seats.findIndex((x) => x.channel === slot.index) : -1
           const seat = i >= 0 ? session?.seats[i] : undefined
@@ -175,16 +183,12 @@ export default function Live({ server, state, stats, onShowSessions }) {
               live={live?.channels[slot.index]}
               spark={spark[slot.index] ?? []}
               onGear={() => setSlotDialog(slot.index)}
-              onCorrect={phase === 'done' && seat ? () => setCorrect(seat.channel) : undefined}
             />
           )
         })}
       </div>
 
-      <div className="two-col">
-        <PassLog detail={detail} onChanged={reloadDone} />
-        <DayBest stats={stats} onAll={onShowSessions} />
-      </div>
+      {(phase === 'running' || phase === 'countdown') && <PassLog detail={detail} />}
 
       {phase === 'countdown' && active && (
         <div className="countdown">
@@ -202,7 +206,6 @@ export default function Live({ server, state, stats, onShowSessions }) {
 
       {slotDialog != null && <SlotDialog state={state} stats={stats} index={slotDialog} color={slotsOf(state)[slotDialog].color} onClose={() => setSlotDialog(null)} />}
       {raceDialog && <RaceDialog state={state} onClose={() => setRaceDialog(false)} />}
-      {correct != null && done && <CorrectDialog detail={done} channel={correct} onChanged={reloadDone} onClose={() => setCorrect(null)} />}
       {confirmDiscard && session && (
         <Dialog title={active ? 'Abbrechen?' : 'Verwerfen?'} onClose={() => setConfirmDiscard(false)}>
           <p className="muted" style={{ margin: 0 }}>
@@ -232,18 +235,6 @@ export default function Live({ server, state, stats, onShowSessions }) {
       )}
     </>
   )
-}
-
-/** The server time, updated 10 times a second while `running`.
- * @param {{current: number}} clockOffset @param {boolean} running */
-function useNow(clockOffset, running) {
-  const [now, setNow] = useState(() => serverNow(clockOffset))
-  useEffect(() => {
-    if (!running) return
-    const id = setInterval(() => setNow(serverNow(clockOffset)), 100)
-    return () => clearInterval(id)
-  }, [clockOffset, running])
-  return now
 }
 
 /** The last seconds of every channel's live level, for the sparklines.

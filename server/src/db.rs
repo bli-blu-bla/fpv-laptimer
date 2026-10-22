@@ -83,6 +83,21 @@ pub struct SessionRow {
     pub seats: Vec<Seat>,
 }
 
+/// Corrections of one channel (`Db::edit_passes`).
+#[derive(Debug, Default, Deserialize)]
+pub struct PassEdit {
+    /// (pass id, new time)
+    #[serde(default)]
+    pub moves: Vec<(i64, i64)>,
+    #[serde(default)]
+    pub deletes: Vec<i64>,
+    #[serde(default)]
+    pub restores: Vec<i64>,
+    /// Times of new passes.
+    #[serde(default)]
+    pub adds: Vec<i64>,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Pilot {
     pub id: i64,
@@ -279,6 +294,48 @@ impl Db {
 
     // --- passes ---
 
+    /// Several corrections of one channel at once, all or none: passes moved
+    /// (they count as edited by hand from then on), deleted, restored, added.
+    pub fn edit_passes(&self, session_id: i64, channel: u8, e: &PassEdit) -> Result<()> {
+        self.conn.execute_batch("BEGIN")?;
+        // The closure runs the changes; `?` inside it ends it early with the
+        // error, and then everything is rolled back.
+        let result = (|| -> Result<()> {
+            let ids = "WHERE id = ?1 AND session_id = ?2 AND channel = ?3";
+            for &(id, time_us) in &e.moves {
+                self.conn.execute(
+                    &format!("UPDATE passes SET time_us = ?4, manual = 1 {ids}"),
+                    params![id, session_id, channel, time_us],
+                )?;
+            }
+            for &id in &e.restores {
+                self.conn.execute(
+                    &format!("UPDATE passes SET deleted = 0 {ids}"),
+                    params![id, session_id, channel],
+                )?;
+            }
+            for &id in &e.deletes {
+                self.conn.execute(
+                    &format!("UPDATE passes SET deleted = 1 {ids}"),
+                    params![id, session_id, channel],
+                )?;
+                self.conn.execute(
+                    &format!("DELETE FROM passes {ids} AND manual = 1"),
+                    params![id, session_id, channel],
+                )?;
+            }
+            for &time_us in &e.adds {
+                self.add_pass(session_id, channel, time_us, 0.0, true)?;
+            }
+            Ok(())
+        })();
+        match result {
+            Ok(()) => self.conn.execute_batch("COMMIT")?,
+            Err(_) => self.conn.execute_batch("ROLLBACK")?,
+        }
+        result
+    }
+
     pub fn add_pass(&self, session_id: i64, channel: u8, time_us: i64, peak_db: f32, manual: bool) -> Result<i64> {
         self.conn.execute(
             "INSERT INTO passes (session_id, channel, time_us, peak_db, manual) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -383,6 +440,20 @@ mod tests {
         let s = db.session(id).unwrap().unwrap();
         assert_eq!(s.config, config);
         assert_eq!(s.seats, seats);
+        // An edit: move the restored pass, add one; all in one go.
+        let p2 = db.add_pass(id, 1, 20_000_000, -19.0, false).unwrap();
+        let e = PassEdit {
+            moves: vec![(p2, 21_000_000)],
+            deletes: vec![],
+            restores: vec![p1],
+            adds: vec![30_000_000],
+        };
+        db.edit_passes(id, 1, &e).unwrap();
+        let times: Vec<(i64, bool)> = db.passes(id).unwrap().iter().map(|p| (p.time_us, p.deleted)).collect();
+        assert_eq!(
+            times,
+            vec![(6_000_000, false), (21_000_000, false), (30_000_000, false)]
+        );
         db.delete_pilot(pilot).unwrap();
         assert_eq!(db.session(id).unwrap().unwrap().seats[0].pilot_id, None);
         db.set_setting("x", &vec![1, 2]).unwrap();

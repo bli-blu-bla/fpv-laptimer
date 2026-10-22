@@ -3,18 +3,20 @@
 // can be corrected on the level graph.
 
 import { useEffect, useState } from 'react'
-import { ChartLine, FlagCheckered, Infinity as InfinityIcon, Trash } from '@phosphor-icons/react'
+import { FlagCheckered, Infinity as InfinityIcon, PencilSimple, Trash } from '@phosphor-icons/react'
 import { api } from '../api.js'
-import { dateTime, secs, sessionKind, slotColor, time } from '../format.js'
+import { dateTime, secs, sessionKind, time } from '../format.js'
 import { standings } from '../model.js'
-import CorrectDialog from '../components/CorrectDialog.jsx'
 import Dialog from '../components/Dialog.jsx'
+import PassEditor from '../components/PassEditor.jsx'
 import Ranking from '../components/Ranking.jsx'
 
 /** @param {{changed: number, state: import('../types').State}} props */
 export default function Sessions({ changed, state }) {
   const [list, setList] = useState(/** @type {import('../types').SessionDetail[] | null} */ (null))
   const [sel, setSel] = useState(/** @type {number | null} */ (null))
+  // While correcting, the session takes the whole width (a big graph).
+  const [editing, setEditing] = useState(false)
   const activeId = state.active?.session.id
   const passCount = state.active?.passes.length
 
@@ -25,6 +27,7 @@ export default function Sessions({ changed, state }) {
   if (!list) return <p className="muted">Lade …</p>
   if (!list.length) return <p className="muted">Noch keine Sessions. Starte unter „Live“ ein Training oder Rennen.</p>
   const chosen = sel ?? list[0].session.id
+  if (editing) return <SessionView key={chosen} id={chosen} changed={changed} editing onEditing={setEditing} />
 
   return (
     <div className="two-col" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 340px), 1fr))' }}>
@@ -60,16 +63,15 @@ export default function Sessions({ changed, state }) {
           )
         })}
       </div>
-      <SessionView key={chosen} id={chosen} changed={changed} />
+      <SessionView key={chosen} id={chosen} changed={changed} editing={false} onEditing={setEditing} />
     </div>
   )
 }
 
 /** One session: result, lap times, correcting, deleting.
- * @param {{id: number, changed: number}} props */
-function SessionView({ id, changed }) {
+ * @param {{id: number, changed: number, editing: boolean, onEditing: (on: boolean) => void}} props */
+function SessionView({ id, changed, editing, onEditing }) {
   const [d, setD] = useState(/** @type {import('../types').SessionDetail | null} */ (null))
-  const [correct, setCorrect] = useState(/** @type {number | null} */ (null))
   const [confirm, setConfirm] = useState(false)
   const [error, setError] = useState('')
   const reload = () => api(`/sessions/${id}`).then(setD).catch((e) => setError(e.message))
@@ -98,19 +100,18 @@ function SessionView({ id, changed }) {
       </div>
       {error && <p className="error">{error}</p>}
       <Ranking detail={d} />
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-        <span className="muted small">Runden korrigieren</span>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-          {s.seats.map((seat) => (
-            <button key={seat.channel} className="btn btn-secondary" onClick={() => setCorrect(seat.channel)}>
-              <span className="bar" style={{ background: slotColor(seat.channel) }} />
-              {seat.label}
-              <ChartLine size={16} />
-            </button>
-          ))}
-        </div>
-      </div>
-      {correct != null && <CorrectDialog detail={d} channel={correct} onChanged={reload} onClose={() => setCorrect(null)} />}
+      {editing ? (
+        <>
+          <button className="btn btn-secondary" style={{ alignSelf: 'flex-start' }} onClick={() => onEditing(false)}>
+            Bearbeiten schließen
+          </button>
+          <PassEditor detail={d} onSaved={reload} />
+        </>
+      ) : (
+        <button className="btn btn-secondary" style={{ alignSelf: 'flex-start' }} onClick={() => onEditing(true)}>
+          <PencilSimple size={16} /> Runden bearbeiten
+        </button>
+      )}
       {confirm && (
         <Dialog title="Session löschen?" onClose={() => setConfirm(false)}>
           <p className="muted" style={{ margin: 0 }}>

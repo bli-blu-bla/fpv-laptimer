@@ -72,7 +72,7 @@ USB-Ports, an einem dritten 2,4 ms; also ±0,4 bis ±1,2 ms Unsicherheit.
 | `src/core.rs` | `Core`: Settings (DB-Key `settings`), aktive Session, Durchflüge → DB → `results` → `state`-Nachricht; Ansagen (Countdown geplant, `runde`, `bestzeit` im Training, `pilotN_fertig`, `rennen_beendet`); `live` mit 10 Hz. Zeiten in der DB: Wanduhr-µs (`origin_unix_us + host_us`) |
 | `src/laps.rs` | Runden aus Durchflügen (rein, getestet): Start `holeshot`/`from_start`/`flying`, Ende `open`/`laps`/`seconds`, beste Runde, beste N in Folge, ignorierte Durchflüge |
 | `src/db.rs` | Tabellen `pilots`, `sessions` (Config als JSON, damit alte Ergebnisse bleiben), `seats`, `passes` (`manual`, `deleted` fürs Rückgängigmachen; vom Detektor zurückgenommene werden gelöscht), `settings` |
-| `src/trace.rs` | Pegelgraph einer Session: die Pegel-Datei noch einmal durch den Detektor (`Detector::with_trace` zeichnet pro 10-ms-Slot Hüllkurve kombiniert, je Board, Eintritt, Austritt auf), dann `graph` (Zeitbereich auf N Punkte, je Punkt das Maximum, damit kein Gipfel verloren geht) und `snap` (höchster Punkt ±1 s, von dort ±50 ms-weise bergauf, Buckel bis 3 dB darunter, darin Mitte zwischen erstem und letztem Punkt innerhalb 1 dB, wie der Detektor). Im Server zwischengespeichert pro Session und Dateigröße (höchstens 4); gelesen ohne die Core-Sperre (`spawn_blocking`). `/api/sessions/{id}/graph?channel&from_us&to_us&points`, `/api/sessions/{id}/snap?channel&time_us`; `POST …/passes` mit `snap: true` |
+| `src/trace.rs` | Pegelgraph einer Session: die Pegel-Datei noch einmal durch den Detektor (`Detector::with_trace` zeichnet pro 10-ms-Slot Hüllkurve kombiniert, je Board, Eintritt, Austritt auf), dann `graph` (Zeitbereich auf N Punkte, je Punkt das Maximum, damit kein Gipfel verloren geht) und `snap` (höchster Punkt ±1 s, von dort ±50 ms-weise bergauf, Buckel bis 3 dB darunter, darin Mitte zwischen erstem und letztem Punkt innerhalb 1 dB, wie der Detektor). Im Server zwischengespeichert pro Session und Dateigröße (höchstens 4); gelesen ohne die Core-Sperre (`spawn_blocking`). `/api/sessions/{id}/graph?channel&from_us&to_us&points`, `/api/sessions/{id}/snap?channel&time_us`; `POST …/passes` mit `snap: true`; `POST …/edit {channel, moves: [[id, t]], deletes, restores, adds: [t]}` (alles in einer Transaktion, `Db::edit_passes`; verschobene Durchflüge gelten danach als von Hand; abgelehnt, wenn zwei Durchflüge näher als die Mindestrunde liegen) |
 | `src/stats.rs` | Bestzeit, Sessions, Rennen, Siege pro Pilot (nach `pilot_id`, sonst nach Label), gesamt und heute; `race_order` (mehr Runden, dann frühere Gesamtzeit). `/api/stats` |
 | `src/source.rs` | Boards oder Replay (Replay liefert die Pegel nach Kanal-Position der Aufnahme, nicht nach Frequenz: nach einem Kanaltausch passen sie nicht mehr) |
 | `src/sound.rs` | MP3s nacheinander in eigenem Thread (`afplay` auf macOS, `mpg123 -q` sonst); fehlende Dateien werden übersprungen |
@@ -108,14 +108,22 @@ braucht; nicht Zusammengehöriges auf getrennten Seiten.
 
 | Datei | Inhalt |
 |---|---|
-| `App.jsx` | Navigation (Seitenleiste ab 820 px, sonst Tab-Leiste unten), Kopf mit „Heute · N Rennen“, Board-Status, Ton an/aus; lädt `/api/stats` |
-| `pages/Live.jsx` | Kopf: Status-Chip, Uhr, Training / Rennen starten (+ Zahnrad → `RaceDialog`), Stopp / Abbrechen (löscht). Nach dem Ende bleibt das Ergebnis stehen („Beendet“: Verwerfen, Schließen, „Runden korrigieren“ pro Karte → `CorrectDialog` mit dem Pegelgraphen). Karten (`Lane`): Position, letzte Runde, Runde n/N, Bestzeit, Abstand, Signalverlauf (`Sparkline`, 15 s aus den `live`-Nachrichten); Zahnrad → `SlotDialog`. Darunter `PassLog` und `DayBest`. Countdown als Vollbild |
+| `App.jsx` | Navigation mit 6 Seiten (Seitenleiste ab 820 px, sonst Tab-Leiste unten mit Kurznamen), Kopf mit „Heute · N Rennen“, Board-Status, Ton an/aus; lädt `/api/stats`. `?view=zuschauer`: nur die Zuschauer-Ansicht, ohne Navigation (Fernseher/Tablet) |
+| `pages/Control.jsx` | **Rennleitung**: Status, Uhr, Training / Rennen starten (+ Zahnrad → `RaceDialog`), Stopp / Abbrechen (löscht). Karten (`Lane`) mit Zahnrad → `SlotDialog`; während des Laufs `PassLog`. Nach dem Ende: Ergebnis (`Ranking`) und darunter `PassEditor` (Nachbearbeitung); Verwerfen, Schließen |
+| `pages/Watch.jsx` | **Zuschauer**: laufende oder letzte Session, Karten ohne Bedienung und ohne Signalverlauf, Rangliste, Countdown |
+| `pages/Best.jsx` | **Bestzeiten** heute / gesamt: Bestzeit, beste N in Folge, Rennen, Siege |
+| `components/PassEditor.jsx` | Korrektur wie RotorHazards Marshal-Seite: Kanal oben wählen, darunter großer Graph (340 px, Übersicht + Ausschnitt). Durchflug ziehen = verschieben, antippen = auswählen (Löschen/Wiederherstellen, am Gipfel einrasten), freie Stelle antippen = neu (per `/snap` am Gipfel), Fläche ziehen = Ausschnitt verschieben. Entwurf pro Kanal im Browser; Runden-Vorschau mit `computeLaps` (zu kurze Runden rot, dann kein Speichern); „Speichern“ schickt pro Kanal ein `POST /api/sessions/{id}/edit` |
 | `components/SlotDialog.jsx` | Pilot (Tausch mit dem Slot, der ihn hatte), Freitext, Kanal R1–R8 (Tausch; während einer Session gesperrt), Slot belegt an/aus. Speichert sofort |
 | `components/RaceDialog.jsx` | Start (Holeshot / Ab Startton / Fliegend), Ende nach Runden oder Zeit, Countdown aus/3/5/10 s |
-| `pages/Sessions.jsx` | Liste + Detail (`Ranking`: Tabelle und Rundenzeiten-Chips), Korrigieren pro Pilot, Löschen |
+| `pages/Sessions.jsx` | Liste + Detail (`Ranking`); „Runden bearbeiten“ blendet die Liste aus und zeigt den `PassEditor` in voller Breite; Löschen |
 | `pages/Pilots.jsx` | Callsign + Name, PB, Rennen, Siege; Dialog zum Anlegen/Bearbeiten/Löschen |
 | `pages/Settings.jsx` | Kanäle (hinzufügen/entfernen, R1–R8 oder freie MHz), Auswertung (Mindestrunde, beste N in Folge, Gain mit 0,8 s Verzögerung, weil er die Boards neu startet), Ansagen, Boards |
-| `model.js` | `slotsOf`, `standings` (Rennen: Runden, dann Gesamtzeit; Training: Bestzeit; Abstand), `passLog` |
+| `model.js` | `slotsOf`, `standings` (Rennen: Runden, dann Gesamtzeit; Training: Bestzeit; Abstand), `passLog`, `computeLaps` (JS-Kopie von `laps.rs::compute`, für die Vorschau im Editor) |
+
+Zeiten an die API immer als ganze µs (`Math.round`): berechnete Bereiche haben Nachkommastellen,
+und die Query-Parameter sind `i64` (sonst 400 Bad Request beim Verschieben des Graphen). Der
+Dialog schließt nur bei einem Tipp, der auf dem Hintergrund *begonnen* hat (ein Ziehen, das
+außerhalb endet, klickt sonst den Hintergrund).
 
 `npm run dev` proxied `/api` und `/ws` auf Port 5800. Geprüft mit puppeteer-core und dem
 installierten Chrome, Desktop 1280 px und Handy 390 px (Emulation; ohne sie wird Chrome

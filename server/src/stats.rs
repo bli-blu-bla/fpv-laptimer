@@ -15,6 +15,8 @@ pub struct PilotStats {
     /// As shown in the newest session.
     pub label: String,
     pub best_lap_us: Option<i64>,
+    /// The fastest `consecutive` laps in a row (within one session).
+    pub best_consecutive_us: Option<i64>,
     pub sessions: u32,
     pub races: u32,
     pub wins: u32,
@@ -42,8 +44,9 @@ pub fn race_order(results: &[PilotResult]) -> Vec<usize> {
     order
 }
 
-/// `sessions`: newest first, each with its results (in seat order).
-pub fn compute(sessions: &[(SessionRow, Vec<PilotResult>)], today_start_us: i64) -> Stats {
+/// `sessions`: newest first, each with its results (in seat order);
+/// `consecutive`: how many laps in a row `best_consecutive_us` covers.
+pub fn compute(sessions: &[(SessionRow, Vec<PilotResult>)], today_start_us: i64, consecutive: usize) -> Stats {
     let mut all: HashMap<String, PilotStats> = HashMap::new();
     let mut today: HashMap<String, PilotStats> = HashMap::new();
     let mut today_races = 0;
@@ -71,6 +74,7 @@ pub fn compute(sessions: &[(SessionRow, Vec<PilotResult>)], today_start_us: i64)
                     pilot_id: seat.pilot_id,
                     label: seat.label.clone(),
                     best_lap_us: None,
+                    best_consecutive_us: None,
                     sessions: 0,
                     races: 0,
                     wins: 0,
@@ -87,6 +91,15 @@ pub fn compute(sessions: &[(SessionRow, Vec<PilotResult>)], today_start_us: i64)
                 }
                 if let Some(b) = r.best_lap_us {
                     e.best_lap_us = Some(e.best_lap_us.map_or(b, |x| x.min(b)));
+                }
+                let n = consecutive.max(1);
+                if let Some(b) = r
+                    .laps
+                    .windows(n)
+                    .map(|w| w.iter().map(|l| l.duration_us).sum::<i64>())
+                    .min()
+                {
+                    e.best_consecutive_us = Some(e.best_consecutive_us.map_or(b, |x| x.min(b)));
                 }
             }
         }
@@ -175,7 +188,7 @@ mod tests {
             (race, vec![result(0, &[20, 21]), result(1, &[19, 19])]), // R2 is faster: wins
             (yesterday, vec![result(0, &[15, 30]), result(1, &[])]),  // NITRO alone flew: wins
         ];
-        let s = compute(&sessions, 500);
+        let s = compute(&sessions, 500, 2);
         assert_eq!(s.today_races, 1);
         let nitro = s.all.iter().find(|p| p.pilot_id == Some(7)).unwrap();
         assert_eq!(
@@ -187,5 +200,6 @@ mod tests {
         let r2 = s.today.iter().find(|p| p.label == "R2").unwrap();
         assert_eq!((r2.best_lap_us, r2.wins), (Some(19), 1));
         assert_eq!(s.all[0].pilot_id, Some(7)); // best lap first
+        assert_eq!(nitro.best_consecutive_us, Some(35)); // 17 + 18 (training)
     }
 }

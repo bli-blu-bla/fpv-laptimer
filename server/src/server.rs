@@ -29,7 +29,7 @@ use tokio::sync::broadcast;
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::core::{BoardView, Core, Settings, results};
-use crate::db::Db;
+use crate::db::{Db, PassEdit};
 use crate::detect::DetectConfig;
 use crate::esp::board::{Event, ScanConfig};
 use crate::sound::Sounds;
@@ -111,6 +111,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .route("/sessions/{id}/passes", post(add_pass))
         .route("/sessions/{id}/graph", get(get_graph))
         .route("/sessions/{id}/snap", get(get_snap))
+        .route("/sessions/{id}/edit", post(edit_passes))
         .route("/passes/{id}", post(set_pass_deleted))
         .route("/settings", get(get_settings).put(put_settings))
         .route("/pilots", post(add_pilot))
@@ -369,6 +370,43 @@ fn check_room(core: &Core, session: i64, channel: u8, time_us: i64, except: Opti
 }
 
 #[derive(Deserialize)]
+struct EditRequest {
+    channel: u8,
+    #[serde(flatten)]
+    edit: PassEdit,
+}
+
+/// Corrections of one channel from the pass editor, saved at once. The
+/// result must keep the minimum lap between any two passes.
+async fn edit_passes(State(app): State<Arc<App>>, Path(id): Path<i64>, Json(req): Json<EditRequest>) -> ApiResult {
+    let mut core = app.core.lock().unwrap();
+    let s = core.db.session(id)?.context("Diese Session gibt es nicht.")?;
+    let e = &req.edit;
+    let mut times: Vec<i64> = core
+        .db
+        .passes(id)?
+        .into_iter()
+        .filter(|p| p.channel == req.channel)
+        .filter(|p| (!p.deleted || e.restores.contains(&p.id)) && !e.deletes.contains(&p.id))
+        .map(|p| e.moves.iter().find(|(m, _)| *m == p.id).map_or(p.time_us, |(_, t)| *t))
+        .chain(e.adds.iter().copied())
+        .collect();
+    times.sort();
+    let min_lap_us = (s.config.min_lap_s * 1e6) as i64;
+    if let Some(w) = times.windows(2).find(|w| w[1] - w[0] < min_lap_us) {
+        return Err(anyhow::anyhow!(
+            "Zwei Durchflüge liegen nur {:.2} s auseinander – die Mindest-Rundenzeit ist {} s.",
+            (w[1] - w[0]) as f64 / 1e6,
+            s.config.min_lap_s
+        )
+        .into());
+    }
+    core.db.edit_passes(id, req.channel, e)?;
+    core.session_changed(id)?;
+    Ok(Json(json!({})))
+}
+
+#[derive(Deserialize)]
 struct SetDeleted {
     deleted: bool,
 }
@@ -471,7 +509,8 @@ async fn get_stats(State(app): State<Arc<App>>) -> ApiResult {
         .and_hms_opt(0, 0, 0)
         .and_then(|t| t.and_local_timezone(chrono::Local).earliest())
         .map_or(0, |t| t.timestamp_micros());
-    Ok(Json(serde_json::to_value(stats::compute(&sessions, today_start))?))
+    let n = core.settings.consecutive as usize;
+    Ok(Json(serde_json::to_value(stats::compute(&sessions, today_start, n))?))
 }
 
 /// The WebSocket: first the whole state, then every message the core sends.

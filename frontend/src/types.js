@@ -111,6 +111,7 @@
  * @property {number | null} pilot_id
  * @property {string} label
  * @property {number | null} best_lap_us
+ * @property {number | null} best_consecutive_us
  * @property {number} sessions
  * @property {number} races
  * @property {number} wins

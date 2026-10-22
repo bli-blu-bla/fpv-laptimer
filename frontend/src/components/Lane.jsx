@@ -2,7 +2,7 @@
 // One slot on the live page: who flies, position, last and best lap, gap,
 // and the signal of the last seconds. The gear opens the slot settings.
 
-import { FlagCheckered, GearSix, ChartLine } from '@phosphor-icons/react'
+import { FlagCheckered, GearSix } from '@phosphor-icons/react'
 import { secs } from '../format.js'
 import Sparkline from './Sparkline.jsx'
 
@@ -21,11 +21,10 @@ const ON_DB = -46
  * @param {import('../model.js').Standing} [props.standing]
  * @param {import('../types').EndRule} [props.endRule]
  * @param {import('../types').ChannelLive} [props.live]
- * @param {import('./Sparkline.jsx').SparkPoint[]} props.spark
- * @param {() => void} props.onGear
- * @param {() => void} [props.onCorrect]           after a session: open the level graph
+ * @param {import('./Sparkline.jsx').SparkPoint[]} [props.spark]   none: no signal shown (spectator view)
+ * @param {() => void} [props.onGear]                 none: no gear (spectator view)
  */
-export default function Lane({ color, callsign, fullName, channel, mhz, off, result, standing, endRule, live, spark, onGear, onCorrect }) {
+export default function Lane({ color, callsign, fullName, channel, mhz, off, result, standing, endRule, live, spark, onGear }) {
   const style = /** @type {React.CSSProperties} */ ({ '--lane': color })
   const head = (
     <div className="lane-head">
@@ -38,9 +37,11 @@ export default function Lane({ color, callsign, fullName, channel, mhz, off, res
       <span className="tag tnum">
         {channel} · {mhz}
       </span>
-      <button className="btn btn-ghost btn-icon" style={{ marginLeft: -6 }} onClick={onGear} title="Slot einstellen">
-        <GearSix size={18} />
-      </button>
+      {onGear && (
+        <button className="btn btn-ghost btn-icon" style={{ marginLeft: -6 }} onClick={onGear} title="Slot einstellen">
+          <GearSix size={18} />
+        </button>
+      )}
     </div>
   )
   if (off) {
@@ -85,6 +86,7 @@ export default function Lane({ color, callsign, fullName, channel, mhz, off, res
           <span className="v">{standing?.gap ?? '–'}</span>
         </div>
       </div>
+      {spark && (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
         <div className="spark-label">
           <span>Signal · {signal}</span>
@@ -94,10 +96,6 @@ export default function Lane({ color, callsign, fullName, channel, mhz, off, res
           <Sparkline points={spark} color={color} />
         </div>
       </div>
-      {onCorrect && (
-        <button className="btn btn-secondary" onClick={onCorrect}>
-          <ChartLine size={18} /> Runden korrigieren
-        </button>
       )}
     </div>
   )
