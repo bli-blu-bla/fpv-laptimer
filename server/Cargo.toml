@@ -1,0 +1,15 @@
+[package]
+name = "laptimer"
+version = "0.1.0"
+edition = "2024"
+description = "FPV lap timer: reads ESP32-C5 boards running the widscan58 firmware"
+license = "GPL-3.0-or-later"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+crc32fast = "1"
+ctrlc = "3"
+# Without libudev: cross-compiling for the Pi needs no C library.
+serialport = { version = "4", default-features = false }
+chrono = { version = "0.4", default-features = false, features = ["clock"] }

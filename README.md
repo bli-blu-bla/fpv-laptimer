@@ -19,7 +19,7 @@ Status: im Aufbau.
 | Ordner | Inhalt |
 |---|---|
 | `firmware/` | ESP32-C5-Firmware: [widscan58](https://github.com/CapnBry/widscan58) von Bryan Mayland (per `git subtree`) plus unsere Erweiterungen |
-| `server/` | Server in Rust (folgt) |
+| `server/` | Rust: bisher `laptimer record` (Pegel aufzeichnen); später der Server |
 | `frontend/` | Oberfläche in React mit JavaScript + JSDoc (folgt) |
 | `tools/` | Flash-Script, Mess- und Auswerte-Scripts |
 
@@ -31,6 +31,18 @@ tools/flash_c5_many.sh --all    # alle gerade angesteckten Boards
 ```
 
 Braucht [PlatformIO](https://platformio.org) (`pio`) und Python 3.
+
+## Pegel aufzeichnen (Testflüge)
+
+```sh
+cd server
+cargo run --release -- record          # alle angesteckten Boards, Strg-C beendet
+cargo run --release -- record --seconds 60 --gain 45 --channels R1=5658,R3=5732,R6=5843,R8=5917
+cargo run --release -- ports           # welche Boards gefunden werden
+```
+
+Zeigt die Pegel live im Terminal und schreibt alle Messwerte nach
+`server/recordings/<Datum_Uhrzeit>.csv`. Braucht [Rust](https://rustup.rs).
 
 ## Danksagung
 

@@ -14,7 +14,7 @@ Ownership-/async-Stellen kommentieren), Frontend in JavaScript mit JSDoc (`// @t
 | Teil | Technik |
 |---|---|
 | `firmware/` | widscan58 (ESP32-C5 als SDR, 5,8 GHz), per `git subtree` von [CapnBry/widscan58](https://github.com/CapnBry/widscan58), plus `LEVELBATCH`/`TIME?` (unten). GPL-3.0-or-later |
-| `server/` | Rust auf einem Raspberry Pi 3 (für den Pi auf dem Mac cross-kompilieren, der Pi 3 schafft keinen Rust-Build): ESPs per USB lesen, Durchflüge erkennen, SQLite (Sessions, Durchflüge, Rohpegel), MP3-Ansagen (`mpg123`), Web/WebSocket |
+| `server/` | Rust (Crate `laptimer`) auf einem Raspberry Pi 3 (für den Pi auf dem Mac cross-kompilieren, der Pi 3 schafft keinen Rust-Build): ESPs per USB lesen, Durchflüge erkennen, SQLite (Sessions, Durchflüge, Rohpegel), MP3-Ansagen (`mpg123`), Web/WebSocket |
 | `frontend/` | React, JavaScript + JSDoc |
 | `tools/` | Flash-Script, Python-Scripts zum Messen und Auswerten |
 
@@ -58,6 +58,35 @@ Gemessen (2026-10-22, XIAO ESP32-C5, R1/R3/R6/R8, `LEVELBATCH 10`, auch zwei Boa
 gleichzeitig): ~491–493 Pegel/s pro Kanal (alle 2,0 ms, längste Lücke ~3,0 ms), 96 Frames/s,
 ~18 KB/s, keine Verluste. `TIME?` über USB am Mac: kürzeste Umlaufzeit 0,7–0,9 ms an zwei
 USB-Ports, an einem dritten 2,4 ms; also ±0,4 bis ±1,2 ms Unsicherheit.
+
+## Server (`server/`)
+
+Bisher nur das Aufzeichnen für Testflüge (`laptimer record`, `laptimer ports`):
+
+| Datei | Inhalt |
+|---|---|
+| `src/esp/frame.rs` | Byte-Strom → Frames und Textzeilen (`Parser`), `LevelBatch` |
+| `src/esp/board.rs` | `Board::start`: Port öffnen, einstellen (Befehle oben), Uhrabgleich, dann ein Thread pro Board, der `Event`s über einen `mpsc`-Kanal schickt |
+| `src/clock.rs` | `ClockSync`: Board-Zeit → Host-Zeit (µs seit Programmstart). Je 10 `TIME?`-Antworten zählt die schnellste; durch diese Schätzungen der letzten 5 min eine Ausgleichsgerade (Drift erst ab 20 s Spanne) |
+| `src/record.rs` | CSV schreiben, Live-Anzeige im Terminal |
+
+Threads und `std::sync::mpsc` statt async: einfacher zu lesen. Für den Web-Server kommt
+später vermutlich `tokio`/`axum` dazu.
+
+CSV-Format: Kommentarzeilen mit `#` (Boards, Kanäle, Gain), dann
+`board,channel,host_us,board_us,rssi,flags`. `host_us` ist für alle Boards dieselbe Uhr.
+
+Gemessen mit zwei Boards (2026-10-22, 40 s, ohne VTX): ~511 Pegel/s pro Kanal und Board,
+keine Verluste, Uhr ±0,1 ms (der Uhrabgleich vor dem Scan-Start ist schneller als im
+Betrieb), Drift +4 und +8 ppm. In den ersten ~0,2 s nach dem Start fehlen bei einem frisch
+gestarteten Board Werte: die Firmware kalibriert jeden LO beim ersten Besuch (~40 ms).
+
+Einmal hingen beide Boards (keine Antwort, auch nicht auf `INFO`), bis sie per RTS
+zurückgesetzt wurden; Ursache unbekannt, nicht wieder aufgetreten.
+
+`serialport` ohne `libudev` (`default-features = false`), damit der Cross-Build für den Pi
+keine C-Bibliothek braucht; Boards werden am Portnamen erkannt (`/dev/cu.usbmodem*`,
+`/dev/ttyACM*`).
 
 **Upstream-Updates holen:** `tools/update_firmware.sh` (zieht `firmware/` aus
 CapnBry/widscan58 per `git subtree`).
