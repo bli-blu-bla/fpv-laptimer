@@ -21,7 +21,7 @@ Status: im Aufbau.
 | `firmware/` | ESP32-C5-Firmware: [widscan58](https://github.com/CapnBry/widscan58) von Bryan Mayland (per `git subtree`) plus unsere Erweiterungen |
 | `server/` | Rust: der Server (`laptimer serve`), dazu `record`/`replay` für Testflüge |
 | `frontend/` | Oberfläche in React mit JavaScript + JSDoc |
-| `sounds/` | Ansagen als MP3 (Platzhalter von `tools/make_sounds.sh`, gern durch eigene ersetzen); „Jede Runde ansagen“ spricht die Namen per Sprachausgabe: auf dem Pi `sudo apt install libttspico-utils` (oder `espeak-ng`) |
+| `sounds/` | Fertige Ansage-Bausteine als MP3 (Platzhalter von `tools/make_sounds.sh`, gern durch eigene mit gleichem Namen ersetzen; fehlt einer, wird sein Text gesprochen). Namen und Rundenzeiten spricht die Sprachausgabe: auf dem Pi `sudo apt install libttspico-utils` (oder `espeak-ng`). Einstellungen → Ansagen: welche Ereignisse angesagt werden, und ob der Server oder ein Browser (z. B. Laptop mit Bluetooth-Box) sie abspielt |
 | `tools/` | Flash-Script, Mess- und Auswerte-Scripts |
 
 ## Firmware flashen

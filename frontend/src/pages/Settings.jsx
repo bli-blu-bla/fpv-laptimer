@@ -4,8 +4,9 @@
 // manual thresholds: race control.)
 
 import { useEffect, useState } from 'react'
-import { Plus, SpeakerHigh, Sliders, Trash, Broadcast } from '@phosphor-icons/react'
-import { saveSettings } from '../api.js'
+import { Plus, Play, SpeakerHigh, Sliders, Trash, Broadcast } from '@phosphor-icons/react'
+import { api, saveSettings } from '../api.js'
+import { isSpeaker, setSpeaker } from '../announcer.js'
 import { RACEBAND, slotColor } from '../format.js'
 import Stepper from '../components/Stepper.jsx'
 
@@ -102,28 +103,105 @@ export default function SettingsPage({ state }) {
             />
           </div>
         </div>
-        <div className="panel">
-          <div className="panel-head">
-            <SpeakerHigh size={18} /> Ansagen
-          </div>
-          <div className="panel-body">
-            <button className="row-toggle" onClick={() => save({ sound: !s.sound })}>
-              <span className="text">
-                <span>Ansagen und Töne</span>
-                <span className="hint">Countdown, Startton, Rundenpiep, „Pilot N fertig“, „Neue Bestzeit“ – über den Lautsprecher am Server</span>
-              </span>
-              <span className={s.sound ? 'switch on' : 'switch'} />
+        <AnnouncePanel settings={s} save={save} />
+        {error && <p className="error">{error}</p>}
+      </div>
+    </div>
+  )
+}
+
+const LAP_CALLS = /** @type {const} */ ([
+  ['off', 'Aus'],
+  ['beep', 'Piep'],
+  ['number', 'Runde'],
+  ['time', 'Zeit'],
+])
+const LAP_HINTS = {
+  off: 'Nichts',
+  beep: 'Ein kurzer Ton',
+  number: '„Nitro ist in Runde 3“',
+  time: '„Nitro 13,7“ (Rundenzeit)',
+}
+
+/** Where announcements are played and which ones.
+ * @param {{settings: import('../types').Settings, save: (patch: Partial<import('../types').Settings>) => void}} props */
+function AnnouncePanel({ settings: s, save }) {
+  const a = s.announce
+  const [speaker, setSpeakerState] = useState(isSpeaker)
+  /** @param {Partial<import('../types').AnnounceSettings>} patch */
+  const set = (patch) => save({ announce: { ...a, ...patch } })
+  /** @param {boolean} on */
+  function toggleSpeaker(on) {
+    setSpeaker(on)
+    setSpeakerState(on)
+  }
+  /** @param {string} label @param {string} hint @param {keyof import('../types').AnnounceSettings} key */
+  const toggle = (label, hint, key) => (
+    <button className="row-toggle" disabled={!s.sound} onClick={() => set({ [key]: !a[key] })}>
+      <span className="text">
+        <span>{label}</span>
+        <span className="hint">{hint}</span>
+      </span>
+      <span className={a[key] ? 'switch on' : 'switch'} />
+    </button>
+  )
+
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <SpeakerHigh size={18} /> Ansagen
+        <button className="btn btn-ghost end" disabled={!s.sound} onClick={() => api('/announce/test', { method: 'POST' })} title="Beispiel-Ansage abspielen">
+          <Play size={16} /> Probe
+        </button>
+      </div>
+      <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <button className="row-toggle" onClick={() => save({ sound: !s.sound })}>
+          <span className="text">
+            <span>Ansagen und Töne</span>
+            <span className="hint">Alle an oder aus (auch oben rechts)</span>
+          </span>
+          <span className={s.sound ? 'switch on' : 'switch'} />
+        </button>
+        <div className="field">
+          <span>Ausgabe</span>
+          <div className="seg">
+            <button className={a.output === 'server' ? 'on' : ''} onClick={() => set({ output: 'server' })}>
+              Server
             </button>
-            <button className="row-toggle" disabled={!s.sound} onClick={() => save({ lap_callout: !s.lap_callout })}>
-              <span className="text">
-                <span>Jede Runde ansagen</span>
-                <span className="hint">„Anna ist in Runde 3“ statt des Rundenpieps (Sprachausgabe; auf dem Pi pico2wave oder espeak-ng)</span>
-              </span>
-              <span className={s.lap_callout ? 'switch on' : 'switch'} />
+            <button className={a.output === 'browser' ? 'on' : ''} onClick={() => set({ output: 'browser' })}>
+              Browser (Laptop)
             </button>
           </div>
         </div>
-        {error && <p className="error">{error}</p>}
+        {a.output === 'browser' && (
+          <button className="row-toggle" onClick={() => toggleSpeaker(!speaker)}>
+            <span className="text">
+              <span>Dieser Browser spielt die Ansagen</span>
+              <span className="hint">
+                Z. B. am Laptop mit der Bluetooth-Box. Nur Browser, in denen das an ist, spielen sie; die Seite muss dafür offen bleiben.
+              </span>
+            </span>
+            <span className={speaker ? 'switch on' : 'switch'} />
+          </button>
+        )}
+        {toggle('Start', '„Piloten, macht euch bereit“, „Rennen beginnt in“, 3 – 2 – 1, Startton; im Training „Training läuft“', 'start')}
+        <div className="field" style={{ opacity: s.sound ? 1 : 0.45 }}>
+          <span>Nach jeder Runde</span>
+          <div className="seg">
+            {LAP_CALLS.map(([k, label]) => (
+              <button key={k} disabled={!s.sound} className={a.lap === k ? 'on' : ''} onClick={() => set({ lap: k })}>
+                {label}
+              </button>
+            ))}
+          </div>
+          <span className="muted small">{LAP_HINTS[a.lap]}</span>
+        </div>
+        {toggle('Neue Bestzeit', 'Training: „Pilot Nitro hat eine neue Bestzeit erzielt: 13,7“ statt der Runden-Ansage', 'best')}
+        {toggle('Pilot im Ziel', 'Rennen: „Nitro ist im Ziel“', 'finished')}
+        {toggle('Rennen beendet', 'Rennen: wenn alle im Ziel sind', 'race_over')}
+        <span className="muted small" style={{ marginTop: 8 }}>
+          Fertige Sounds liegen im Ordner <code>sounds/</code>; Namen und Zeiten spricht die Sprachausgabe (auf dem Pi pico2wave oder espeak-ng).
+        </span>
       </div>
     </div>
   )

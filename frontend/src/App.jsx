@@ -18,6 +18,7 @@ import {
   UsersThree,
 } from '@phosphor-icons/react'
 import { api, saveSettings, useServer } from './api.js'
+import { onBlocked, unblock } from './announcer.js'
 import Best from './pages/Best.jsx'
 import Boards from './pages/Boards.jsx'
 import Control from './pages/Control.jsx'
@@ -44,6 +45,8 @@ export default function App() {
   const { state, connected, changed } = server
   const [page, setPage] = useState(/** @type {(typeof PAGES)[number][0]} */ ('control'))
   const stats = useStats(state, changed)
+  const [soundBlocked, setSoundBlocked] = useState(false)
+  useEffect(() => onBlocked(setSoundBlocked), [])
 
   const boards = state?.boards ?? []
   const failed = boards.filter((b) => b.failed).length
@@ -117,6 +120,11 @@ export default function App() {
               <a className="btn btn-ghost btn-icon" href="?view=zuschauer" target="_blank" title="Als Vollbild in neuem Fenster (für Fernseher/Tablet)">
                 <ArrowSquareOut size={20} />
               </a>
+            )}
+            {soundBlocked && (
+              <button className="btn btn-primary" onClick={unblock} title="Der Browser spielt Ton erst nach einem Tipp auf die Seite">
+                Ton freigeben
+              </button>
             )}
             {state && (
               <button

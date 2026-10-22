@@ -70,13 +70,13 @@ USB-Ports, an einem dritten 2,4 ms; also ±0,4 bis ±1,2 ms Unsicherheit.
 | Datei | Inhalt |
 |---|---|
 | `src/server.rs` | axum: `/api/state`, `/api/session/start {race}`, `/api/session/stop`, `/api/sessions[/{id}]` (GET, DELETE), `/api/sessions/{id}/passes {channel,time_us}` (von Hand), `/api/passes/{id} {deleted}`, `/api/settings` (GET/PUT; Kanäle oder Gain ändern startet die Boards neu), `/api/pilots[/{id}]`; `/ws` (erst `state`, dann `state`/`live`/`session_changed`); sonst `frontend/dist`. Threads: Boards → std-Kanal → Core-Thread (`on_board_event`, `tick` alle 10 ms); `Core` in einem `std::sync::Mutex`, nie über ein `.await` halten |
-| `src/core.rs` | `Core`: Settings (DB-Key `settings`), aktive Session, Durchflüge → DB → `results` → `state`-Nachricht; Ansagen (Countdown geplant, `runde`, `bestzeit` im Training, `pilotN_fertig`, `rennen_beendet`); `live` mit 10 Hz. Zeiten in der DB: Wanduhr-µs (`origin_unix_us + host_us`) |
+| `src/core.rs` | `Core`: Settings (DB-Key `settings`), aktive Session, Durchflüge → DB → `results` → `state`-Nachricht; Ansagen (`refresh`, `schedule_start`; Bausteine siehe `sound.rs`); `live` mit 10 Hz. Zeiten in der DB: Wanduhr-µs (`origin_unix_us + host_us`) |
 | `src/laps.rs` | Runden aus Durchflügen (rein, getestet): Start `holeshot`/`from_start`/`flying`, Ende `open`/`laps`/`seconds`, beste Runde, beste N in Folge, ignorierte Durchflüge |
 | `src/db.rs` | Tabellen `pilots`, `sessions` (Config als JSON, damit alte Ergebnisse bleiben), `seats`, `passes` (`manual`, `deleted` fürs Rückgängigmachen; vom Detektor zurückgenommene werden gelöscht), `settings` |
 | `src/trace.rs` | Pegelgraph einer Session: die Pegel-Datei noch einmal durch den Detektor (`Detector::with_trace` zeichnet pro 10-ms-Slot Hüllkurve kombiniert, je Board, Eintritt, Austritt auf), dann `graph` (Zeitbereich auf N Punkte, je Punkt das Maximum, damit kein Gipfel verloren geht) und `snap` (höchster Punkt ±1 s, von dort ±50 ms-weise bergauf, Buckel bis 3 dB darunter, darin Mitte zwischen erstem und letztem Punkt innerhalb 1 dB, wie der Detektor). Im Server zwischengespeichert pro Session und Dateigröße (höchstens 4); gelesen ohne die Core-Sperre (`spawn_blocking`). `/api/sessions/{id}/graph?channel&from_us&to_us&points`, `/api/sessions/{id}/snap?channel&time_us`; `POST …/passes` mit `snap: true`; `POST …/edit {channel, moves: [[id, t]], deletes, restores, adds: [t]}` (alles in einer Transaktion, `Db::edit_passes`; verschobene Durchflüge gelten danach als von Hand; abgelehnt, wenn zwei Durchflüge näher als die Mindestrunde liegen) |
 | `src/stats.rs` | Bestzeit, Sessions, Rennen, Siege pro Pilot (nach `pilot_id`, sonst nach Label), gesamt und heute; `race_order` (mehr Runden, dann frühere Gesamtzeit). `/api/stats` |
 | `src/source.rs` | Boards oder Replay (Replay liefert die Pegel nach Kanal-Position der Aufnahme, nicht nach Frequenz: nach einem Kanaltausch passen sie nicht mehr) |
-| `src/sound.rs` | MP3s und gesprochene Texte nacheinander in eigenem Thread (`afplay` auf macOS, `mpg123 -q` sonst); fehlende Dateien werden übersprungen. Texte (`speak`): `say -v Anna` auf macOS, sonst `pico2wave` + `aplay`, ersatzweise `espeak-ng` |
+| `src/sound.rs` | Ansage = Liste von `Part`s (Clip `sounds/<name>.mp3` mit Ersatztext, oder Text), nacheinander in eigenem Thread. Texte per Sprachausgabe als WAV in `<data>/tts/<hash>.wav` (beim Start geleert; `say -v Anna` auf macOS, sonst `pico2wave`, ersatzweise `espeak-ng`); Pilotennamen beim Session-Start vorab (`prepare`, eigener Thread, damit der Countdown nicht wartet). Ausgabe Server (`afplay`, sonst `mpg123`/`aplay`) oder Browser: WebSocket `announce {items: [{url} \| {text}]}`, Dateien unter `/api/audio/clips/…` und `/api/audio/tts/…`; `POST /api/announce/test` |
 
 **Boards und Gates:** Jedes Board hat eine feste Kennung, die USB-Seriennummer (= MAC,
 `find_ports`; macOS über `serialport`, Linux aus `/dev/serial/by-id`; Replay: `replay-N`).
@@ -107,8 +107,9 @@ Hand eingefügter oder wiederhergestellter Durchflug näher als die Mindestrunde
 anderen wird abgelehnt. Ein Rennen stoppt von selbst, wenn alle Slots im Ziel sind.
 Piloten: `name` ist der Callsign (eindeutig), `full_name` optional (Spalte wird in alten
 Datenbanken beim Öffnen ergänzt). Settings: `seats[].enabled` (freie Slots fehlen in der
-Session), `sound` (Ansagen an/aus), `lap_callout` („<Label> ist in Runde <n+1>“ nach jeder
-Runde statt des Pieps; „Neue Bestzeit“ und „Pilot N fertig“ bleiben). Fehlermeldungen der API sind deutsch, die Seite zeigt
+Session), `sound` (alle Ansagen an/aus), `announce` (`output` server/browser; Ereignisse
+`start`, `lap` = off/beep/number/time, `best` nur im Training, `finished`, `race_over`; das
+frühere `lap_callout` wird nicht übernommen). Fehlermeldungen der API sind deutsch, die Seite zeigt
 sie direkt an. Löschen
 markiert erkannte Durchflüge (wiederherstellbar), von Hand eingefügte werden entfernt. Beim
 Start schließt der Server Sessions, die ein früherer Lauf offen gelassen hat
@@ -145,7 +146,8 @@ braucht; nicht Zusammengehöriges auf getrennten Seiten.
 | `components/RaceDialog.jsx` | Start (Holeshot / Ab Startton / Fliegend), Ende nach Runden oder Zeit, Countdown aus/3/5/10 s |
 | `pages/Sessions.jsx` | Liste + Detail (`Ranking`); „Runden bearbeiten“ blendet die Liste aus und zeigt den `PassEditor` in voller Breite; Löschen |
 | `pages/Pilots.jsx` | Callsign + Name, PB, Rennen, Siege; Dialog zum Anlegen/Bearbeiten/Löschen |
-| `pages/Settings.jsx` | Kanäle (hinzufügen/entfernen, R1–R8 oder freie MHz), Auswertung (Mindestrunde, beste N in Folge, Gain mit 0,8 s Verzögerung, weil er die Boards neu startet), Ansagen, Boards |
+| `pages/Settings.jsx` | Kanäle (hinzufügen/entfernen, R1–R8 oder freie MHz), Auswertung (Mindestrunde, beste N in Folge, Gain mit 0,8 s Verzögerung, weil er die Boards neu startet), Ansagen (Ausgabe, Ereignisse, „Probe“) |
+| `announcer.js` | Ansagen im Browser: spielt `announce`-Nachrichten nur, wenn dieser Browser als Lautsprecher eingeschaltet ist (`localStorage`); blockiert der Browser den Ton (kein Tipp seit dem Laden), zeigt der Kopf „Ton freigeben“. Texte ohne Datei per `speechSynthesis` |
 | `model.js` | `slotsOf`, `standings` (Rennen: Runden, dann Gesamtzeit; Training: Bestzeit; Abstand), `passLog`, `computeLaps` (JS-Kopie von `laps.rs::compute`, für die Vorschau im Editor) |
 
 Zeiten an die API immer als ganze µs (`Math.round`): berechnete Bereiche haben Nachkommastellen,

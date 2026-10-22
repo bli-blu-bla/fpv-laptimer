@@ -86,7 +86,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         db,
         opts.data_dir.clone(),
         origin,
-        Sounds::new(opts.sounds_dir.clone()),
+        Sounds::new(opts.sounds_dir.clone(), opts.data_dir.join("tts"), tx.clone()),
         tx.clone(),
     );
     let app = Arc::new(App {
@@ -137,7 +137,11 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .route("/pilots/{id}", axum::routing::put(update_pilot).delete(delete_pilot))
         .route("/stats", get(get_stats))
         .route("/firmware", get(get_firmware))
-        .route("/firmware/flash", post(flash_board));
+        .route("/firmware/flash", post(flash_board))
+        .route("/announce/test", post(announce_test))
+        // Announcements played by the browsers: the clips and the spoken texts.
+        .nest_service("/audio/clips", ServeDir::new(&opts.sounds_dir))
+        .nest_service("/audio/tts", ServeDir::new(opts.data_dir.join("tts")));
     let web = ServeDir::new(&opts.web_dir).fallback(ServeFile::new(opts.web_dir.join("index.html")));
     let router = Router::new()
         .nest("/api", api)
@@ -665,6 +669,12 @@ fn set_flash(app: &App, stage: &str, progress: Option<f64>, done: bool, error: O
     let mut msg = serde_json::to_value(&*s).unwrap_or_default();
     msg["type"] = json!("flash");
     let _ = app.tx.send(msg.to_string());
+}
+
+/// Plays a sample announcement (settings page, "Probe").
+async fn announce_test(State(app): State<Arc<App>>) -> Json<Value> {
+    app.core.lock().unwrap().announce_test();
+    Json(json!({}))
 }
 
 /// The WebSocket: first the whole state, then every message the core sends.

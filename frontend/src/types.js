@@ -23,9 +23,18 @@
  * @property {number} min_lap_s
  * @property {number} consecutive
  * @property {boolean} sound
- * @property {boolean} lap_callout   after every lap: "<pilot> ist in Runde <n>"
+ * @property {AnnounceSettings} announce
  * @property {DetectionSettings} detection
  * @property {Record<string, BoardRole>} board_roles   by board id; missing: finish
+ *
+ * @typedef {'off' | 'beep' | 'number' | 'time'} LapCall   number: "<pilot> ist in Runde 3", time: "<pilot> 13,7"
+ * @typedef {object} AnnounceSettings
+ * @property {'server' | 'browser'} output   browser: played by browsers switched on as speaker
+ * @property {boolean} start      countdown and start tone; "Training läuft"
+ * @property {LapCall} lap
+ * @property {boolean} best       training: "Pilot <name> hat eine neue Bestzeit erzielt: 13,7"
+ * @property {boolean} finished   race: "<name> ist im Ziel"
+ * @property {boolean} race_over  race: "Rennen beendet"
  *
  * @typedef {'finish' | 'arming' | 'off'} BoardRole
  * @typedef {'auto' | 'classic'} DetectMode

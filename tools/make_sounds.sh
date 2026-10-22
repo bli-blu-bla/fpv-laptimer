@@ -21,13 +21,22 @@ tone() { # name frequency seconds
         -af "afade=t=out:st=$(echo "$3 - 0.05" | bc | sed "s|^\.|0.|"):d=0.05" -codec:a libmp3lame -q:a 4 "$out/$1.mp3"
 }
 
+# Start
+speak piloten_bereit "Piloten, macht euch bereit"
 speak rennen_beginnt "Rennen beginnt in"
-speak 3 "drei"
-speak 2 "zwei"
-speak 1 "eins"
+speak training_beginnt "Training läuft"
 tone start 880 0.8
+# Numbers (countdown, lap numbers); higher ones are spoken by the server.
+words=(null eins zwei drei vier fünf sechs sieben acht neun zehn elf zwölf dreizehn vierzehn fünfzehn)
+for n in $(seq 1 15); do speak "$n" "${words[$n]}"; done
+# Laps; the pilot names and lap times are spoken by the server.
 tone runde 1320 0.12
-for n in 1 2 3 4 5 6 7 8; do speak "pilot${n}_fertig" "Pilot $n fertig"; done
+speak ist_in_runde "ist in Runde"
+speak pilot "Pilot"
+speak neue_bestzeit "hat eine neue Bestzeit erzielt"
+# End
+speak ist_im_ziel "ist im Ziel"
 speak rennen_beendet "Rennen beendet"
-speak bestzeit "Neue Bestzeit"
+# Clips of older versions.
+rm -f "$out"/pilot[1-8]_fertig.mp3 "$out/bestzeit.mp3"
 ls "$out"

@@ -3,6 +3,7 @@
 // everything that changes.
 
 import { useEffect, useRef, useState } from 'react'
+import { announce } from './announcer.js'
 
 /**
  * @param {string} path  e.g. "/session/start"
@@ -25,6 +26,7 @@ export async function api(path, opts = {}) {
  * `clockOffset`: server clock − browser clock, µs, for running timers.
  * `changed`: counts `session_changed` messages (pages reload on a change).
  * `flash`: the latest `flash` message (a board being flashed by the server).
+ * `announce` messages go to `announcer.js` (plays them if this browser is a speaker).
  */
 export function useServer() {
   const [state, setState] = useState(/** @type {import('./types').State | null} */ (null))
@@ -56,6 +58,7 @@ export function useServer() {
         else if (msg.type === 'live') setLive(msg)
         else if (msg.type === 'session_changed') setChanged((n) => n + 1)
         else if (msg.type === 'flash') setFlash(msg)
+        else if (msg.type === 'announce') announce(msg.items)
       }
     }
     connect()
