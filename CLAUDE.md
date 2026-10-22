@@ -148,6 +148,13 @@ keine Verluste, Uhr ±0,1 ms (der Uhrabgleich vor dem Scan-Start ist schneller a
 Betrieb), Drift +4 und +8 ppm. In den ersten ~0,2 s nach dem Start fehlen bei einem frisch
 gestarteten Board Werte: die Firmware kalibriert jeden LO beim ersten Besuch (~40 ms).
 
+Anlauf: Bevor ein Pilot 3 echte Gipfel hat, muss ein Durchflug mindestens 8 dB über dem
+Kurspegel liegen (`BOOT_MIN_RISE`). Mit 3 dB zählten in der ersten echten Session des
+Nutzers (Session 1, 2026-10-22, 2 Durchflüge, Server kurz vorher gestartet) Wellen 4–5 dB
+über dem Kurs: 7 Treffer statt 2, und das Zurücknehmen griff nicht, weil die ersten drei
+Gipfel alle falsch waren. Echte Durchflüge stiegen in allen Aufnahmen 13–26 dB. Mit 8 dB:
+alle drei Aufnahmen richtig (6, 6, 2).
+
 Erkennung auf den beiden Aufnahmen vom 2026-10-22 (ein Pilot, DJI 25 mW, R3, Boards lose
 am Boden mit den beiliegenden externen Antennen): kombiniert beide richtig (6 von 6; in der
 ersten wird ein Fehltreffer vor dem ersten Durchflug zurückgenommen). Einzelne Boards

@@ -55,6 +55,11 @@ const TOP_CODES: u8 = 4; // 1 dB
 /// No thresholds while the peak is less than this above the course (codes):
 /// the levels only wander, nobody has flown through the gate yet.
 const MIN_CONTRAST: f32 = 3.0 * 4.0;
+/// Before a pilot's pass peaks are known (start-up), a pass must rise at least
+/// this far above the course level (codes). With 3 dB, wiggles 4-5 dB above
+/// the course counted (session 1 of 2026-10-22: 5 false passes before the
+/// first real one); real passes rose 13-26 dB in every recording so far.
+const BOOT_MIN_RISE: f32 = 8.0 * 4.0;
 /// A pass is reported this long after its crossing ended.
 const HOLD_US: i64 = 1_000_000;
 /// A board that sent nothing for this long no longer holds the others back.
@@ -457,7 +462,8 @@ impl ChannelDetector {
             self.exit = None;
             return;
         };
-        let peak = if self.peaks.len() >= MIN_PEAKS {
+        let known = self.peaks.len() >= MIN_PEAKS;
+        let peak = if known {
             median(self.peaks.iter().copied()) as f32
         } else {
             high
@@ -467,8 +473,14 @@ impl ChannelDetector {
             self.exit = None;
             return;
         }
-        self.enter = Some(course + ENTER_FRACTION * (peak - course));
-        self.exit = Some(course + EXIT_FRACTION * (peak - course));
+        let mut enter = course + ENTER_FRACTION * (peak - course);
+        if !known {
+            // Before real pass peaks are known, the estimate can sit in the
+            // course's own wiggles: demand a clear rise.
+            enter = enter.max(course + BOOT_MIN_RISE);
+        }
+        self.enter = Some(enter);
+        self.exit = Some((course + EXIT_FRACTION * (peak - course)).min(enter - 4.0));
     }
 }
 
@@ -607,10 +619,10 @@ mod tests {
     #[test]
     fn finds_passes_despite_dropouts() {
         let passes = [20.0, 27.5, 34.0, 41.2, 48.9];
-        // Course level wandering between -35 and -25 dBFS: before the first
-        // pass, a high moment of it counts as a pass and is taken back later.
+        // Course level wandering between -35 and -25 dBFS: its high moments
+        // must not count (start-up demands a rise of BOOT_MIN_RISE).
         let events = simulate_events(&passes, 55.0, |t| -30.0 + 5.0 * (t * 0.7).sin());
-        assert!(events.iter().any(|e| matches!(e, Event::Retract(_))));
+        assert!(!events.iter().any(|e| matches!(e, Event::Retract(_))), "{events:?}");
         let found = final_passes(&events);
         let times: Vec<f64> = found.iter().map(|p| p.time_us as f64 / 1e6).collect();
         assert_eq!(found.len(), passes.len(), "found {times:?}");
