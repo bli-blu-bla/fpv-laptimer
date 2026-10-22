@@ -4,14 +4,14 @@
 // manual thresholds: race control.)
 
 import { useEffect, useState } from 'react'
-import { Plus, Play, SpeakerHigh, Sliders, Trash, Broadcast } from '@phosphor-icons/react'
+import { Plus, Play, SpeakerHigh, Sliders, Trash, Broadcast, Code } from '@phosphor-icons/react'
 import { api, saveSettings } from '../api.js'
 import { isSpeaker, setSpeaker } from '../announcer.js'
 import { RACEBAND, slotColor } from '../format.js'
 import Stepper from '../components/Stepper.jsx'
 
-/** @param {{state: import('../types').State}} props */
-export default function SettingsPage({ state }) {
+/** @param {{state: import('../types').State, onOpenApi: () => void}} props */
+export default function SettingsPage({ state, onOpenApi }) {
   const s = state.settings
   const running = state.active != null
   const [error, setError] = useState('')
@@ -47,8 +47,8 @@ export default function SettingsPage({ state }) {
         </div>
         <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <span className="muted small">
-            Alle Boards scannen alle Kanäle. Weniger oder nah beieinander liegende Kanäle messen öfter. Wer auf welchem Kanal fliegt, stellst du in
-            der Live-Ansicht am Zahnrad ein.
+            Alle Boards scannen alle Kanäle. Weniger oder nah beieinander liegende Kanäle messen öfter. Wer auf welchem Kanal fliegt, stellst du in der
+            Live-Ansicht am Zahnrad ein.
           </span>
           {running && <span className="error small">Während einer Session lassen sich Kanäle nicht ändern.</span>}
           {s.channels.map((c, i) => (
@@ -105,6 +105,10 @@ export default function SettingsPage({ state }) {
         </div>
         <AnnouncePanel settings={s} save={save} />
         {error && <p className="error">{error}</p>}
+        {/* On phones the API page has no tab of its own. */}
+        <button className="btn btn-secondary narrow-only" onClick={onOpenApi}>
+          <Code size={16} /> API & Hooks
+        </button>
       </div>
     </div>
   )
@@ -226,4 +230,3 @@ function MhzInput({ value, disabled, onSet }) {
     />
   )
 }
-

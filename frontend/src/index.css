@@ -1152,3 +1152,120 @@ body {
   color: var(--n400);
   transform: none;
 }
+
+/* — API page — */
+.mono,
+code,
+pre.code {
+  font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  font-size: 12.5px;
+}
+code {
+  color: var(--n300);
+  overflow-wrap: anywhere;
+}
+pre.code {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--bg);
+  color: var(--n300);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+pre.code.result {
+  max-height: 420px;
+  overflow-y: auto;
+}
+textarea.input {
+  resize: vertical;
+  line-height: 1.4;
+  padding-top: 8px;
+}
+.key-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: var(--accent-900);
+  box-shadow: 0 0 0 1px var(--accent-800);
+}
+.code-line {
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  color: var(--accent-300);
+  user-select: all;
+}
+.doc-item {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px 0;
+  border-top: 1px solid var(--n900);
+}
+.args {
+  margin: 4px 0 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+.method {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  background: var(--n800);
+}
+.method.m-get {
+  color: var(--ok);
+}
+.method.m-post {
+  color: var(--accent);
+}
+.method.m-patch {
+  color: var(--manual);
+}
+.method.m-delete {
+  color: var(--bad);
+}
+.ok-color {
+  color: var(--ok);
+}
+.ws-log {
+  display: flex;
+  flex-direction: column;
+  max-height: 640px;
+  overflow-y: auto;
+}
+.ws-line {
+  display: grid;
+  grid-template-columns: auto 14px 1fr;
+  gap: 8px;
+  padding: 5px 0;
+  border-top: 1px solid var(--n900);
+  font-size: 12px;
+}
+.ws-line.out code {
+  color: var(--accent-300);
+}
+.ws-line.info code {
+  color: var(--n500);
+}
+.ws-dir {
+  color: var(--n600);
+}
+.hook-cmd {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ws-head {
+  font-weight: 600;
+  font-size: 12.5px;
+  color: var(--text);
+}
+.ws-line.out .ws-head {
+  color: var(--accent);
+}

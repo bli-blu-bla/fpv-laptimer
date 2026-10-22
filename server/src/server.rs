@@ -28,11 +28,14 @@ use serde_json::{Value, json};
 use tokio::sync::broadcast;
 use tower_http::services::{ServeDir, ServeFile};
 
+use crate::api;
 use crate::core::{BoardView, Core, Settings, results};
 use crate::db::{Db, PassEdit};
 use crate::detect::DetectConfig;
 use crate::esp::board::{Event, ScanConfig, find_ports};
 use crate::esp::flash;
+use crate::events::Events;
+use crate::hooks::Hooks;
 use crate::sound::Sounds;
 use crate::source::{self, Source};
 use crate::stats;
@@ -45,12 +48,17 @@ pub struct ServeOptions {
     pub sounds_dir: PathBuf,
     /// Play this recording instead of reading boards.
     pub replay: Option<PathBuf>,
+    /// The hooks' scripts folder (`hooks.rs`).
+    pub hooks_dir: PathBuf,
 }
 
 /// Shared by all request handlers (axum's "state").
-struct App {
-    core: Mutex<Core>,
+pub struct App {
+    pub core: Mutex<Core>,
     tx: broadcast::Sender<String>,
+    /// The events for the API's WebSocket (`events.rs`, `api.rs`).
+    pub api_tx: broadcast::Sender<String>,
+    pub hooks: Arc<Hooks>,
     /// The boards (or the replay); replaced when channels or gain change.
     source: Mutex<Option<Source>>,
     events: Sender<Event>,
@@ -80,6 +88,8 @@ pub fn run(opts: ServeOptions) -> Result<()> {
     std::fs::create_dir_all(&opts.data_dir)?;
     let db = Db::open(&opts.data_dir.join("laptimer.db").to_string_lossy())?;
     let (tx, _) = broadcast::channel(256);
+    let (api_tx, _) = broadcast::channel(1024);
+    let (hooks, hooks_tx) = Hooks::start(opts.hooks_dir.clone(), db.hooks()?)?;
     let (events, events_rx) = mpsc::channel();
     let origin = Instant::now();
     let core = Core::new(
@@ -88,10 +98,13 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         origin,
         Sounds::new(opts.sounds_dir.clone(), opts.data_dir.join("tts"), tx.clone()),
         tx.clone(),
+        Events::new(api_tx.clone(), hooks_tx),
     );
     let app = Arc::new(App {
         core: Mutex::new(core),
         tx,
+        api_tx,
+        hooks,
         source: Mutex::new(None),
         events,
         replay: opts.replay.clone(),
@@ -140,6 +153,8 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .route("/firmware", get(get_firmware))
         .route("/firmware/flash", post(flash_board))
         .route("/announce/test", post(announce_test))
+        .merge(api::page_routes())
+        .nest("/v1", api::router(Arc::clone(&app)))
         // Announcements played by the browsers: the clips and the spoken texts.
         .nest_service("/audio/clips", ServeDir::new(&opts.sounds_dir))
         .nest_service("/audio/tts", ServeDir::new(opts.data_dir.join("tts")));
@@ -167,7 +182,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
 
 /// Stops the boards (or replay) and starts them with the current settings.
 /// Talks to the boards, so it takes a moment: not on a tokio thread.
-fn restart_source(app: &App) -> Result<()> {
+pub fn restart_source(app: &App) -> Result<()> {
     let mut source = app.source.lock().unwrap();
     start_source(app, &mut source)
 }
@@ -273,17 +288,7 @@ async fn confirm_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> Ap
 }
 
 async fn delete_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> ApiResult {
-    let core = app.core.lock().unwrap();
-    let s = core.db.session(id)?.context("Diese Session gibt es nicht.")?;
-    if s.ended_us.is_none() {
-        return Err(anyhow::anyhow!("Die Session läuft noch.").into());
-    }
-    if let Some(f) = &s.levels_file {
-        let _ = std::fs::remove_file(f);
-    }
-    core.db.delete_session(id)?;
-    let _ = app.tx.send(json!({ "type": "session_changed", "id": id }).to_string());
-    core.broadcast_state(); // an unconfirmed race may be gone
+    app.core.lock().unwrap().delete_session(id)?;
     Ok(Json(json!({})))
 }
 
@@ -400,7 +405,7 @@ async fn add_pass(State(app): State<Arc<App>>, Path(id): Path<i64>, Json(req): J
 
 /// A pass closer than the minimum lap to another (not deleted) pass of the
 /// same channel would make a lap that can't be: refuse it.
-fn check_room(core: &Core, session: i64, channel: u8, time_us: i64, except: Option<i64>) -> Result<()> {
+pub fn check_room(core: &Core, session: i64, channel: u8, time_us: i64, except: Option<i64>) -> Result<()> {
     let s = core.db.session(session)?.context("Diese Session gibt es nicht.")?;
     let min_lap_us = (s.config.min_lap_s * 1e6) as i64;
     let clash = core.db.passes(session)?.into_iter().find(|p| {
@@ -524,30 +529,32 @@ impl PilotData {
 
 async fn add_pilot(State(app): State<Arc<App>>, Json(req): Json<PilotData>) -> ApiResult {
     let (name, full_name) = req.checked()?;
-    let core = app.core.lock().unwrap();
-    let id = core.db.add_pilot(name, full_name)?;
-    core.broadcast_state();
+    let id = app.core.lock().unwrap().add_pilot(name, full_name)?;
     Ok(Json(json!({ "id": id })))
 }
 
 async fn update_pilot(State(app): State<Arc<App>>, Path(id): Path<i64>, Json(req): Json<PilotData>) -> ApiResult {
     let (name, full_name) = req.checked()?;
-    let core = app.core.lock().unwrap();
-    core.db.update_pilot(id, name, full_name)?;
-    core.broadcast_state();
+    app.core.lock().unwrap().update_pilot(id, name, full_name)?;
     Ok(Json(json!({})))
 }
 
 async fn delete_pilot(State(app): State<Arc<App>>, Path(id): Path<i64>) -> ApiResult {
-    let core = app.core.lock().unwrap();
-    core.db.delete_pilot(id)?;
-    core.broadcast_state();
+    app.core.lock().unwrap().delete_pilot(id)?;
     Ok(Json(json!({})))
 }
 
 /// Best laps, races and wins per pilot, all time and today (`stats.rs`).
 async fn get_stats(State(app): State<Arc<App>>) -> ApiResult {
-    let core = app.core.lock().unwrap();
+    Ok(Json(stats_json(&app.core.lock().unwrap())?))
+}
+
+/// The laps of a session's seats (for `api.rs`).
+pub fn session_results(s: &crate::db::SessionRow, passes: &[crate::laps::PassRecord]) -> Vec<crate::laps::PilotResult> {
+    results(s, passes)
+}
+
+pub fn stats_json(core: &Core) -> Result<Value> {
     let mut sessions = Vec::new();
     for s in core.db.sessions(2000)? {
         let passes = core.db.passes(s.id)?;
@@ -560,7 +567,7 @@ async fn get_stats(State(app): State<Arc<App>>) -> ApiResult {
         .and_then(|t| t.and_local_timezone(chrono::Local).earliest())
         .map_or(0, |t| t.timestamp_micros());
     let n = core.settings.consecutive as usize;
-    Ok(Json(serde_json::to_value(stats::compute(&sessions, today_start, n))?))
+    Ok(serde_json::to_value(stats::compute(&sessions, today_start, n))?)
 }
 
 /// The firmware on offer, the boards' ports (also those without our
@@ -570,7 +577,11 @@ async fn get_firmware(State(app): State<Arc<App>>) -> ApiResult {
         Ok(m) => (Some(m), None),
         Err(e) => (None, Some(format!("{e:#}"))),
     };
-    let ports = if app.replay.is_some() { Vec::new() } else { find_ports()? };
+    let ports = if app.replay.is_some() {
+        Vec::new()
+    } else {
+        find_ports()?
+    };
     let core = app.core.lock().unwrap();
     let ports: Vec<Value> = ports
         .into_iter()
@@ -654,7 +665,14 @@ fn run_flash(app: &App, port: &str) {
         (Err(e), _) => Some(format!("{e:#}")),
         (Ok(_), Err(e)) => Some(format!("Geflasht, aber die Boards starten nicht: {e:#}")),
         (Ok(version), Ok(())) => {
-            let info = app.core.lock().unwrap().boards.iter().find(|b| b.port == port).map(|b| b.info.clone());
+            let info = app
+                .core
+                .lock()
+                .unwrap()
+                .boards
+                .iter()
+                .find(|b| b.port == port)
+                .map(|b| b.info.clone());
             match info {
                 Some(i) if i.split('|').nth(3) == Some(version.as_str()) => None,
                 Some(i) => Some(format!("Geflasht, aber das Board meldet eine andere Version: {i}")),

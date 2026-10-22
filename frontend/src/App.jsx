@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import {
   ArrowSquareOut,
   ClockCounterClockwise,
+  Code,
   Cpu,
   FlagCheckered,
   MonitorPlay,
@@ -19,6 +20,7 @@ import {
 } from '@phosphor-icons/react'
 import { api, saveSettings, useServer } from './api.js'
 import { onBlocked, unblock } from './announcer.js'
+import ApiPage from './pages/Api.jsx'
 import Best from './pages/Best.jsx'
 import Boards from './pages/Boards.jsx'
 import Control from './pages/Control.jsx'
@@ -36,7 +38,10 @@ const PAGES = /** @type {const} */ ([
   ['pilots', 'Piloten', 'Piloten', UsersThree],
   ['boards', 'Boards', 'Boards', Cpu],
   ['settings', 'Einstellungen', 'Setup', SlidersHorizontal],
+  ['api', 'API & Hooks', 'API', Code],
 ])
+/** Not in the phone's tab bar (no room; reached from the settings). */
+const DESKTOP_ONLY = ['api']
 
 const FULL_SCREEN_WATCH = new URLSearchParams(location.search).get('view') === 'zuschauer'
 
@@ -74,7 +79,7 @@ export default function App() {
 
   /** @param {boolean} short */
   const nav = (short) =>
-    PAGES.map(([id, title, label, Icon]) => (
+    PAGES.filter(([id]) => !short || !DESKTOP_ONLY.includes(id)).map(([id, title, label, Icon]) => (
       <button key={id} className={page === id ? 'nav-btn on' : 'nav-btn'} onClick={() => setPage(id)}>
         <Icon size={22} />
         <span>{short ? label : title}</span>
@@ -152,8 +157,10 @@ export default function App() {
             <Pilots state={state} stats={stats} />
           ) : page === 'boards' ? (
             <Boards state={state} live={server.live} flash={server.flash} />
+          ) : page === 'api' ? (
+            <ApiPage />
           ) : (
-            <SettingsPage state={state} />
+            <SettingsPage state={state} onOpenApi={() => setPage('api')} />
           )}
         </main>
       </div>
@@ -171,7 +178,9 @@ function useStats(state, changed) {
   const passes = state?.active?.passes.length
   const consecutive = state?.settings.consecutive
   useEffect(() => {
-    api('/stats').then(setStats).catch(() => {})
+    api('/stats')
+      .then(setStats)
+      .catch(() => {})
   }, [activeId, passes, changed, consecutive])
   return stats
 }

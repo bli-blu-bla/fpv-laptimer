@@ -77,6 +77,21 @@ Entwickeln an der Oberfläche: Server wie oben starten, dann `cd frontend && npm
 `http://localhost:5173` öffnen (lädt bei jeder Änderung neu). `npm run check` prüft die
 JSDoc-Typen.
 
+## API und Hooks
+
+Andere Programme steuern den Laptimer über die API unter `/api/v1` (HTTP oder WebSocket, mit
+API-Schlüssel): Piloten anlegen und Kanälen zuteilen, Training/Rennen starten und stoppen,
+Ergebnis bestätigen, und jedes Ereignis live mitlesen (`pilot_pass`, `start_signal`,
+`race_confirmed`, …). Schlüssel, Kurzreferenz und ein Tester stehen auf der Seite
+**API & Hooks**.
+
+Hooks starten bei Ereignissen eigene Scripts mit den Daten als Umgebungsvariablen, z. B. eine
+LED am GPIO des Pi beim Startsignal. Die Scripts kommen in den Ordner `server/data/hooks/`
+(ausführbar), welches Script bei welchem Ereignis läuft, stellst du auf der Seite ein.
+Beispiele in `tools/hooks/`.
+
+Alles im Detail: [docs/API.md](docs/API.md).
+
 ## Pegel aufzeichnen (Testflüge)
 
 ```sh

@@ -5,7 +5,7 @@
 //! One `Core` lives behind a mutex (`server.rs`). Everything here runs while
 //! that lock is held, so it must be quick: no waiting for boards or audio.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
@@ -13,14 +13,16 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
-use crate::db::{Db, Seat, SessionConfig, SessionRow};
+use crate::db::{Db, Pilot, Seat, SessionConfig, SessionRow};
 use crate::detect::{ChannelStatus, DetectConfig, DetectionSettings, Detector, Event as DetectEvent};
 use crate::esp::board::{Event as BoardEvent, Level, LinkStats};
+use crate::events::Events;
 use crate::laps::{self, EndRule, PassRecord, PilotResult, StartMode};
 use crate::sound::{Part, Sounds};
+use crate::stats;
 
 /// Live levels go out this often, µs.
 const LIVE_EVERY_US: i64 = 100_000;
@@ -223,6 +225,12 @@ struct Active {
     announced: Vec<bool>,
     best_lap_us: Option<i64>,
     levels_out: Option<BufWriter<File>>,
+    /// Passes already sent as `pilot_pass` events.
+    reported: HashSet<i64>,
+    /// The next countdown second to send as an event (0: done), and whether
+    /// `start_signal` went out.
+    countdown_next: i64,
+    started: bool,
 }
 
 pub struct Core {
@@ -244,13 +252,22 @@ pub struct Core {
     /// Announcements waiting for their time: (wall µs, clip).
     scheduled: Vec<(i64, Part)>,
     tx: broadcast::Sender<String>,
+    /// To the API WebSocket and the hooks (`events.rs`).
+    pub events: Events,
     data_dir: PathBuf,
     next_live_us: i64,
     next_rate_us: i64,
 }
 
 impl Core {
-    pub fn new(db: Db, data_dir: PathBuf, origin: Instant, sounds: Sounds, tx: broadcast::Sender<String>) -> Core {
+    pub fn new(
+        db: Db,
+        data_dir: PathBuf,
+        origin: Instant,
+        sounds: Sounds,
+        tx: broadcast::Sender<String>,
+        events: Events,
+    ) -> Core {
         let settings: Settings = db.get_setting("settings").ok().flatten().unwrap_or_default();
         if let Ok(n) = db.close_open_sessions()
             && n > 0
@@ -275,6 +292,7 @@ impl Core {
             sounds,
             scheduled: Vec::new(),
             tx,
+            events,
             data_dir,
             next_live_us: now,
             next_rate_us: now + 1_000_000,
@@ -403,6 +421,7 @@ impl Core {
                 let time_us = self.wall_us(p.time_us);
                 self.db.remove_auto_pass(session_id, p.channel, time_us)?;
                 self.refresh(false)?;
+                self.events.emit("passes_changed", json!({ "session_id": session_id }));
             }
         }
         Ok(())
@@ -438,6 +457,7 @@ impl Core {
         let Some(a) = self.active.as_mut() else { return Ok(()) };
         a.passes = self.db.passes(a.row.id)?;
         let new = results(&a.row, &a.passes);
+        report_passes(a, &new, &self.events);
         if announce {
             let ann = &self.settings.announce;
             let race = a.row.config.race;
@@ -500,11 +520,27 @@ impl Core {
                 self.sounds.play("rennen_beendet", "Rennen beendet");
             }
         }
+        // Finished pilots, as events (announced or not).
+        let positions = positions(a.row.config.race, &new);
+        for (i, r) in new.iter().enumerate() {
+            let was = a.results.get(i).is_some_and(|o| o.finished_us.is_some());
+            if r.finished_us.is_some() && !was {
+                let mut data = seat_json(&a.row.seats[i]);
+                data["session_id"] = json!(a.row.id);
+                data["laps"] = json!(r.laps.len());
+                data["total_us"] = json!(r.total_us);
+                data["total_s"] = json!(r.total_us.map(seconds));
+                data["best_lap_us"] = json!(r.best_lap_us);
+                data["best_lap_s"] = json!(r.best_lap_us.map(seconds));
+                data["position"] = json!(positions[i]);
+                self.events.emit("pilot_finished", data);
+            }
+        }
         a.results = new;
         // A race is over when everybody has finished.
         let all_done = a.row.config.race && !a.results.is_empty() && a.results.iter().all(|r| r.finished_us.is_some());
         if all_done {
-            self.stop_session()?;
+            self.end_session("finished")?;
         } else {
             self.broadcast_state();
         }
@@ -623,7 +659,31 @@ impl Core {
             announced: vec![false; n],
             best_lap_us: None,
             levels_out: Some(out),
+            reported: HashSet::new(),
+            countdown_next: config.countdown_s as i64,
+            started: false,
         });
+        let row = &self.active.as_ref().unwrap().row;
+        let (end, end_value) = match config.end_rule {
+            EndRule::Open => ("open", None),
+            EndRule::Laps(n) => ("laps", Some(n)),
+            EndRule::Seconds(n) => ("seconds", Some(n)),
+        };
+        self.events.emit(
+            "session_started",
+            json!({
+                "session_id": id,
+                "race": race,
+                "start_mode": config.start_mode,
+                "end": end,
+                "end_value": end_value,
+                "countdown_s": config.countdown_s,
+                "created_us": created_us,
+                "start_us": start_us,
+                "pilot_count": row.seats.len(),
+                "seats": row.seats.iter().map(seat_json).collect::<Vec<_>>(),
+            }),
+        );
         self.refresh(false)?;
         Ok(id)
     }
@@ -681,14 +741,49 @@ impl Core {
     }
 
     pub fn stop_session(&mut self) -> Result<()> {
+        self.end_session("stopped")
+    }
+
+    /// Ends the active session. `reason` (for the event): "stopped" (by
+    /// hand), "finished" (everybody in the race finished), "cancelled"
+    /// (stopped to be deleted).
+    pub fn end_session(&mut self, reason: &str) -> Result<()> {
         let Some(mut a) = self.active.take() else { return Ok(()) };
         if let Some(mut out) = a.levels_out.take() {
             out.flush()?;
         }
-        self.db.end_session(a.row.id, unix_now_us())?;
+        let ended_us = unix_now_us();
+        self.db.end_session(a.row.id, ended_us)?;
         self.scheduled.clear();
+        let mut data = result_json(&a.row, &a.results);
+        data["reason"] = json!(reason);
+        data["ended_us"] = json!(ended_us);
+        data["needs_confirmation"] = json!(a.row.config.race && reason != "cancelled");
+        self.events.emit("session_stopped", data);
         self.broadcast_state();
         Ok(())
+    }
+
+    /// Deletes an ended session with its passes and levels.
+    pub fn delete_session(&mut self, id: i64) -> Result<()> {
+        let s = self.db.session(id)?.context("Diese Session gibt es nicht.")?;
+        if s.ended_us.is_none() {
+            bail!("Die Session läuft noch.");
+        }
+        if let Some(f) = &s.levels_file {
+            let _ = fs::remove_file(f);
+        }
+        self.db.delete_session(id)?;
+        let _ = self.tx.send(json!({ "type": "session_changed", "id": id }).to_string());
+        self.events
+            .emit("session_deleted", json!({ "session_id": id, "race": s.config.race }));
+        self.broadcast_state(); // an unconfirmed race may be gone
+        Ok(())
+    }
+
+    /// The id of the session in progress.
+    pub fn active_id(&self) -> Option<i64> {
+        self.active.as_ref().map(|a| a.row.id)
     }
 
     /// Confirms an ended race's result; only then can the next session start.
@@ -698,7 +793,12 @@ impl Core {
             bail!("Die Session läuft noch.");
         }
         if s.confirmed_us.is_none() {
-            self.db.confirm_session(id, unix_now_us())?;
+            let now = unix_now_us();
+            self.db.confirm_session(id, now)?;
+            let passes = self.db.passes(id)?;
+            let mut data = result_json(&s, &results(&s, &passes));
+            data["confirmed_us"] = json!(now);
+            self.events.emit("race_confirmed", data);
         }
         let _ = self.tx.send(json!({ "type": "session_changed", "id": id }).to_string());
         self.broadcast_state();
@@ -718,6 +818,7 @@ impl Core {
 
     /// Something changed a stored session (a correction): recompute.
     pub fn session_changed(&mut self, session_id: i64) -> Result<()> {
+        self.events.emit("passes_changed", json!({ "session_id": session_id }));
         if self.active.as_ref().is_some_and(|a| a.row.id == session_id) {
             self.refresh(false)?;
         } else {
@@ -728,6 +829,17 @@ impl Core {
         Ok(())
     }
 
+    /// A pass added by hand that counts like a detected one (API: a button
+    /// at the gate): in the running session announced and reported as
+    /// `pilot_pass`; otherwise a correction.
+    pub fn pass_added(&mut self, session_id: i64) -> Result<()> {
+        if self.active_id() == Some(session_id) {
+            self.refresh(true)
+        } else {
+            self.session_changed(session_id)
+        }
+    }
+
     /// Saves the settings. Channels and gain only take effect when the
     /// boards are restarted (`server.rs` does that).
     pub fn set_settings(&mut self, s: Settings) -> Result<()> {
@@ -735,6 +847,7 @@ impl Core {
             bail!("Kanäle lassen sich erst nach dem Stoppen der Session ändern.");
         }
         self.db.set_setting("settings", &s)?;
+        let channels_changed = s.channels != self.settings.channels || s.seats != self.settings.seats;
         self.sounds.set_enabled(s.sound);
         self.sounds.set_browser(s.announce.output == SoundOutput::Browser);
         let redetect = s.min_lap_s != self.settings.min_lap_s
@@ -745,8 +858,96 @@ impl Core {
             self.apply_roles();
             (self.finish, self.arming) = detectors(&self.settings);
         }
+        if channels_changed {
+            self.events
+                .emit("channels_changed", json!({ "channels": self.channel_list() }));
+        }
         self.broadcast_state();
         Ok(())
+    }
+
+    /// The channels with who flies on them (the API's view of the settings).
+    pub fn channel_list(&self) -> Vec<Value> {
+        let pilots = self.db.pilots().unwrap_or_default();
+        self.settings
+            .channels
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let seat = self.settings.seats.get(i).cloned().unwrap_or_default();
+                let pilot = seat.pilot_id.and_then(|id| pilots.iter().find(|p| p.id == id));
+                let shown = if !seat.label.trim().is_empty() {
+                    seat.label.trim().to_string()
+                } else {
+                    pilot.map_or(c.name.clone(), |p| p.name.clone())
+                };
+                json!({
+                    "index": i,
+                    "name": c.name,
+                    "mhz": c.mhz,
+                    "enabled": seat.enabled,
+                    "pilot_id": seat.pilot_id,
+                    "pilot": pilot.map(|p| &p.name),
+                    "label": seat.label,
+                    "shown": shown,
+                })
+            })
+            .collect()
+    }
+
+    // --- pilots (here, so every change is an event) ---
+
+    pub fn add_pilot(&mut self, name: &str, full_name: &str) -> Result<i64> {
+        let id = self.db.add_pilot(name, full_name)?;
+        self.events.emit(
+            "pilot_added",
+            json!({ "pilot_id": id, "name": name, "full_name": full_name }),
+        );
+        self.broadcast_state();
+        Ok(id)
+    }
+
+    pub fn update_pilot(&mut self, id: i64, name: &str, full_name: &str) -> Result<()> {
+        if !self.db.pilots()?.iter().any(|p| p.id == id) {
+            bail!("Diesen Piloten gibt es nicht.");
+        }
+        self.db.update_pilot(id, name, full_name)?;
+        self.events.emit(
+            "pilot_updated",
+            json!({ "pilot_id": id, "name": name, "full_name": full_name }),
+        );
+        self.broadcast_state();
+        Ok(())
+    }
+
+    /// Also takes the pilot out of their slot.
+    pub fn delete_pilot(&mut self, id: i64) -> Result<()> {
+        let Some(p) = self.db.pilots()?.into_iter().find(|p| p.id == id) else {
+            bail!("Diesen Piloten gibt es nicht.");
+        };
+        self.db.delete_pilot(id)?;
+        self.events
+            .emit("pilot_deleted", json!({ "pilot_id": id, "name": p.name }));
+        if self.settings.seats.iter().any(|s| s.pilot_id == Some(id)) {
+            let mut s = self.settings.clone();
+            for seat in &mut s.seats {
+                if seat.pilot_id == Some(id) {
+                    seat.pilot_id = None;
+                }
+            }
+            self.set_settings(s)?; // broadcasts
+        } else {
+            self.broadcast_state();
+        }
+        Ok(())
+    }
+
+    pub fn pilot(&self, id: i64) -> Result<Pilot> {
+        self.db
+            .pilots()?
+            .into_iter()
+            .find(|p| p.id == id)
+            .context("Diesen Piloten gibt es nicht.")
     }
 
     // --- output ---
@@ -767,6 +968,7 @@ impl Core {
         for part in due {
             self.sounds.say(vec![part]);
         }
+        self.countdown_events(now);
         if now >= self.next_rate_us {
             for b in &mut self.boards {
                 b.levels_per_s = b.count as f64;
@@ -793,6 +995,30 @@ impl Core {
             let msg =
                 json!({ "type": "live", "now_us": now, "channels": channels, "arming": arming, "boards": self.boards });
             let _ = self.tx.send(msg.to_string());
+        }
+    }
+
+    /// `countdown` (every second before the start signal) and
+    /// `start_signal` events of the active session.
+    fn countdown_events(&mut self, now: i64) {
+        let Some(a) = self.active.as_mut() else { return };
+        if a.started {
+            return;
+        }
+        let start_us = a.row.start_us;
+        while a.countdown_next > 0 && now >= start_us - a.countdown_next * 1_000_000 {
+            self.events.emit(
+                "countdown",
+                json!({ "session_id": a.row.id, "race": a.row.config.race, "seconds_left": a.countdown_next }),
+            );
+            a.countdown_next -= 1;
+        }
+        if now >= start_us {
+            a.started = true;
+            self.events.emit(
+                "start_signal",
+                json!({ "session_id": a.row.id, "race": a.row.config.race, "start_us": start_us }),
+            );
         }
     }
 
@@ -832,6 +1058,133 @@ pub fn results(row: &SessionRow, passes: &[PassRecord]) -> Vec<PilotResult> {
         .iter()
         .map(|s| laps::compute(s.channel, passes, c.start_mode, c.end_rule, start, c.consecutive))
         .collect()
+}
+
+/// Places of the seats: a race by laps, then total time; a training by the
+/// best lap. None: no lap yet.
+pub fn positions(race: bool, results: &[PilotResult]) -> Vec<Option<usize>> {
+    let order: Vec<usize> = if race {
+        stats::race_order(results)
+    } else {
+        let mut o: Vec<usize> = (0..results.len())
+            .filter(|&i| results[i].best_lap_us.is_some())
+            .collect();
+        o.sort_by_key(|&i| results[i].best_lap_us);
+        o
+    };
+    let mut pos = vec![None; results.len()];
+    for (place, &i) in order.iter().enumerate() {
+        pos[i] = Some(place + 1);
+    }
+    pos
+}
+
+/// µs → seconds, rounded to ms (13.712).
+pub fn seconds(us: i64) -> f64 {
+    (us as f64 / 1000.0).round() / 1000.0
+}
+
+/// Who flies on a seat, for events and the API.
+pub fn seat_json(s: &Seat) -> Value {
+    json!({
+        "channel": s.channel,
+        "channel_name": s.channel_name,
+        "mhz": s.mhz,
+        "pilot_id": s.pilot_id,
+        "pilot": s.label,
+    })
+}
+
+/// Every seat's result in a simple form (API and events), in seat order.
+pub fn standings(row: &SessionRow, results: &[PilotResult]) -> Vec<Value> {
+    let pos = positions(row.config.race, results);
+    row.seats
+        .iter()
+        .zip(results)
+        .enumerate()
+        .map(|(i, (seat, r))| {
+            let mut v = seat_json(seat);
+            let laps: Vec<i64> = r.laps.iter().map(|l| l.duration_us).collect();
+            v["position"] = json!(pos[i]);
+            v["laps"] = json!(laps.len());
+            v["lap_times_us"] = json!(laps);
+            v["last_lap_us"] = json!(laps.last());
+            v["best_lap_us"] = json!(r.best_lap_us);
+            v["best_consecutive_us"] = json!(r.best_consecutive.map(|(sum, _)| sum));
+            v["total_us"] = json!(r.total_us);
+            v["holeshot_us"] = json!(r.holeshot_us);
+            v["finished"] = json!(r.finished_us.is_some());
+            v
+        })
+        .collect()
+}
+
+/// A session's result for the `session_stopped` and `race_confirmed`
+/// events: the standings and, for a race, the winner.
+pub fn result_json(row: &SessionRow, results: &[PilotResult]) -> Value {
+    let standings = standings(row, results);
+    let winner = standings
+        .iter()
+        .find(|s| s["position"] == json!(1))
+        .map(|s| s["pilot"].clone());
+    json!({
+        "session_id": row.id,
+        "race": row.config.race,
+        "winner": if row.config.race { winner } else { None },
+        "results": standings,
+    })
+}
+
+/// New passes of the active session (not deleted, not reported yet) as
+/// `pilot_pass` events: which lap they ended, or that they were the
+/// holeshot, the first pass of a flying start or didn't count.
+fn report_passes(a: &mut Active, new: &[PilotResult], events: &Events) {
+    let best = new.iter().filter_map(|r| r.best_lap_us).min();
+    let pos = positions(a.row.config.race, new);
+    for p in &a.passes {
+        if p.gate != 0 || p.deleted || !a.reported.insert(p.id) {
+            continue; // `insert` is false: reported before
+        }
+        let Some(i) = a.row.seats.iter().position(|s| s.channel == p.channel) else {
+            continue;
+        };
+        let r = &new[i];
+        let lap = r.laps.iter().find(|l| l.pass_id == p.id);
+        let kind = if lap.is_some() {
+            "lap"
+        } else if r.ignored.contains(&p.id) {
+            "ignored"
+        } else if a.row.config.start_mode == StartMode::Holeshot {
+            "holeshot"
+        } else {
+            "start"
+        };
+        let mut data = seat_json(&a.row.seats[i]);
+        let obj = data.as_object_mut().unwrap();
+        let lap_us = lap.map(|l| l.duration_us);
+        for (k, v) in [
+            ("session_id", json!(a.row.id)),
+            ("race", json!(a.row.config.race)),
+            ("pass_id", json!(p.id)),
+            ("time_us", json!(p.time_us)),
+            ("manual", json!(p.manual)),
+            ("kind", json!(kind)),
+            ("lap", json!(lap.map(|l| l.number))),
+            ("lap_time_us", json!(lap_us)),
+            ("lap_time_s", json!(lap_us.map(seconds))),
+            ("laps", json!(r.laps.len())),
+            ("best_lap_us", json!(r.best_lap_us)),
+            ("best_lap_s", json!(r.best_lap_us.map(seconds))),
+            ("personal_best", json!(lap_us.is_some() && lap_us == r.best_lap_us)),
+            ("session_best", json!(lap_us.is_some() && lap_us == best)),
+            ("holeshot_us", json!(r.holeshot_us)),
+            ("finished", json!(r.finished_us == Some(p.time_us))),
+            ("position", json!(pos[i])),
+        ] {
+            obj.insert(k.to_string(), v);
+        }
+        events.emit("pilot_pass", data);
+    }
 }
 
 /// Fresh detectors for the finish and the arming gate.

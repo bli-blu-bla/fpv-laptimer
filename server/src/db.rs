@@ -44,6 +44,22 @@ CREATE TABLE IF NOT EXISTS passes (
     gate INTEGER NOT NULL DEFAULT 0   -- 0: the finish gate (laps), 1: the arming gate
 );
 CREATE INDEX IF NOT EXISTS passes_by_session ON passes(session_id);
+CREATE TABLE IF NOT EXISTS api_keys (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    prefix TEXT NOT NULL,          -- the first characters, to recognize the key
+    hash TEXT NOT NULL UNIQUE,     -- sha256 of the key (the key itself is shown once)
+    created_us INTEGER NOT NULL,
+    last_used_us INTEGER
+);
+CREATE TABLE IF NOT EXISTS hooks (
+    id INTEGER PRIMARY KEY,
+    event TEXT NOT NULL,           -- event name, or '*' = every event
+    script TEXT NOT NULL,          -- file name in the scripts folder (hooks.rs)
+    args TEXT NOT NULL DEFAULT '', -- split at spaces
+    background INTEGER NOT NULL DEFAULT 0,
+    enabled INTEGER NOT NULL DEFAULT 1
+);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL            -- JSON
@@ -113,6 +129,38 @@ pub struct Pilot {
     pub name: String,
     /// The real name (may be empty).
     pub full_name: String,
+}
+
+/// An API key as listed (without the key itself).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct ApiKey {
+    pub id: i64,
+    pub name: String,
+    pub prefix: String,
+    pub created_us: i64,
+    pub last_used_us: Option<i64>,
+}
+
+/// A script run on an event (`hooks.rs`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Hook {
+    #[serde(default)]
+    pub id: i64,
+    /// Event name, or "*" = every event.
+    pub event: String,
+    /// File name in the scripts folder.
+    pub script: String,
+    #[serde(default)]
+    pub args: String,
+    /// Started without waiting for it (and without time limit).
+    #[serde(default)]
+    pub background: bool,
+    #[serde(default = "yes")]
+    pub enabled: bool,
+}
+
+fn yes() -> bool {
+    true
 }
 
 pub struct Db {
@@ -215,6 +263,99 @@ impl Db {
         Ok(())
     }
 
+    // --- API keys ---
+
+    pub fn api_keys(&self) -> Result<Vec<ApiKey>> {
+        let mut st = self
+            .conn
+            .prepare("SELECT id, name, prefix, created_us, last_used_us FROM api_keys ORDER BY created_us")?;
+        let rows = st.query_map([], |r| {
+            Ok(ApiKey {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                prefix: r.get(2)?,
+                created_us: r.get(3)?,
+                last_used_us: r.get(4)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn add_api_key(&self, name: &str, prefix: &str, hash: &str, created_us: i64) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO api_keys (name, prefix, hash, created_us) VALUES (?1, ?2, ?3, ?4)",
+            params![name, prefix, hash, created_us],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn delete_api_key(&self, id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM api_keys WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    /// The key with this hash, if there is one: (id, last used).
+    pub fn api_key_by_hash(&self, hash: &str) -> Result<Option<(i64, Option<i64>)>> {
+        Ok(self
+            .conn
+            .query_row("SELECT id, last_used_us FROM api_keys WHERE hash = ?1", [hash], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .optional()?)
+    }
+
+    pub fn touch_api_key(&self, id: i64, used_us: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE api_keys SET last_used_us = ?2 WHERE id = ?1",
+            params![id, used_us],
+        )?;
+        Ok(())
+    }
+
+    // --- hooks ---
+
+    /// All hooks, in the order they run (for one event: by id).
+    pub fn hooks(&self) -> Result<Vec<Hook>> {
+        let mut st = self
+            .conn
+            .prepare("SELECT id, event, script, args, background, enabled FROM hooks ORDER BY id")?;
+        let rows = st.query_map([], |r| {
+            Ok(Hook {
+                id: r.get(0)?,
+                event: r.get(1)?,
+                script: r.get(2)?,
+                args: r.get(3)?,
+                background: r.get(4)?,
+                enabled: r.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn add_hook(&self, h: &Hook) -> Result<i64> {
+        self.conn.execute(
+            "INSERT INTO hooks (event, script, args, background, enabled) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![h.event, h.script, h.args, h.background, h.enabled],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn update_hook(&self, h: &Hook) -> Result<()> {
+        let n = self.conn.execute(
+            "UPDATE hooks SET event = ?2, script = ?3, args = ?4, background = ?5, enabled = ?6 WHERE id = ?1",
+            params![h.id, h.event, h.script, h.args, h.background, h.enabled],
+        )?;
+        if n == 0 {
+            anyhow::bail!("Hook {} gibt es nicht.", h.id);
+        }
+        Ok(())
+    }
+
+    pub fn delete_hook(&self, id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM hooks WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
     // --- sessions ---
 
     pub fn create_session(
@@ -307,7 +448,16 @@ impl Db {
             .query_row(
                 "SELECT config, created_us, start_us, ended_us, levels_file, confirmed_us FROM sessions WHERE id = ?1",
                 [id],
-                |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                    ))
+                },
             )
             .optional()?;
         let Some((config, created_us, start_us, ended_us, levels_file, confirmed_us)) = row else {

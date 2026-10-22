@@ -1,10 +1,13 @@
 //! FPV lap timer. For now: `laptimer ports` and `laptimer record`.
 
+mod api;
 mod clock;
 mod core;
 mod db;
 mod detect;
 mod esp;
+mod events;
+mod hooks;
 mod laps;
 mod record;
 mod replay;
@@ -76,6 +79,9 @@ enum Command {
         /// Play this recording (in a loop) instead of reading boards.
         #[arg(long)]
         replay: Option<PathBuf>,
+        /// The folder of the scripts hooks can run on events. Default: <data>/hooks
+        #[arg(long)]
+        hooks: Option<PathBuf>,
     },
     /// Run a recording through the pass detection.
     Replay {
@@ -131,8 +137,10 @@ fn main() -> Result<()> {
             web,
             sounds,
             replay,
+            hooks,
         } => server::run(server::ServeOptions {
             port,
+            hooks_dir: hooks.unwrap_or_else(|| data.join("hooks")),
             data_dir: data,
             web_dir: web,
             sounds_dir: sounds,
