@@ -11,7 +11,7 @@ use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::broadcast;
@@ -517,6 +517,9 @@ impl Core {
         if self.active.is_some() {
             bail!("Es läuft schon eine Session – erst stoppen.");
         }
+        if self.db.unconfirmed_race()?.is_some() {
+            bail!("Erst das Ergebnis des letzten Rennens bestätigen (oder verwerfen).");
+        }
         let s = &self.settings;
         let config = if race {
             SessionConfig {
@@ -688,6 +691,20 @@ impl Core {
         Ok(())
     }
 
+    /// Confirms an ended race's result; only then can the next session start.
+    pub fn confirm_session(&mut self, id: i64) -> Result<()> {
+        let s = self.db.session(id)?.context("Diese Session gibt es nicht.")?;
+        if s.ended_us.is_none() {
+            bail!("Die Session läuft noch.");
+        }
+        if s.confirmed_us.is_none() {
+            self.db.confirm_session(id, unix_now_us())?;
+        }
+        let _ = self.tx.send(json!({ "type": "session_changed", "id": id }).to_string());
+        self.broadcast_state();
+        Ok(())
+    }
+
     /// Writes out the active session's buffered levels (before its file is read).
     pub fn flush_levels(&mut self, session_id: i64) -> Result<()> {
         if let Some(a) = self.active.as_mut()
@@ -796,6 +813,8 @@ impl Core {
             "pilots": pilots,
             "boards": self.boards,
             "active": active,
+            // The ended race still waiting for its result to be confirmed.
+            "unconfirmed": self.db.unconfirmed_race().ok().flatten(),
         })
     }
 

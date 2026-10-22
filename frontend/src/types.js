@@ -71,6 +71,7 @@
  * @property {number} created_us   wall clock, µs since 1970
  * @property {number} start_us     start signal
  * @property {number | null} ended_us
+ * @property {number | null} confirmed_us   result confirmed (races; null: not yet)
  * @property {Seat[]} seats
  *
  * @typedef {object} Pass
@@ -125,6 +126,7 @@
  * @property {Pilot[]} pilots
  * @property {Board[]} boards
  * @property {(SessionDetail & {passes: Pass[]}) | null} active
+ * @property {number | null} unconfirmed   the ended race whose result still needs confirming (blocks starting)
  *
  * @typedef {object} ChannelLive
  * @property {number | null} level_db

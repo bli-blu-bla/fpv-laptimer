@@ -4,7 +4,7 @@
 // each slot's gear, the race format behind the gear next to "Rennen starten".
 
 import { useEffect, useRef, useState } from 'react'
-import { ArrowCounterClockwise, FlagCheckered, GearSix, Infinity as InfinityIcon, Stop, X } from '@phosphor-icons/react'
+import { ArrowCounterClockwise, Check, FlagCheckered, GearSix, Infinity as InfinityIcon, Stop, X } from '@phosphor-icons/react'
 import { api, useNow } from '../api.js'
 import { clock, endRule, sessionKind, START_MODES } from '../format.js'
 import { channelMode, slotsOf, standings } from '../model.js'
@@ -52,6 +52,13 @@ export default function Control({ server, state, stats }) {
       lastActive.current = null
     }
   }, [activeId])
+
+  // A race whose result isn't confirmed yet stays on the page (also after a reload):
+  // the next session can only start once it is confirmed or discarded.
+  const unconfirmed = state.unconfirmed
+  useEffect(() => {
+    if (activeId == null && unconfirmed != null) setDoneId(unconfirmed)
+  }, [activeId, unconfirmed])
 
   const reloadDone = () => {
     if (doneId != null) api(`/sessions/${doneId}`).then(setDone).catch(() => setDoneId(null))
@@ -102,11 +109,11 @@ export default function Control({ server, state, stats }) {
 
   const startButtons = (
     <>
-      <button className="btn btn-secondary btn-big" onClick={() => start(false)}>
+      <button className="btn btn-secondary btn-big" disabled={unconfirmed != null} onClick={() => start(false)}>
         <InfinityIcon size={20} /> Training
       </button>
       <span className="split">
-        <button className="btn btn-primary btn-big btn-glow" onClick={() => start(true)}>
+        <button className="btn btn-primary btn-big btn-glow" disabled={unconfirmed != null} onClick={() => start(true)}>
           <FlagCheckered size={20} />
           <span className="btn-stack">
             <span>Rennen starten</span>
@@ -135,16 +142,6 @@ export default function Control({ server, state, stats }) {
         </div>
         <div className="actions">
           {(phase === 'idle' || phase === 'done') && startButtons}
-          {phase === 'done' && (
-            <>
-              <button className="btn btn-ghost btn-big" onClick={() => setConfirmDiscard(true)}>
-                <ArrowCounterClockwise size={18} /> Verwerfen
-              </button>
-              <button className="btn btn-secondary btn-big" onClick={() => setDoneId(null)}>
-                <X size={18} /> Schließen
-              </button>
-            </>
-          )}
           {(phase === 'running' || phase === 'countdown') && (
             <>
               <button className="btn btn-ghost btn-big" onClick={() => setConfirmDiscard(true)}>
@@ -157,6 +154,30 @@ export default function Control({ server, state, stats }) {
           )}
         </div>
       </div>
+      {/* The finished session's own actions sit in a card below the head, apart from starting the next one. */}
+      {phase === 'done' && session && (
+        <div className="panel action-card">
+          {session.id === unconfirmed ? (
+            <span className="muted small">Ergebnis prüfen und bestätigen, erst dann startet der nächste Lauf.</span>
+          ) : (
+            <span className="kicker">{session.config.race ? 'Ergebnis bestätigt' : 'Letzter Lauf'}</span>
+          )}
+          <div className="card-actions">
+            <button className="btn btn-ghost btn-big" onClick={() => setConfirmDiscard(true)}>
+              <ArrowCounterClockwise size={18} /> Verwerfen
+            </button>
+            {session.id === unconfirmed ? (
+              <button className="btn btn-primary btn-big" onClick={() => run(() => api(`/sessions/${session.id}/confirm`, { body: {} }))}>
+                <Check size={18} /> Ergebnis bestätigen
+              </button>
+            ) : (
+              <button className="btn btn-secondary btn-big" onClick={() => setDoneId(null)}>
+                <X size={18} /> Schließen
+              </button>
+            )}
+          </div>
+        </div>
+      )}
       {error && <p className="error">{error}</p>}
 
       {phase === 'done' && done && (

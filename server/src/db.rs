@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_us INTEGER NOT NULL,   -- Start pressed
     start_us INTEGER NOT NULL,     -- start signal (after the countdown)
     ended_us INTEGER,              -- NULL while running
+    confirmed_us INTEGER,          -- result confirmed (races; NULL: not yet)
     levels_file TEXT               -- the raw levels (CSV, as `laptimer record`)
 );
 CREATE TABLE IF NOT EXISTS seats (
@@ -84,6 +85,8 @@ pub struct SessionRow {
     pub created_us: i64,
     pub start_us: i64,
     pub ended_us: Option<i64>,
+    /// When the result was confirmed (races; until then no new session starts).
+    pub confirmed_us: Option<i64>,
     pub levels_file: Option<String>,
     pub seats: Vec<Seat>,
 }
@@ -131,6 +134,16 @@ impl Db {
             .exists([])?;
         if !has_gate {
             conn.execute_batch("ALTER TABLE passes ADD COLUMN gate INTEGER NOT NULL DEFAULT 0")?;
+        }
+        // Databases from before confirmed_us: their sessions count as confirmed.
+        let has_confirmed = conn
+            .prepare("SELECT 1 FROM pragma_table_info('sessions') WHERE name = 'confirmed_us'")?
+            .exists([])?;
+        if !has_confirmed {
+            conn.execute_batch(
+                "ALTER TABLE sessions ADD COLUMN confirmed_us INTEGER;
+                 UPDATE sessions SET confirmed_us = ended_us;",
+            )?;
         }
         if !has_full_name {
             conn.execute_batch("ALTER TABLE pilots ADD COLUMN full_name TEXT NOT NULL DEFAULT ''")?;
@@ -250,6 +263,28 @@ impl Db {
         )?)
     }
 
+    pub fn confirm_session(&self, id: i64, confirmed_us: i64) -> Result<()> {
+        self.conn.execute(
+            "UPDATE sessions SET confirmed_us = ?2 WHERE id = ?1",
+            params![id, confirmed_us],
+        )?;
+        Ok(())
+    }
+
+    /// The newest ended race whose result isn't confirmed yet.
+    pub fn unconfirmed_race(&self) -> Result<Option<i64>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT id FROM sessions
+                 WHERE ended_us IS NOT NULL AND confirmed_us IS NULL AND json_extract(config, '$.race') = 1
+                 ORDER BY created_us DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
     pub fn delete_session(&self, id: i64) -> Result<()> {
         self.conn.execute("DELETE FROM sessions WHERE id = ?1", [id])?;
         Ok(())
@@ -270,12 +305,12 @@ impl Db {
         let row = self
             .conn
             .query_row(
-                "SELECT config, created_us, start_us, ended_us, levels_file FROM sessions WHERE id = ?1",
+                "SELECT config, created_us, start_us, ended_us, levels_file, confirmed_us FROM sessions WHERE id = ?1",
                 [id],
-                |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+                |r| Ok((r.get::<_, String>(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)),
             )
             .optional()?;
-        let Some((config, created_us, start_us, ended_us, levels_file)) = row else {
+        let Some((config, created_us, start_us, ended_us, levels_file, confirmed_us)) = row else {
             return Ok(None);
         };
         let mut st = self.conn.prepare(
@@ -298,6 +333,7 @@ impl Db {
             created_us,
             start_us,
             ended_us,
+            confirmed_us,
             levels_file,
             seats,
         }))
@@ -483,5 +519,30 @@ mod tests {
         assert_eq!(db.get_setting::<Vec<i32>>("x").unwrap(), Some(vec![1, 2]));
         db.delete_session(id).unwrap();
         assert!(db.passes(id).unwrap().is_empty());
+    }
+
+    #[test]
+    fn races_wait_for_confirmation() {
+        let db = Db::open(":memory:").unwrap();
+        let mut config = SessionConfig {
+            race: false,
+            start_mode: StartMode::Flying,
+            end_rule: EndRule::Open,
+            countdown_s: 0,
+            min_lap_s: 3.0,
+            consecutive: 3,
+            detection: None,
+        };
+        let training = db.create_session(&config, 100, 100, &[], None).unwrap();
+        db.end_session(training, 200).unwrap();
+        assert_eq!(db.unconfirmed_race().unwrap(), None); // trainings need no confirmation
+        config.race = true;
+        let race = db.create_session(&config, 300, 300, &[], None).unwrap();
+        assert_eq!(db.unconfirmed_race().unwrap(), None); // still running
+        db.end_session(race, 400).unwrap();
+        assert_eq!(db.unconfirmed_race().unwrap(), Some(race));
+        db.confirm_session(race, 500).unwrap();
+        assert_eq!(db.unconfirmed_race().unwrap(), None);
+        assert_eq!(db.session(race).unwrap().unwrap().confirmed_us, Some(500));
     }
 }

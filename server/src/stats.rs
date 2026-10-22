@@ -137,6 +137,7 @@ mod tests {
             created_us,
             start_us: created_us,
             ended_us: Some(created_us + 1),
+            confirmed_us: Some(created_us + 1),
             levels_file: None,
             seats: seats
                 .iter()

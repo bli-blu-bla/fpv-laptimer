@@ -127,6 +127,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .route("/session/stop", post(stop_session))
         .route("/sessions", get(list_sessions))
         .route("/sessions/{id}", get(get_session).delete(delete_session))
+        .route("/sessions/{id}/confirm", post(confirm_session))
         .route("/sessions/{id}/passes", post(add_pass))
         .route("/sessions/{id}/graph", get(get_graph))
         .route("/sessions/{id}/snap", get(get_snap))
@@ -266,6 +267,11 @@ async fn get_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> ApiRes
     ))
 }
 
+async fn confirm_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> ApiResult {
+    app.core.lock().unwrap().confirm_session(id)?;
+    Ok(Json(json!({})))
+}
+
 async fn delete_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> ApiResult {
     let core = app.core.lock().unwrap();
     let s = core.db.session(id)?.context("Diese Session gibt es nicht.")?;
@@ -277,6 +283,7 @@ async fn delete_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> Api
     }
     core.db.delete_session(id)?;
     let _ = app.tx.send(json!({ "type": "session_changed", "id": id }).to_string());
+    core.broadcast_state(); // an unconfirmed race may be gone
     Ok(Json(json!({})))
 }
 

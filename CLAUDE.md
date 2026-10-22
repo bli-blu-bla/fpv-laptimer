@@ -69,10 +69,10 @@ USB-Ports, an einem dritten 2,4 ms; also ±0,4 bis ±1,2 ms Unsicherheit.
 
 | Datei | Inhalt |
 |---|---|
-| `src/server.rs` | axum: `/api/state`, `/api/session/start {race}`, `/api/session/stop`, `/api/sessions[/{id}]` (GET, DELETE), `/api/sessions/{id}/passes {channel,time_us}` (von Hand), `/api/passes/{id} {deleted}`, `/api/settings` (GET/PUT; Kanäle oder Gain ändern startet die Boards neu), `/api/pilots[/{id}]`; `/ws` (erst `state`, dann `state`/`live`/`session_changed`); sonst `frontend/dist`. Threads: Boards → std-Kanal → Core-Thread (`on_board_event`, `tick` alle 10 ms); `Core` in einem `std::sync::Mutex`, nie über ein `.await` halten |
+| `src/server.rs` | axum: `/api/state`, `/api/session/start {race}`, `/api/session/stop`, `/api/sessions[/{id}]` (GET, DELETE), `/api/sessions/{id}/confirm` (Ergebnis eines Rennens bestätigen), `/api/sessions/{id}/passes {channel,time_us}` (von Hand), `/api/passes/{id} {deleted}`, `/api/settings` (GET/PUT; Kanäle oder Gain ändern startet die Boards neu), `/api/pilots[/{id}]`; `/ws` (erst `state`, dann `state`/`live`/`session_changed`); sonst `frontend/dist`. Threads: Boards → std-Kanal → Core-Thread (`on_board_event`, `tick` alle 10 ms); `Core` in einem `std::sync::Mutex`, nie über ein `.await` halten |
 | `src/core.rs` | `Core`: Settings (DB-Key `settings`), aktive Session, Durchflüge → DB → `results` → `state`-Nachricht; Ansagen (`refresh`, `schedule_start`; Bausteine siehe `sound.rs`); `live` mit 10 Hz. Zeiten in der DB: Wanduhr-µs (`origin_unix_us + host_us`) |
 | `src/laps.rs` | Runden aus Durchflügen (rein, getestet): Start `holeshot`/`from_start`/`flying`, Ende `open`/`laps`/`seconds`, beste Runde, beste N in Folge, ignorierte Durchflüge |
-| `src/db.rs` | Tabellen `pilots`, `sessions` (Config als JSON, damit alte Ergebnisse bleiben), `seats`, `passes` (`manual`, `deleted` fürs Rückgängigmachen; vom Detektor zurückgenommene werden gelöscht), `settings` |
+| `src/db.rs` | Tabellen `pilots`, `sessions` (Config als JSON, damit alte Ergebnisse bleiben; `confirmed_us`, siehe unten), `seats`, `passes` (`manual`, `deleted` fürs Rückgängigmachen; vom Detektor zurückgenommene werden gelöscht), `settings` |
 | `src/trace.rs` | Pegelgraph einer Session: die Pegel-Datei noch einmal durch den Detektor (`Detector::with_trace` zeichnet pro 10-ms-Slot Hüllkurve kombiniert, je Board, Eintritt, Austritt auf), dann `graph` (Zeitbereich auf N Punkte, je Punkt das Maximum, damit kein Gipfel verloren geht) und `snap` (höchster Punkt ±1 s, von dort ±50 ms-weise bergauf, Buckel bis 3 dB darunter, darin Mitte zwischen erstem und letztem Punkt innerhalb 1 dB, wie der Detektor). Im Server zwischengespeichert pro Session und Dateigröße (höchstens 4); gelesen ohne die Core-Sperre (`spawn_blocking`). `/api/sessions/{id}/graph?channel&from_us&to_us&points`, `/api/sessions/{id}/snap?channel&time_us`; `POST …/passes` mit `snap: true`; `POST …/edit {channel, moves: [[id, t]], deletes, restores, adds: [t]}` (alles in einer Transaktion, `Db::edit_passes`; verschobene Durchflüge gelten danach als von Hand; abgelehnt, wenn zwei Durchflüge näher als die Mindestrunde liegen) |
 | `src/stats.rs` | Bestzeit, Sessions, Rennen, Siege pro Pilot (nach `pilot_id`, sonst nach Label), gesamt und heute; `race_order` (mehr Runden, dann frühere Gesamtzeit). `/api/stats` |
 | `src/source.rs` | Boards oder Replay (Replay liefert die Pegel nach Kanal-Position der Aufnahme, nicht nach Frequenz: nach einem Kanaltausch passen sie nicht mehr) |
@@ -101,6 +101,12 @@ Rennleitung (Slot antippen); „Alle automatisch / Alle manuell“ auf der Board
 Gate-Modus und löscht die Kanal-Modi. Ältere Einstellungen mit einem `mode` werden als `finish_mode`
 gelesen (`serde(alias)`). Die Session speichert die Einstellung in `config.detection`, damit
 ihr Graph dieselben Schwellen zeigt.
+
+**Ergebnis bestätigen:** Ein beendetes Rennen muss bestätigt (`POST /api/sessions/{id}/confirm`,
+`sessions.confirmed_us`) oder verworfen werden, bevor eine neue Session startet
+(`start_session` lehnt sonst ab). `state.unconfirmed` ist das neueste unbestätigte Rennen; die
+Rennleitung zeigt es auch nach dem Neuladen. Trainings brauchen keine Bestätigung; Sessions aus
+Datenbanken von vor der Spalte gelten als bestätigt. Gedacht als Haken für spätere Automatisierungen.
 
 Laps werden nie gespeichert, nur Durchflüge: jede Korrektur rechnet alles neu. Ein von
 Hand eingefügter oder wiederhergestellter Durchflug näher als die Mindestrunde an einem
@@ -136,7 +142,7 @@ braucht; nicht Zusammengehöriges auf getrennten Seiten.
 | Datei | Inhalt |
 |---|---|
 | `App.jsx` | Navigation mit 7 Seiten (Seitenleiste ab 820 px, sonst Tab-Leiste unten mit Kurznamen), Kopf mit „Heute · N Rennen“, Board-Status, Ton an/aus; lädt `/api/stats`. `?view=zuschauer`: nur die Zuschauer-Ansicht, ohne Navigation (Fernseher/Tablet) |
-| `pages/Control.jsx` | **Rennleitung**: Status, Uhr, Training / Rennen starten (+ Zahnrad → `RaceDialog`), Stopp / Abbrechen (löscht). Karten (`Lane`) mit Zahnrad → `SlotDialog`; während des Laufs `PassLog`. Nach dem Ende: Ergebnis (`Ranking`) und darunter `PassEditor` (Nachbearbeitung); Verwerfen, Schließen |
+| `pages/Control.jsx` | **Rennleitung**: Kopf mit Status, Uhr, Training / Rennen starten (+ Zahnrad → `RaceDialog`), während des Laufs Stopp / Abbrechen (löscht); nach dem Ende darunter eine Karte mit Verwerfen und „Ergebnis bestätigen“ (Rennen; bis dahin sind die Start-Knöpfe gesperrt), danach Schließen. Karten (`Lane`) mit Zahnrad → `SlotDialog`; während des Laufs `PassLog`. Nach dem Ende: Ergebnis (`Ranking`) und darunter `PassEditor` (Nachbearbeitung) |
 | `pages/Boards.jsx` | **Boards**: Rolle pro Board (Ziel / Freigabe / Aus) mit Live-Pegel, darunter Ziel- und Freigabe-Gate mit dem Modus jedes Kanals und „Alle automatisch / Alle manuell“ |
 | `components/ThresholdPanel.jsx` | Erkennung eines Kanals in der Rennleitung (wie RotorHazards Node-Anzeige): Slot-Karte antippen, darunter Gate-Wahl, Automatisch/Manuell für diesen Kanal, Pegelverlauf der letzten 30 s mit Enter/Exit-Linien (im manuellen Modus ziehbar, Maus und Touch, 0,5 dB, Exit bleibt ≥ 0,5 dB unter Enter, gespeichert beim Loslassen; Werte als HTML-Beschriftung, weil SVG-Text mit `preserveAspectRatio="none"` verzerrt), Regler (0,5 dB, Speichern verzögert) und „Aus Spitze“ (Enter = Spitze − 4 dB, Exit = − 9 dB). Ein automatisches Gate zeigt seine gelernten Linien |
 | `pages/Watch.jsx` | **Zuschauer**: laufende oder letzte Session, Karten ohne Bedienung und ohne Signalverlauf, Rangliste, Countdown |

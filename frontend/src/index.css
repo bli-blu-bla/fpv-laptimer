@@ -577,6 +577,34 @@ body {
   flex-wrap: wrap;
   gap: 10px;
 }
+.action-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 20px;
+  padding: 14px 20px;
+}
+.action-card .card-actions {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+@media (max-width: 819px) {
+  .action-card .card-actions {
+    margin-left: 0;
+    width: 100%;
+  }
+  .action-card .card-actions > * {
+    flex: 1;
+    white-space: nowrap;
+  }
+  /* one under the other, the main action first */
+  .action-card .card-actions > .btn-primary {
+    order: -1;
+    flex-basis: 100%;
+  }
+}
 .split {
   display: inline-flex;
 }
