@@ -28,6 +28,7 @@ typedef struct {
     radio_recal_t recal;
     /* Measurement */
     uint8_t metrics_mode;    /* METRICS_FULL, _RSSI or _SNR (frames.h) */
+    uint8_t level_batch_ms;  /* RSSI|SNR: 0 = FRAME_LEVELS per hop, else FRAME_LEVEL_BATCH every N ms */
     uint32_t rssi_hz, search_hz;
     uint8_t dc_guard;
     uint32_t spur_guard_hz;  /* +/- width masked around each known spur */

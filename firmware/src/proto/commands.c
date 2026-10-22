@@ -13,7 +13,7 @@
  * (LEVELFILTER) in NVS; every
  * switch to RotorHazard mode (and boot) applies them. CONFIG RESET erases
  * them and applies the built-in defaults.
- * A switch to monitor mode applies METRICS FULL. */
+ * A switch to monitor mode applies METRICS FULL and LEVELBATCH 0. */
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -216,6 +216,7 @@ static void set_proto(proto_t p) {
         link_flush();
     } else {
         next.metrics_mode = METRICS_FULL;
+        next.level_batch_ms = 0;
     }
     scanner_set_config(&next);
     if (p == PROTO_MONITOR) link_set_streaming(true);
@@ -234,7 +235,7 @@ static bool rh_allowed(const char *line) {
                                         "METRICS RSSI", "METRICS SNR", "METRICS?", "GAIN?", "GAIN HARDWARE",
                                         "FILTER AUTO", "MODE GROUP", "MODE SINGLE", "CONFIG SAVE",
                                         "CONFIG RESET", "RECAL", "LEVELFILTER MEDIAN", "LEVELFILTER EMA",
-                                        "LEVELFILTER?", "PHYIDLE?", "GPIO?"};
+                                        "LEVELFILTER?", "PHYIDLE?", "GPIO?", "TIME?"};
     static const char *const prefix[] = {"GAIN MANUAL ", "FFT ", "FILTER ", "IQCORR ", "PHYIDLE ", "THROTTLE ", "GPIO "};
     for (unsigned j = 0; j < sizeof(exact) / sizeof(exact[0]); j++)
         if (!strcmp(line, exact[j])) return true;
@@ -254,7 +255,7 @@ static void send_status(const char *keyword) {
               "\"recal\":\"%s\",\"metrics\":\"%s\",\"rssi_hz\":%" PRIu32 ",\"search_hz\":%" PRIu32 ",\"dc_guard\":%u,"
               "\"ema\":%.3f,\"clear_ema\":%.3f,\"signal_db\":%.1f,\"avg_shift\":%u,\"spec_every\":%u,\"spec_bins\":%u,"
               "\"spec_span_hz\":%" PRIu32 ",\"spec_detector\":%u,\"fft\":\"%s\",\"level_filter\":\"%s\",\"throttle_hz\":%" PRIu32 ","
-              "\"phy_idle\":%u,\"phy_idle_min_us\":%" PRIu32 ",\"plan\":[",
+              "\"level_batch_ms\":%u,\"phy_idle\":%u,\"phy_idle_min_us\":%" PRIu32 ",\"plan\":[",
               keyword, proto == PROTO_RH ? "RH" : "MONITOR", c.profile->name, c.running, c.enabled, c.mode == PLAN_GROUP ? "GROUP" : "SINGLE",
               c.capture_samples, c.nfft, c.segments, c.rate_code, c.filter, c.conjugate, c.iq_corr, c.settle_us, radio_get_tune_skip(),
               c.gain_mode == RADIO_GAIN_MANUAL ? "MANUAL" : "HARDWARE", c.gain, radio_caps()->gain_max, (unsigned)radio_caps()->max_samples,
@@ -262,7 +263,7 @@ static void send_status(const char *keyword) {
               metrics_mode_name(c.metrics_mode), c.rssi_hz, c.search_hz, c.dc_guard,
               (double)c.ema_alpha, (double)c.clear_alpha, (double)c.signal_snr_db, c.avg_shift, c.spec_every,
               c.spec_bins, c.spec_span_hz, c.spec_detector, psd_fft_name((psd_fft_t)c.fft_type),
-              level_filter_name(rh_get_filter()), c.max_rotation_hz, c.phy_idle, c.phy_idle_min_us);
+              level_filter_name(rh_get_filter()), c.max_rotation_hz, c.level_batch_ms, c.phy_idle, c.phy_idle_min_us);
     for (unsigned j = 0; j < plan.nhops; j++) {
         const plan_hop_t *h = &plan.hop[j];
         reply_add("%s{\"lo_khz\":%" PRIu32 ",\"ch\":[", j ? "," : "", h->lo_khz);
@@ -340,6 +341,9 @@ static void handle(char *line) {
          * '|', which none of them contains (the PHY version has spaces). */
         link_printf("INFO widscan58|%s|%d|%s|%s|%s\n", radio_caps()->target, PROTO_VERSION,
                     esp_app_get_description()->version, FW_COMMIT_DATE, radio_phy_version());
+    } else if (!strcmp(line, "TIME?")) {
+        /* The clock of the frame timestamps, for hosts that line up several boards. */
+        link_printf("TIME %" PRId64 "\n", esp_timer_get_time());
     } else if (!strcmp(line, "PROFILE?")) {
         send_profile(&c);
     } else if (!strcmp(line, "CHANNELS DEFAULT")) {
@@ -464,6 +468,12 @@ static void handle(char *line) {
         c.metrics_mode = m;
         scanner_set_config(&c);
         link_text("OK\n");
+    } else if (sscanf(line, "LEVELBATCH %" SCNu32 " %c", &a, &extra) == 1 && a <= 100) {
+        c.level_batch_ms = (uint8_t)a;
+        scanner_set_config(&c);
+        link_text("OK\n");
+    } else if (!strcmp(line, "LEVELBATCH?")) {
+        link_printf("LEVELBATCH %u\n", c.level_batch_ms);
     } else if (!strcmp(line, "METRICS?")) {
         link_printf("METRICS %s\n", metrics_mode_name(c.metrics_mode));
     } else if (sscanf(line, "AVG %" SCNu32 " %c", &a, &extra) == 1 && a >= METRICS_AVG_SHIFT_MIN &&

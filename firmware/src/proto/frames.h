@@ -20,6 +20,7 @@ enum {
     FRAME_RAWIQ = 4,
     FRAME_LOG = 5,
     FRAME_LEVELS = 6,
+    FRAME_LEVEL_BATCH = 7,
 };
 
 /* What the scanner measures per channel (METRICS command). FULL sends
@@ -114,11 +115,35 @@ typedef struct __attribute__((packed)) {
     uint8_t snr;             /* (S+N)/N, dB x 4; 0 in RSSI mode */
 } frame_level_t;
 
+/* METRICS RSSI|SNR with LEVELBATCH <ms>: the levels of every hop in the last
+ * <ms> (or until LEVEL_BATCH_MAX records), instead of a FRAME_LEVELS per hop.
+ * For hosts that fuse several boards: times are the esp_timer clock in µs
+ * (TIME? reads it), at the middle of each capture. Header, then n records. */
+#define LEVEL_BATCH_MAX 128
+typedef struct __attribute__((packed)) {
+    uint32_t seq;            /* batch counter */
+    uint64_t t0_us;          /* the first record's capture time */
+    uint16_t lost;           /* records dropped since the previous batch (link queue full) */
+    uint8_t gain;            /* 255 = hardware AGC */
+    uint8_t mode;            /* METRICS_RSSI or METRICS_SNR */
+    uint16_t n;
+} frame_level_batch_t;
+
+typedef struct __attribute__((packed)) {
+    uint32_t dt_us;          /* capture time - t0_us */
+    uint8_t id;              /* profile channel index */
+    uint8_t flags;           /* CHF_* (metrics.h) */
+    uint8_t rssi;            /* level codes, as frame_level_t */
+    uint8_t snr;
+} frame_level_rec_t;
+
 /* web/src/proto/frames.ts and tools/widscan58cli.py hard-code these sizes. */
 _Static_assert(sizeof(frame_metrics_t) == 34, "frame_metrics_t layout");
 _Static_assert(sizeof(frame_channel_t) == 26, "frame_channel_t layout");
 _Static_assert(sizeof(frame_levels_t) == 32, "frame_levels_t layout");
 _Static_assert(sizeof(frame_level_t) == 4, "frame_level_t layout");
+_Static_assert(sizeof(frame_level_batch_t) == 18, "frame_level_batch_t layout");
+_Static_assert(sizeof(frame_level_rec_t) == 8, "frame_level_rec_t layout");
 _Static_assert(sizeof(frame_telemetry_t) == 59, "frame_telemetry_t layout");
 
 /* Raw snapshot, signed 8-bit I then Q: the 10-bit samples >> shift, with the

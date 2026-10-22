@@ -72,6 +72,11 @@ typedef struct {
     /* Radio power-downs in the throttle's waits (phy_idle) */
     uint32_t idle_n, idle_skipped, idle_up_max, idle_up_est;
     uint64_t idle_down_sum, idle_up_sum;
+    /* LEVELBATCH: records waiting for the next FRAME_LEVEL_BATCH */
+    frame_level_rec_t batch[LEVEL_BATCH_MAX];
+    uint16_t batch_n, batch_lost;
+    int64_t batch_t0;
+    uint32_t seq_batch;
 } scan_state_t;
 static scan_state_t *sp; /* heap: static SRAM goes to hot code in IRAM on the C5 */
 
@@ -80,6 +85,38 @@ static int16_t cdb(float db) {
     return v > 32767 ? 32767 : v < -32768 ? -32768 : (int16_t)lrintf(v);
 }
 static uint16_t clamp_u16(uint32_t v) { return v > 65535 ? 65535 : (uint16_t)v; }
+
+static void batch_flush(void) {
+    if (!sp->batch_n) return;
+    unsigned gain_index;
+    radio_gain_mode_t gm = radio_get_gain(&gain_index);
+    frame_level_batch_t h = {
+        .seq = sp->seq_batch++,
+        .t0_us = (uint64_t)sp->batch_t0,
+        .lost = sp->batch_lost,
+        .gain = gm == RADIO_GAIN_HARDWARE ? 255 : (uint8_t)gain_index,
+        .mode = sp->cfg.metrics_mode,
+        .n = sp->batch_n,
+    };
+    if (link_frame(FRAME_LEVEL_BATCH, &h, sizeof(h), sp->batch, sp->batch_n * sizeof(frame_level_rec_t), 0))
+        sp->batch_lost = 0;
+    else
+        sp->batch_lost = (uint16_t)(sp->batch_lost + sp->batch_n > 65535 ? 65535 : sp->batch_lost + sp->batch_n);
+    sp->batch_n = 0;
+}
+
+/* Sends the batch once it spans level_batch_ms (also called between hops, so
+ * that a stopped scan doesn't hold records back). */
+static void batch_due(int64_t now) {
+    if (sp->batch_n && now - sp->batch_t0 >= (int64_t)sp->cfg.level_batch_ms * 1000) batch_flush();
+}
+
+static void batch_add(int64_t t_us, const frame_level_t *l) {
+    if (sp->batch_n == LEVEL_BATCH_MAX) batch_flush();
+    if (!sp->batch_n) sp->batch_t0 = t_us;
+    sp->batch[sp->batch_n++] = (frame_level_rec_t){
+        .dt_us = (uint32_t)(t_us - sp->batch_t0), .id = l->id, .flags = l->flags, .rssi = l->rssi, .snr = l->snr};
+}
 
 void scanner_defaults(const profile_t *p, scan_config_t *c) {
     memset(c, 0, sizeof(*c));
@@ -147,6 +184,7 @@ void scanner_get_plan(plan_t *plan) {
 bool scanner_request(const scan_request_t *r) { return xQueueSend(requests, r, 0) == pdTRUE; }
 
 static void apply_config(void) {
+    batch_flush(); /* in the settings they were measured with */
     xSemaphoreTake(lock, portMAX_DELAY);
     bool profile_changed = sp->cfg.profile != shared.profile;
     /* Channel state is per plan index: a new channel list starts afresh. */
@@ -313,6 +351,7 @@ static void do_levels(metrics_input_t *in, const psd_result_t *psd, const plan_h
         }
         out[j] = (frame_level_t){.id = hop->ch[j], .flags = m.flags, .rssi = m.rssi, .snr = m.snr};
         if (c->rh) rh_feed(hop->ch[j], cap_mid, snr ? m.snr : m.rssi);
+        else if (c->level_batch_ms) batch_add(cap_mid, &out[j]);
     }
     int64_t tm1 = esp_timer_get_time();
     int64_t t3 = finish_hop(psd, hop, t2, tm0, tm1);
@@ -333,7 +372,8 @@ static void do_levels(metrics_input_t *in, const psd_result_t *psd, const plan_h
         .floor_bin = floor_raw ? metrics_code_u8((metrics_code_q8(floor_raw) + sp->floor_bias_q8) / 2 + spec_bin_q8) : 0,
         .nch = hop->nch,
     };
-    if (!c->rh) link_frame(FRAME_LEVELS, &h, sizeof(h), out, hop->nch * sizeof(frame_level_t), 0);
+    if (!c->rh && c->level_batch_ms) batch_due(t3);
+    else if (!c->rh) link_frame(FRAME_LEVELS, &h, sizeof(h), out, hop->nch * sizeof(frame_level_t), 0);
     hop_stats(t0, t1, t2, t3);
 }
 
@@ -652,6 +692,7 @@ static void scanner_task(void *arg) {
         }
         int64_t now = esp_timer_get_time();
         if (now - sp->window_start >= TELEMETRY_US) emit_telemetry(now);
+        batch_due(now);
         if (!sp->cfg.running || !sp->plan.nhops) {
             vTaskDelay(pdMS_TO_TICKS(10));
             continue;
