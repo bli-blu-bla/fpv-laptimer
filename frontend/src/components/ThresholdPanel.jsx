@@ -4,7 +4,7 @@
 // the signal of the last 30 s with the Enter and Exit lines, and in manual
 // mode move them. In automatic mode the lines are the learned ones.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Gauge, X } from '@phosphor-icons/react'
 import { saveSettings } from '../api.js'
 import { channelMode } from '../model.js'
@@ -35,6 +35,8 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
   const saved = d[gate][index] ?? DEFAULT
   // Shown at once; saved when the taps rest (Stepper `delayed`).
   const [t, setT] = useState(saved)
+  /** The line being dragged in the graph, if any. */
+  const drag = useRef(/** @type {'enter' | 'exit' | null} */ (null))
   useEffect(() => setT(saved), [saved.enter_db, saved.exit_db, gate]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /** @param {Partial<import('../types').Thresholds>} part */
@@ -56,6 +58,44 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
   /** @param {number} db */
   const y = (db) => H - ((Math.min(MAX_DB, Math.max(MIN_DB, db)) - MIN_DB) / (MAX_DB - MIN_DB)) * H
   const n = Math.max(points.length, 2)
+
+  /** dBFS at a pointer's height in the graph, to 0.5 dB. @param {React.PointerEvent<HTMLDivElement>} e */
+  function dbAt(e) {
+    const r = e.currentTarget.getBoundingClientRect()
+    const frac = 1 - (e.clientY - r.top) / r.height
+    const db = MIN_DB + frac * (MAX_DB - MIN_DB)
+    return Math.round(Math.max(MIN_DB, Math.min(MAX_DB, db)) * 2) / 2
+  }
+  /** Grab the Enter or Exit line near the pointer (within 14 px). @param {React.PointerEvent<HTMLDivElement>} e */
+  function down(e) {
+    if (!manual) return
+    const r = e.currentTarget.getBoundingClientRect()
+    const py = e.clientY - r.top
+    /** @param {number} db */
+    const px = (db) => (y(db) / H) * r.height
+    const dEnter = Math.abs(px(t.enter_db) - py)
+    const dExit = Math.abs(px(t.exit_db) - py)
+    const which = dEnter <= dExit ? 'enter' : 'exit'
+    if (Math.min(dEnter, dExit) > 14) return
+    drag.current = which
+    e.currentTarget.setPointerCapture(e.pointerId)
+  }
+  /** @param {React.PointerEvent<HTMLDivElement>} e */
+  function move(e) {
+    if (!drag.current) return
+    const db = dbAt(e)
+    // Exit stays at least 0.5 dB below Enter.
+    setT((old) =>
+      drag.current === 'enter'
+        ? { ...old, enter_db: Math.max(db, old.exit_db + 0.5) }
+        : { ...old, exit_db: Math.min(db, old.enter_db - 0.5) },
+    )
+  }
+  function up() {
+    if (!drag.current) return
+    drag.current = null
+    save({ enter_db: t.enter_db, exit_db: t.exit_db })
+  }
   const line = points
     .map((p, k) => (p.level == null ? null : `${((k / (n - 1)) * W).toFixed(1)},${y(p.level).toFixed(1)}`))
     .filter(Boolean)
@@ -91,7 +131,14 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
         </button>
       </div>
 
-      <div className="spark" style={{ height: H }}>
+      <div
+        className={manual ? 'spark tune-graph manual' : 'spark tune-graph'}
+        style={{ height: H }}
+        onPointerDown={down}
+        onPointerMove={move}
+        onPointerUp={up}
+        onPointerCancel={up}
+      >
         <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none">
           {[-50, -40, -30, -20, -10].map((db) => (
             <line key={db} x1={0} x2={W} y1={y(db)} y2={y(db)} stroke="var(--n900)" vectorEffect="non-scaling-stroke" />
@@ -105,10 +152,21 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
             </>
           )}
         </svg>
+        {/* Labels in HTML: SVG text would be stretched with the graph. */}
+        {enter != null && (
+          <span className="line-label enter" style={{ top: `${(y(enter) / H) * 100}%` }}>
+            Enter {enter.toFixed(1)}
+          </span>
+        )}
+        {exit != null && (
+          <span className="line-label exit" style={{ top: `${(y(exit) / H) * 100}%` }}>
+            Exit {exit.toFixed(1)}
+          </span>
+        )}
       </div>
       <span className="muted small tnum">
-        Jetzt {now != null ? now.toFixed(1) : '–'} · Spitze (30 s) {peak != null ? peak.toFixed(1) : '–'} dBFS ·{' '}
-        <span style={{ color: 'var(--accent)' }}>— Enter</span> <span style={{ color: 'var(--n400)' }}>— Exit</span>
+        Jetzt {now != null ? now.toFixed(1) : '–'} · Spitze (30 s) {peak != null ? peak.toFixed(1) : '–'} dBFS
+        {manual ? ' · Linien zum Verschieben ziehen' : ''}
       </span>
 
       {manual ? (

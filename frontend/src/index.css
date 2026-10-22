@@ -1095,3 +1095,28 @@ body {
 .lane.selected {
   box-shadow: 0 0 0 2px var(--lane);
 }
+.tune-graph {
+  position: relative;
+}
+.tune-graph.manual {
+  touch-action: none; /* dragging a line must not scroll the page */
+  cursor: ns-resize;
+}
+.line-label {
+  position: absolute;
+  right: 6px;
+  transform: translateY(-100%);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--surface-2) 80%, transparent);
+  pointer-events: none;
+}
+.line-label.enter {
+  color: var(--accent);
+}
+.line-label.exit {
+  color: var(--n400);
+  transform: none;
+}
