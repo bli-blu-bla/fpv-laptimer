@@ -199,23 +199,32 @@ impl Link {
     }
 
     /// Sends a command and returns its reply line; an `ERR …` reply is an error.
-    fn command(&mut self, line: &str) -> Result<String> {
+    ///
+    /// The reply must start with `expect` ("OK" for most commands). Other
+    /// lines are skipped: a late reply to an earlier command can still be on
+    /// its way when we send the next one.
+    fn command(&mut self, line: &str, expect: &str) -> Result<String> {
         self.items.clear(); // older replies don't belong to this command
         self.port.write_all(format!("{line}\n").as_bytes())?;
-        match self.next_line(Duration::from_secs(1))? {
-            Some(reply) if reply.starts_with("ERR") => bail!("{line}: {reply}"),
-            Some(reply) => Ok(reply),
-            None => bail!("{line}: no reply"),
+        let until = Instant::now() + Duration::from_secs(1);
+        while let Some(reply) = self.next_line(until.saturating_duration_since(Instant::now()))? {
+            if reply.starts_with("ERR") {
+                bail!("{line}: {reply}");
+            }
+            if reply.starts_with(expect) {
+                return Ok(reply);
+            }
         }
+        bail!("{line}: no reply")
     }
 
     /// Puts the board into the mode we need. Returns its `INFO` text.
     fn setup(&mut self, config: &ScanConfig) -> Result<String> {
         // The firmware boots in RotorHazard mode and says nothing until asked.
         // Its text commands work there too, so switch first.
-        self.command("PROTOCOL MONITOR")?;
-        self.command("SCAN STOP")?;
-        let info = self.command("INFO")?;
+        self.command("PROTOCOL MONITOR", "OK")?;
+        self.command("SCAN STOP", "OK")?;
+        let info = self.command("INFO", "INFO ")?;
         if !info.starts_with("INFO widscan58|") {
             bail!("not our firmware: {info}");
         }
@@ -242,7 +251,7 @@ impl Link {
             format!("LEVELBATCH {}", config.batch_ms),
             "SCAN START".to_string(),
         ] {
-            self.command(&cmd)?;
+            self.command(&cmd, "OK")?;
         }
         Ok(info.trim_start_matches("INFO ").to_string())
     }

@@ -1,8 +1,10 @@
 //! FPV lap timer. For now: `laptimer ports` and `laptimer record`.
 
 mod clock;
+mod detect;
 mod esp;
 mod record;
+mod replay;
 
 use std::path::PathBuf;
 
@@ -45,6 +47,19 @@ enum Command {
         /// Stop after this many seconds (default: Ctrl-C).
         #[arg(long)]
         seconds: Option<u64>,
+        /// Minimum lap, seconds.
+        #[arg(long, default_value_t = 3.0)]
+        min_lap: f64,
+    },
+    /// Run a recording through the pass detection.
+    Replay {
+        csv: PathBuf,
+        /// Only this board's levels (default: all boards combined).
+        #[arg(long)]
+        board: Option<usize>,
+        /// Minimum lap, seconds.
+        #[arg(long, default_value_t = 3.0)]
+        min_lap: f64,
     },
 }
 
@@ -64,6 +79,7 @@ fn main() -> Result<()> {
             batch_ms,
             out,
             seconds,
+            min_lap,
         } => {
             if !(1..=100).contains(&batch_ms) {
                 bail!("--batch-ms must be 1–100");
@@ -78,7 +94,16 @@ fn main() -> Result<()> {
                 config,
                 out,
                 seconds,
+                detect: detect::DetectConfig {
+                    min_lap_us: (min_lap * 1e6) as i64,
+                },
             })
+        }
+        Command::Replay { csv, board, min_lap } => {
+            let config = detect::DetectConfig {
+                min_lap_us: (min_lap * 1e6) as i64,
+            };
+            replay::run(&csv, board, config)
         }
     }
 }

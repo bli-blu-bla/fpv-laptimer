@@ -61,14 +61,17 @@ USB-Ports, an einem dritten 2,4 ms; also ±0,4 bis ±1,2 ms Unsicherheit.
 
 ## Server (`server/`)
 
-Bisher nur das Aufzeichnen für Testflüge (`laptimer record`, `laptimer ports`):
+Bisher: Aufzeichnen mit Live-Erkennung (`laptimer record`), Erkennung auf einer Aufnahme
+(`laptimer replay <csv> [--board N]`), `laptimer ports`:
 
 | Datei | Inhalt |
 |---|---|
 | `src/esp/frame.rs` | Byte-Strom → Frames und Textzeilen (`Parser`), `LevelBatch` |
 | `src/esp/board.rs` | `Board::start`: Port öffnen, einstellen (Befehle oben), Uhrabgleich, dann ein Thread pro Board, der `Event`s über einen `mpsc`-Kanal schickt |
 | `src/clock.rs` | `ClockSync`: Board-Zeit → Host-Zeit (µs seit Programmstart). Je 10 `TIME?`-Antworten zählt die schnellste; durch diese Schätzungen der letzten 5 min eine Ausgleichsgerade (Drift erst ab 20 s Spanne) |
-| `src/record.rs` | CSV schreiben, Live-Anzeige im Terminal |
+| `src/detect.rs` | Durchflug-Erkennung ohne I/O (Schritte im Kopfkommentar): 10-ms-Slots, Hüllkurve (Max 20 ms, Median 100 ms) pro Board, Maximum über die Boards, Schwellen aus dem Flug (Kurs = Median bei Sender an, > −46 dBFS; Gipfel = Median der letzten 5 Durchflug-Gipfel, vorher 99,5-%-Perzentil; Eintritt 60 %, Austritt 20 %), Durchflug 1 s nach Austritt gemeldet, Mindestrunde 3 s. Nach dem 3. Durchflug werden frühe Fehltreffer zurückgenommen (`Event::Retract`) |
+| `src/record.rs` | CSV schreiben, Erkennung, Live-Anzeige (Pegel, Schwellen, Runden); Durchflüge nach `<aufnahme>_passes.csv` (`event,channel,time_us,peak_db`, `event` = `pass` oder `retract`) |
+| `src/replay.rs` | Aufnahme durch `detect.rs` schicken |
 
 Threads und `std::sync::mpsc` statt async: einfacher zu lesen. Für den Web-Server kommt
 später vermutlich `tokio`/`axum` dazu.
@@ -80,6 +83,14 @@ Gemessen mit zwei Boards (2026-10-22, 40 s, ohne VTX): ~511 Pegel/s pro Kanal un
 keine Verluste, Uhr ±0,1 ms (der Uhrabgleich vor dem Scan-Start ist schneller als im
 Betrieb), Drift +4 und +8 ppm. In den ersten ~0,2 s nach dem Start fehlen bei einem frisch
 gestarteten Board Werte: die Firmware kalibriert jeden LO beim ersten Besuch (~40 ms).
+
+Erkennung auf den beiden Aufnahmen vom 2026-10-22 (ein Pilot, DJI 25 mW, R3, Boards lose
+am Boden mit den beiliegenden externen Antennen): kombiniert beide richtig (6 von 6; in der
+ersten wird ein Fehltreffer vor dem ersten Durchflug zurückgenommen). Einzelne Boards
+verpassen oder erfinden Durchflüge. Für denselben Durchflug liegen die Boards bis 0,3–0,4 s
+auseinander: der Gipfel ist ein breiter Buckel, die Zeit entsprechend ungenau. Halbe
+Messrate (~255/s) ändert nichts, ~128/s gibt Fehltreffer. DJI: ~20 % der Messungen am Gate
+fallen in Sendepausen (Rauschboden), längste Lücke 6 ms; daher Maximum statt Median.
 
 Einmal hingen beide Boards (keine Antwort, auch nicht auf `INFO`), bis sie per RTS
 zurückgesetzt wurden; Ursache unbekannt, nicht wieder aufgetreten.

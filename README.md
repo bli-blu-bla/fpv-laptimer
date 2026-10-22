@@ -41,8 +41,15 @@ cargo run --release -- record --seconds 60 --gain 45 --channels R1=5658,R3=5732,
 cargo run --release -- ports           # welche Boards gefunden werden
 ```
 
-Zeigt die Pegel live im Terminal und schreibt alle Messwerte nach
-`server/recordings/<Datum_Uhrzeit>.csv`. Braucht [Rust](https://rustup.rs).
+Zeigt Pegel, erkannte Durchflüge und Rundenzeiten live im Terminal (bei jedem Durchflug
+piept es) und schreibt alle Messwerte nach `server/recordings/<Datum_Uhrzeit>.csv`, die
+Durchflüge nach `…_passes.csv`. Braucht [Rust](https://rustup.rs).
+
+```sh
+cargo run --release -- replay recordings/<datei>.csv            # Erkennung auf einer Aufnahme
+cargo run --release -- replay recordings/<datei>.csv --board 0  # nur ein Board
+tools/.venv-analysis/bin/python tools/plot_recording.py <datei>.csv --channel R3   # Plot
+```
 
 ## Danksagung
 
