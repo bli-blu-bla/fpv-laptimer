@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react'
 import {
   ArrowSquareOut,
   ClockCounterClockwise,
+  Cpu,
   FlagCheckered,
   MonitorPlay,
   SlidersHorizontal,
@@ -18,6 +19,7 @@ import {
 } from '@phosphor-icons/react'
 import { api, saveSettings, useServer } from './api.js'
 import Best from './pages/Best.jsx'
+import Boards from './pages/Boards.jsx'
 import Control from './pages/Control.jsx'
 import Pilots from './pages/Pilots.jsx'
 import Sessions from './pages/Sessions.jsx'
@@ -31,6 +33,7 @@ const PAGES = /** @type {const} */ ([
   ['best', 'Bestzeiten', 'Bestzeiten', Trophy],
   ['sessions', 'Sessions', 'Sessions', ClockCounterClockwise],
   ['pilots', 'Piloten', 'Piloten', UsersThree],
+  ['boards', 'Boards', 'Boards', Cpu],
   ['settings', 'Einstellungen', 'Setup', SlidersHorizontal],
 ])
 
@@ -139,8 +142,10 @@ export default function App() {
             <Sessions changed={changed} state={state} />
           ) : page === 'pilots' ? (
             <Pilots state={state} stats={stats} />
+          ) : page === 'boards' ? (
+            <Boards state={state} live={server.live} />
           ) : (
-            <SettingsPage state={state} live={server.live} />
+            <SettingsPage state={state} />
           )}
         </main>
       </div>

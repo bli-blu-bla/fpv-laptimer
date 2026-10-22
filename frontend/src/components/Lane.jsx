@@ -23,8 +23,10 @@ const ON_DB = -46
  * @param {import('../types').ChannelLive} [props.live]
  * @param {import('./Sparkline.jsx').SparkPoint[]} [props.spark]   none: no signal shown (spectator view)
  * @param {() => void} [props.onGear]                 none: no gear (spectator view)
+ * @param {() => void} [props.onSelect]   a tap on the card (race control: its thresholds)
+ * @param {boolean} [props.selected]
  */
-export default function Lane({ color, callsign, fullName, channel, mhz, off, result, standing, endRule, live, spark, onGear }) {
+export default function Lane({ color, callsign, fullName, channel, mhz, off, result, standing, endRule, live, spark, onGear, onSelect, selected }) {
   const style = /** @type {React.CSSProperties} */ ({ '--lane': color })
   const head = (
     <div className="lane-head">
@@ -38,7 +40,15 @@ export default function Lane({ color, callsign, fullName, channel, mhz, off, res
         {channel} · {mhz}
       </span>
       {onGear && (
-        <button className="btn btn-ghost btn-icon" style={{ marginLeft: -6 }} onClick={onGear} title="Slot einstellen">
+        <button
+          className="btn btn-ghost btn-icon"
+          style={{ marginLeft: -6 }}
+          onClick={(e) => {
+            e.stopPropagation() // not a tap on the card
+            onGear()
+          }}
+          title="Slot einstellen"
+        >
           <GearSix size={18} />
         </button>
       )}
@@ -59,7 +69,17 @@ export default function Lane({ color, callsign, fullName, channel, mhz, off, res
   const signal = live?.in_pass ? 'im Gate' : level == null ? 'keine Daten' : level < ON_DB ? 'kein Sender' : live?.enter_db == null ? 'lernt die Pegel' : 'Signal'
 
   return (
-    <div className={'lane' + (live?.in_pass ? ' gate' : '') + (result?.finished_us && standing?.pos === 1 ? ' leader' : '')} style={style}>
+    <div
+      className={
+        'lane' +
+        (live?.in_pass ? ' gate' : '') +
+        (result?.finished_us && standing?.pos === 1 ? ' leader' : '') +
+        (onSelect ? ' selectable' : '') +
+        (selected ? ' selected' : '')
+      }
+      style={style}
+      onClick={onSelect}
+    >
       {head}
       <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 8 }}>
         <div style={{ display: 'flex', flexDirection: 'column' }}>

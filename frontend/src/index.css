@@ -508,7 +508,7 @@ body {
   bottom: 0;
   z-index: 10;
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
+  grid-template-columns: repeat(7, 1fr);
   gap: 2px;
   padding: 6px 4px calc(6px + env(safe-area-inset-bottom));
   background: color-mix(in srgb, var(--bg) 92%, transparent);
@@ -1088,4 +1088,10 @@ body {
   flex-wrap: wrap;
   align-items: center;
   column-gap: 20px;
+}
+.lane.selectable {
+  cursor: pointer;
+}
+.lane.selected {
+  box-shadow: 0 0 0 2px var(--lane);
 }

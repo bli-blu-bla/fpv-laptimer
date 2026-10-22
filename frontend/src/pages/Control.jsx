@@ -15,9 +15,10 @@ import PassLog from '../components/PassLog.jsx'
 import RaceDialog from '../components/RaceDialog.jsx'
 import Ranking from '../components/Ranking.jsx'
 import SlotDialog from '../components/SlotDialog.jsx'
+import ThresholdPanel from '../components/ThresholdPanel.jsx'
 
 /** Seconds of signal history in the slot cards (10 points a second). */
-const SPARK_POINTS = 150
+const SPARK_POINTS = 300 // 30 s (the slot cards show the last 15)
 
 /**
  * @param {object} props
@@ -32,6 +33,8 @@ export default function Control({ server, state, stats }) {
   const [slotDialog, setSlotDialog] = useState(/** @type {number | null} */ (null))
   const [raceDialog, setRaceDialog] = useState(false)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
+  // The slot whose thresholds are shown below the cards (manual mode).
+  const [tune, setTune] = useState(/** @type {number | null} */ (null))
   // The session that just ended stays on the page until the next start or "Schließen".
   const [doneId, setDoneId] = useState(/** @type {number | null} */ (null))
   const [done, setDone] = useState(/** @type {import('../types').SessionDetail | null} */ (null))
@@ -84,6 +87,10 @@ export default function Control({ server, state, stats }) {
   const t0 = session ? (session.config.race ? session.start_us : session.created_us) : 0
   const elapsed = phase === 'running' ? now - t0 : phase === 'done' && session ? (session.ended_us ?? t0) - t0 : 0
   const st = detail ? standings(detail.session, detail.results) : []
+  // Manual thresholds are set here: a slot tapped shows them below the cards.
+  const hasArming = (live?.boards ?? state.boards).some((b) => b.role === 'arming' && !b.failed)
+  const det = state.settings.detection
+  const canTune = phase !== 'done' && (det.finish_mode === 'classic' || (hasArming && det.arming_mode === 'classic'))
 
   const r = state.settings.race
   const formatShort = `${START_MODES[r.start_mode]} · ${endRule(r.end_rule)}${r.countdown_s ? ` · ${r.countdown_s} s Countdown` : ''}`
@@ -181,13 +188,30 @@ export default function Control({ server, state, stats }) {
               standing={i >= 0 ? st[i] : undefined}
               endRule={session?.config.race ? session.config.end_rule : undefined}
               live={live?.channels[slot.index]}
-              spark={spark[slot.index] ?? []}
+              spark={(spark.finish[slot.index] ?? []).slice(-150)}
+              selected={tune === slot.index}
+              onSelect={canTune && !off ? () => setTune(tune === slot.index ? null : slot.index) : undefined}
               onGear={() => setSlotDialog(slot.index)}
             />
           )
         })}
       </div>
 
+      {canTune && tune != null && slotsOf(state)[tune] && (
+        <ThresholdPanel
+          key={tune}
+          state={state}
+          index={tune}
+          color={slotsOf(state)[tune].color}
+          callsign={slotsOf(state)[tune].callsign}
+          history={{ finish: spark.finish[tune] ?? [], arming: spark.arming[tune] ?? [] }}
+          hasArming={hasArming}
+          onClose={() => setTune(null)}
+        />
+      )}
+      {canTune && tune == null && phase === 'idle' && (
+        <span className="muted small">Manuelle Schwellen: einen Slot antippen, darunter erscheinen Pegelverlauf, Enter und Exit.</span>
+      )}
       {(phase === 'running' || phase === 'countdown') && <PassLog detail={detail} />}
 
       {phase === 'countdown' && active && (
@@ -240,15 +264,24 @@ export default function Control({ server, state, stats }) {
 /** The last seconds of every channel's live level, for the sparklines.
  * @param {import('../types').Live | null} live */
 function useSpark(live) {
-  const hist = useRef(/** @type {import('../components/Sparkline.jsx').SparkPoint[][]} */ ([]))
+  const hist = useRef(
+    /** @type {{finish: import('../components/Sparkline.jsx').SparkPoint[][], arming: import('../components/Sparkline.jsx').SparkPoint[][]}} */ ({
+      finish: [],
+      arming: [],
+    }),
+  )
   const [, setTick] = useState(0)
   useEffect(() => {
     if (!live) return
-    live.channels.forEach((c, i) => {
-      const h = (hist.current[i] ??= [])
-      h.push({ level: c.level_db, enter: c.enter_db, exit: c.exit_db })
-      if (h.length > SPARK_POINTS) h.shift()
-    })
+    /** @param {import('../components/Sparkline.jsx').SparkPoint[][]} into @param {import('../types').ChannelLive[] | null} from */
+    const add = (into, from) =>
+      from?.forEach((c, i) => {
+        const h = (into[i] ??= [])
+        h.push({ level: c.level_db, enter: c.enter_db, exit: c.exit_db })
+        if (h.length > SPARK_POINTS) h.shift()
+      })
+    add(hist.current.finish, live.channels)
+    add(hist.current.arming, live.arming)
     setTick((t) => t + 1)
   }, [live])
   return hist.current

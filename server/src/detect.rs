@@ -94,12 +94,15 @@ impl Default for Thresholds {
     }
 }
 
-/// The detection settings: the mode and, for "classic", the thresholds per
-/// channel of the finish gate and of the arming gate.
+/// The detection settings of the finish and the arming gate, each with its
+/// own mode and, for "classic", its thresholds per channel.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct DetectionSettings {
+    /// `alias`: settings saved when there was one mode for both gates.
+    #[serde(default, alias = "mode")]
+    pub finish_mode: DetectMode,
     #[serde(default)]
-    pub mode: DetectMode,
+    pub arming_mode: DetectMode,
     #[serde(default)]
     pub finish: Vec<Thresholds>,
     #[serde(default)]
@@ -110,7 +113,8 @@ impl DetectionSettings {
     /// For `Detector::set_fixed`: None in auto mode, else (enter, exit) per
     /// channel (missing ones: the default).
     pub fn fixed(&self, arming: bool, n_channels: usize) -> Option<Vec<(f32, f32)>> {
-        if self.mode != DetectMode::Classic {
+        let mode = if arming { self.arming_mode } else { self.finish_mode };
+        if mode != DetectMode::Classic {
             return None;
         }
         let list = if arming { &self.arming } else { &self.finish };
@@ -760,6 +764,18 @@ mod tests {
         };
         assert_eq!(run(-12.0), 0);
         assert_eq!(run(-20.0), 3);
+    }
+
+    #[test]
+    fn detection_settings_per_gate() {
+        // Saved before the modes were split: "mode" becomes the finish gate's.
+        let old: DetectionSettings = serde_json::from_str(r#"{"mode":"classic","finish":[],"arming":[]}"#).unwrap();
+        assert_eq!(
+            (old.finish_mode, old.arming_mode),
+            (DetectMode::Classic, DetectMode::Auto)
+        );
+        assert!(old.fixed(false, 2).is_some());
+        assert!(old.fixed(true, 2).is_none());
     }
 
     #[test]

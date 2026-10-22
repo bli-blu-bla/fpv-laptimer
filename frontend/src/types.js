@@ -29,7 +29,8 @@
  * @typedef {'finish' | 'arming' | 'off'} BoardRole
  * @typedef {{enter_db: number, exit_db: number}} Thresholds
  * @typedef {object} DetectionSettings
- * @property {'auto' | 'classic'} mode
+ * @property {'auto' | 'classic'} finish_mode
+ * @property {'auto' | 'classic'} arming_mode
  * @property {Thresholds[]} finish   classic: per channel
  * @property {Thresholds[]} arming
  *
