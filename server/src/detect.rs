@@ -78,11 +78,14 @@ pub enum DetectMode {
     Classic,
 }
 
-/// Fixed thresholds of one channel, dBFS.
+/// One channel's detection: its mode (None: the gate's) and its fixed
+/// thresholds (dBFS, used in classic mode).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Thresholds {
     pub enter_db: f32,
     pub exit_db: f32,
+    #[serde(default)]
+    pub mode: Option<DetectMode>,
 }
 
 impl Default for Thresholds {
@@ -90,12 +93,14 @@ impl Default for Thresholds {
         Thresholds {
             enter_db: -25.0,
             exit_db: -30.0,
+            mode: None,
         }
     }
 }
 
-/// The detection settings of the finish and the arming gate, each with its
-/// own mode and, for "classic", its thresholds per channel.
+/// The detection settings of the finish and the arming gate: per gate a
+/// mode for its channels, and per channel its own mode (if set) and its
+/// fixed thresholds.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct DetectionSettings {
     /// `alias`: settings saved when there was one mode for both gates.
@@ -110,20 +115,20 @@ pub struct DetectionSettings {
 }
 
 impl DetectionSettings {
-    /// For `Detector::set_fixed`: None in auto mode, else (enter, exit) per
-    /// channel (missing ones: the default).
-    pub fn fixed(&self, arming: bool, n_channels: usize) -> Option<Vec<(f32, f32)>> {
-        let mode = if arming { self.arming_mode } else { self.finish_mode };
-        if mode != DetectMode::Classic {
-            return None;
-        }
-        let list = if arming { &self.arming } else { &self.finish };
-        Some(
-            (0..n_channels)
-                .map(|c| list.get(c).copied().unwrap_or_default())
-                .map(|t| (t.enter_db, t.exit_db))
-                .collect(),
-        )
+    /// For `Detector::set_fixed`: per channel, (enter, exit) if the channel
+    /// is in classic mode (its own mode, else the gate's), None if automatic.
+    pub fn fixed(&self, arming: bool, n_channels: usize) -> Vec<Option<(f32, f32)>> {
+        let (gate_mode, list) = if arming {
+            (self.arming_mode, &self.arming)
+        } else {
+            (self.finish_mode, &self.finish)
+        };
+        (0..n_channels)
+            .map(|c| {
+                let t = list.get(c).copied().unwrap_or_default();
+                (t.mode.unwrap_or(gate_mode) == DetectMode::Classic).then_some((t.enter_db, t.exit_db))
+            })
+            .collect()
     }
 }
 
@@ -230,10 +235,14 @@ impl Detector {
     }
 
     /// Fixed thresholds ("classic" mode, as RotorHazard's EnterAt/ExitAt),
-    /// dBFS per channel; None: learned from the flight (the default).
-    pub fn set_fixed(&mut self, fixed: Option<&[(f32, f32)]>) {
+    /// dBFS, per channel; None (or no entry): learned from the flight.
+    pub fn set_fixed(&mut self, fixed: &[Option<(f32, f32)>]) {
         for (c, ch) in self.channels.iter_mut().enumerate() {
-            ch.fixed = fixed.and_then(|f| f.get(c)).map(|&(e, x)| (db_code_f(e), db_code_f(x)));
+            ch.fixed = fixed
+                .get(c)
+                .copied()
+                .flatten()
+                .map(|(e, x)| (db_code_f(e), db_code_f(x)));
             ch.update_thresholds();
         }
     }
@@ -741,7 +750,7 @@ mod tests {
         // dBFS): nothing counts; just below them: every pass from the first.
         let run = |enter: f32| {
             let mut det = Detector::new(1, DetectConfig::default());
-            det.set_fixed(Some(&[(enter, enter - 6.0)]));
+            det.set_fixed(&[Some((enter, enter - 6.0))]);
             let mut found = Vec::new();
             for k in 0..15_000u64 {
                 let t = k as f64 * 0.002;
@@ -774,8 +783,15 @@ mod tests {
             (old.finish_mode, old.arming_mode),
             (DetectMode::Classic, DetectMode::Auto)
         );
-        assert!(old.fixed(false, 2).is_some());
-        assert!(old.fixed(true, 2).is_none());
+        assert!(old.fixed(false, 2).iter().all(|f| f.is_some()));
+        assert!(old.fixed(true, 2).iter().all(|f| f.is_none()));
+        // A channel's own mode wins over the gate's.
+        let mut d = old;
+        d.finish = vec![Thresholds {
+            mode: Some(DetectMode::Auto),
+            ..Default::default()
+        }];
+        assert_eq!(d.fixed(false, 2), vec![None, Some((-25.0, -30.0))]);
     }
 
     #[test]

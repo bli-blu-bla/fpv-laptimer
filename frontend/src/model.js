@@ -147,3 +147,10 @@ export function computeLaps(passes, c, startUs) {
   r.best_lap_us = r.laps.length ? Math.min(...r.laps.map((l) => l.duration_us)) : null
   return r
 }
+
+/** A channel's detection mode at a gate: its own, else the gate's.
+ * @param {import('./types').DetectionSettings} d @param {'finish' | 'arming'} gate @param {number} i
+ * @returns {import('./types').DetectMode} */
+export function channelMode(d, gate, i) {
+  return d[gate][i]?.mode ?? (gate === 'finish' ? d.finish_mode : d.arming_mode)
+}

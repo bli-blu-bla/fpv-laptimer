@@ -25,8 +25,9 @@ const ON_DB = -46
  * @param {() => void} [props.onGear]                 none: no gear (spectator view)
  * @param {() => void} [props.onSelect]   a tap on the card (race control: its thresholds)
  * @param {boolean} [props.selected]
+ * @param {boolean} [props.manual]   fixed thresholds at the finish gate
  */
-export default function Lane({ color, callsign, fullName, channel, mhz, off, result, standing, endRule, live, spark, onGear, onSelect, selected }) {
+export default function Lane({ color, callsign, fullName, channel, mhz, off, result, standing, endRule, live, spark, onGear, onSelect, selected, manual }) {
   const style = /** @type {React.CSSProperties} */ ({ '--lane': color })
   const head = (
     <div className="lane-head">
@@ -66,7 +67,17 @@ export default function Lane({ color, callsign, fullName, channel, mhz, off, res
   const last = laps.at(-1)
   const lapsLabel = endRule?.kind === 'laps' ? `${Math.min(laps.length, endRule.value)} / ${endRule.value}` : String(laps.length)
   const level = live?.level_db
-  const signal = live?.in_pass ? 'im Gate' : level == null ? 'keine Daten' : level < ON_DB ? 'kein Sender' : live?.enter_db == null ? 'lernt die Pegel' : 'Signal'
+  const signal = live?.in_pass
+    ? 'im Gate'
+    : level == null
+      ? 'keine Daten'
+      : level < ON_DB
+        ? 'kein Sender'
+        : manual
+          ? 'manuell'
+          : live?.enter_db == null
+            ? 'lernt die Pegel'
+            : 'automatisch'
 
   return (
     <div

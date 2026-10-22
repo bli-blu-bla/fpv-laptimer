@@ -27,10 +27,11 @@
  * @property {Record<string, BoardRole>} board_roles   by board id; missing: finish
  *
  * @typedef {'finish' | 'arming' | 'off'} BoardRole
- * @typedef {{enter_db: number, exit_db: number}} Thresholds
+ * @typedef {'auto' | 'classic'} DetectMode
+ * @typedef {{enter_db: number, exit_db: number, mode?: DetectMode | null}} Thresholds   mode: none = the gate's
  * @typedef {object} DetectionSettings
- * @property {'auto' | 'classic'} finish_mode
- * @property {'auto' | 'classic'} arming_mode
+ * @property {DetectMode} finish_mode   for channels without their own mode
+ * @property {DetectMode} arming_mode
  * @property {Thresholds[]} finish   classic: per channel
  * @property {Thresholds[]} arming
  *

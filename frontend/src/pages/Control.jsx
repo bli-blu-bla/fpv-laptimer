@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowCounterClockwise, FlagCheckered, GearSix, Infinity as InfinityIcon, Stop, X } from '@phosphor-icons/react'
 import { api, useNow } from '../api.js'
 import { clock, endRule, sessionKind, START_MODES } from '../format.js'
-import { slotsOf, standings } from '../model.js'
+import { channelMode, slotsOf, standings } from '../model.js'
 import Dialog from '../components/Dialog.jsx'
 import Lane from '../components/Lane.jsx'
 import PassEditor from '../components/PassEditor.jsx'
@@ -87,10 +87,9 @@ export default function Control({ server, state, stats }) {
   const t0 = session ? (session.config.race ? session.start_us : session.created_us) : 0
   const elapsed = phase === 'running' ? now - t0 : phase === 'done' && session ? (session.ended_us ?? t0) - t0 : 0
   const st = detail ? standings(detail.session, detail.results) : []
-  // Manual thresholds are set here: a slot tapped shows them below the cards.
+  // A slot tapped shows its detection below the cards (mode and thresholds).
   const hasArming = (live?.boards ?? state.boards).some((b) => b.role === 'arming' && !b.failed)
-  const det = state.settings.detection
-  const canTune = phase !== 'done' && (det.finish_mode === 'classic' || (hasArming && det.arming_mode === 'classic'))
+  const canTune = phase !== 'done'
 
   const r = state.settings.race
   const formatShort = `${START_MODES[r.start_mode]} · ${endRule(r.end_rule)}${r.countdown_s ? ` · ${r.countdown_s} s Countdown` : ''}`
@@ -190,6 +189,7 @@ export default function Control({ server, state, stats }) {
               live={live?.channels[slot.index]}
               spark={(spark.finish[slot.index] ?? []).slice(-150)}
               selected={tune === slot.index}
+              manual={channelMode(state.settings.detection, 'finish', slot.index) === 'classic'}
               onSelect={canTune && !off ? () => setTune(tune === slot.index ? null : slot.index) : undefined}
               onGear={() => setSlotDialog(slot.index)}
             />
@@ -210,7 +210,7 @@ export default function Control({ server, state, stats }) {
         />
       )}
       {canTune && tune == null && phase === 'idle' && (
-        <span className="muted small">Manuelle Schwellen: einen Slot antippen, darunter erscheinen Pegelverlauf, Enter und Exit.</span>
+        <span className="muted small">Erkennung eines Kanals (automatisch oder Enter/Exit): seinen Slot antippen.</span>
       )}
       {(phase === 'running' || phase === 'countdown') && <PassLog detail={detail} />}
 

@@ -1,12 +1,13 @@
 // @ts-check
-// Manual thresholds of one slot, on race control (as RotorHazard's node
-// panel): pick the gate, watch the signal of the last 30 s with the Enter
-// and Exit lines, and move them. A gate in automatic mode shows its learned
-// lines instead.
+// The detection of one slot, on race control (as RotorHazard's node panel):
+// pick the gate, choose automatic or manual for this channel there, watch
+// the signal of the last 30 s with the Enter and Exit lines, and in manual
+// mode move them. In automatic mode the lines are the learned ones.
 
 import { useEffect, useState } from 'react'
 import { Gauge, X } from '@phosphor-icons/react'
 import { saveSettings } from '../api.js'
+import { channelMode } from '../model.js'
 import Stepper from './Stepper.jsx'
 
 const W = 600
@@ -29,8 +30,8 @@ const DEFAULT = { enter_db: -25, exit_db: -30 }
 export default function ThresholdPanel({ state, index, color, callsign, history, hasArming, onClose }) {
   const s = state.settings
   const d = s.detection
-  const [gate, setGate] = useState(/** @type {'finish' | 'arming'} */ (d.finish_mode === 'classic' || !hasArming ? 'finish' : 'arming'))
-  const manual = (gate === 'finish' ? d.finish_mode : d.arming_mode) === 'classic'
+  const [gate, setGate] = useState(/** @type {'finish' | 'arming'} */ ('finish'))
+  const manual = channelMode(d, gate, index) === 'classic'
   const saved = d[gate][index] ?? DEFAULT
   // Shown at once; saved when the taps rest (Stepper `delayed`).
   const [t, setT] = useState(saved)
@@ -65,7 +66,7 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
         <span className="dot" style={{ background: color }} />
         <span style={{ fontWeight: 600 }}>{callsign}</span>
-        <span className="muted small">{s.channels[index]?.name} · Schwellen</span>
+        <span className="muted small">{s.channels[index]?.name} · Erkennung</span>
         {hasArming && (
           <div className="seg" style={{ marginLeft: 'auto' }}>
             <button className={gate === 'finish' ? 'on' : ''} onClick={() => setGate('finish')}>
@@ -78,6 +79,15 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
         )}
         <button className="btn btn-ghost btn-icon" style={hasArming ? undefined : { marginLeft: 'auto' }} onClick={onClose} title="Schließen">
           <X size={18} />
+        </button>
+      </div>
+
+      <div className="seg">
+        <button className={!manual ? 'on' : ''} onClick={() => save({ mode: 'auto' })}>
+          Automatisch
+        </button>
+        <button className={manual ? 'on' : ''} onClick={() => save({ mode: 'classic' })}>
+          Manuell (Enter/Exit)
         </button>
       </div>
 
@@ -116,7 +126,7 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
         </div>
       ) : (
         <span className="muted small">
-          Dieses Gate läuft automatisch (gestrichelt: die gelernten Schwellen). Manuell stellst du es auf der Boards-Seite um.
+          Automatisch: die Schwellen werden aus dem Flug gelernt (gestrichelt: die aktuellen). Für feste Schwellen auf Manuell stellen.
         </span>
       )}
       {manual && t.exit_db >= t.enter_db && <span className="error small">Exit muss unter Enter liegen.</span>}

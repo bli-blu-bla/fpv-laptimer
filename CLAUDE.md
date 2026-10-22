@@ -91,10 +91,13 @@ Editor als gelbe Punktlinien. Die Pegel-Datei einer Session hat `# roles: 0=fini
 der Pegelgraph nimmt nur die Ziel-Boards. `live.boards[].level_db`: Pegel pro Board zum
 Zuordnen; `live.arming`: Status des Freigabe-Gates.
 
-**Erkennungsmodus pro Gate** (`settings.detection`, `detect::DetectionSettings`):
-`finish_mode` und `arming_mode` je `auto` (gelernte Schwellen) oder `classic` (feste
-Enter/Exit in dBFS pro Kanal in `finish` bzw. `arming`, `Detector::set_fixed`; ohne
-Anlernen und Zurücknehmen). Ältere Einstellungen mit einem `mode` werden als `finish_mode`
+**Erkennungsmodus pro Kanal und Gate** (`settings.detection`, `detect::DetectionSettings`):
+`finish[i]` / `arming[i]` haben `enter_db`, `exit_db` und `mode` (`auto` = gelernte
+Schwellen, `classic` = feste Enter/Exit; `null` = der Gate-Modus `finish_mode` /
+`arming_mode`). `fixed()` liefert pro Kanal `Some((enter, exit))` oder `None` für
+`Detector::set_fixed` (feste Kanäle ohne Anlernen und Zurücknehmen). Eingestellt in der
+Rennleitung (Slot antippen); „Alle automatisch / Alle manuell“ auf der Boards-Seite setzt den
+Gate-Modus und löscht die Kanal-Modi. Ältere Einstellungen mit einem `mode` werden als `finish_mode`
 gelesen (`serde(alias)`). Die Session speichert die Einstellung in `config.detection`, damit
 ihr Graph dieselben Schwellen zeigt.
 
@@ -131,8 +134,8 @@ braucht; nicht Zusammengehöriges auf getrennten Seiten.
 |---|---|
 | `App.jsx` | Navigation mit 7 Seiten (Seitenleiste ab 820 px, sonst Tab-Leiste unten mit Kurznamen), Kopf mit „Heute · N Rennen“, Board-Status, Ton an/aus; lädt `/api/stats`. `?view=zuschauer`: nur die Zuschauer-Ansicht, ohne Navigation (Fernseher/Tablet) |
 | `pages/Control.jsx` | **Rennleitung**: Status, Uhr, Training / Rennen starten (+ Zahnrad → `RaceDialog`), Stopp / Abbrechen (löscht). Karten (`Lane`) mit Zahnrad → `SlotDialog`; während des Laufs `PassLog`. Nach dem Ende: Ergebnis (`Ranking`) und darunter `PassEditor` (Nachbearbeitung); Verwerfen, Schließen |
-| `pages/Boards.jsx` | **Boards**: Rolle pro Board (Ziel / Freigabe / Aus) mit Live-Pegel, darunter Ziel- und Freigabe-Gate je mit Modus Automatisch / Manuell |
-| `components/ThresholdPanel.jsx` | Manuelle Schwellen in der Rennleitung (wie RotorHazards Node-Anzeige): Slot-Karte antippen (nur wenn ein Gate manuell ist), darunter Gate-Wahl, Pegelverlauf der letzten 30 s mit Enter/Exit-Linien, Regler (0,5 dB, Speichern verzögert) und „Aus Spitze“ (Enter = Spitze − 4 dB, Exit = − 9 dB). Ein automatisches Gate zeigt seine gelernten Linien |
+| `pages/Boards.jsx` | **Boards**: Rolle pro Board (Ziel / Freigabe / Aus) mit Live-Pegel, darunter Ziel- und Freigabe-Gate mit dem Modus jedes Kanals und „Alle automatisch / Alle manuell“ |
+| `components/ThresholdPanel.jsx` | Erkennung eines Kanals in der Rennleitung (wie RotorHazards Node-Anzeige): Slot-Karte antippen, darunter Gate-Wahl, Automatisch/Manuell für diesen Kanal, Pegelverlauf der letzten 30 s mit Enter/Exit-Linien, Regler (0,5 dB, Speichern verzögert) und „Aus Spitze“ (Enter = Spitze − 4 dB, Exit = − 9 dB). Ein automatisches Gate zeigt seine gelernten Linien |
 | `pages/Watch.jsx` | **Zuschauer**: laufende oder letzte Session, Karten ohne Bedienung und ohne Signalverlauf, Rangliste, Countdown |
 | `pages/Best.jsx` | **Bestzeiten** heute / gesamt: Bestzeit, beste N in Folge, Rennen, Siege |
 | `components/PassEditor.jsx` | Korrektur wie RotorHazards Marshal-Seite: Kanal oben wählen, darunter großer Graph (340 px, Übersicht + Ausschnitt). Durchflug ziehen = verschieben, antippen = auswählen (Löschen/Wiederherstellen, am Gipfel einrasten), freie Stelle antippen = neu (per `/snap` am Gipfel), Fläche ziehen = Ausschnitt verschieben. Entwurf pro Kanal im Browser; Runden-Vorschau mit `computeLaps` (zu kurze Runden rot, dann kein Speichern); „Speichern“ schickt pro Kanal ein `POST /api/sessions/{id}/edit` |

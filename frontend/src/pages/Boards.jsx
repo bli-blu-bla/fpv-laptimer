@@ -6,6 +6,7 @@
 
 import { Cpu, FlagCheckered, ShieldCheck } from '@phosphor-icons/react'
 import { saveSettings } from '../api.js'
+import { channelMode } from '../model.js'
 
 /** The bar spans this range, dBFS. */
 const BAR_MIN = -64
@@ -76,13 +77,13 @@ export default function Boards({ state, live }) {
         <Gate
           icon={<FlagCheckered size={18} />}
           title="Zielgate"
+          gate="finish"
+          state={state}
           boards={count('finish')}
-          mode={s.detection.finish_mode}
-          onMode={(m) => save({ detection: { ...s.detection, finish_mode: m } })}
           note={
             count('finish') === 0
               ? { error: true, text: 'Kein Board am Zielgate – es werden keine Runden gezählt.' }
-              : count('finish') === 1 && s.detection.finish_mode === 'auto'
+              : count('finish') === 1
                 ? { error: false, text: 'Nur ein Board: Automatisch funktioniert, zwei Boards sind aber deutlich zuverlässiger.' }
                 : null
           }
@@ -90,9 +91,9 @@ export default function Boards({ state, live }) {
         <Gate
           icon={<ShieldCheck size={18} />}
           title="Freigabe-Gate"
+          gate="arming"
+          state={state}
           boards={count('arming')}
-          mode={s.detection.arming_mode}
-          onMode={(m) => save({ detection: { ...s.detection, arming_mode: m } })}
           note={
             count('arming') === 0
               ? { error: false, text: 'Kein Board als Freigabe eingestellt: jeder Durchflug am Ziel zählt.' }
@@ -108,10 +109,21 @@ export default function Boards({ state, live }) {
 }
 
 /**
- * One gate: its boards and its detection mode.
- * @param {{icon: React.ReactNode, title: string, boards: number, mode: 'auto' | 'classic', onMode: (m: 'auto' | 'classic') => void, note: {error: boolean, text: string} | null}} props
+ * One gate: its boards and how its channels are detected. Each channel's
+ * mode is set on race control (tap its slot); here all at once.
+ * @param {{icon: React.ReactNode, title: string, gate: 'finish' | 'arming', state: import('../types').State, boards: number, note: {error: boolean, text: string} | null}} props
  */
-function Gate({ icon, title, boards, mode, onMode, note }) {
+function Gate({ icon, title, gate, state, boards, note }) {
+  const s = state.settings
+  const d = s.detection
+  /** All channels to one mode: the gate's mode, the channels' own modes cleared.
+   * @param {import('../types').DetectMode} mode */
+  function all(mode) {
+    const list = s.channels.map((_, j) => ({ ...(d[gate][j] ?? { enter_db: -25, exit_db: -30 }), mode: null }))
+    save({ detection: { ...d, [gate === 'finish' ? 'finish_mode' : 'arming_mode']: mode, [gate]: list } })
+  }
+  /** @param {Partial<import('../types').Settings>} patch */
+  const save = (patch) => saveSettings(s, patch)
   return (
     <div className="panel">
       <div className="panel-head">
@@ -121,20 +133,27 @@ function Gate({ icon, title, boards, mode, onMode, note }) {
         </span>
       </div>
       <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div className="seg">
-          <button className={mode === 'auto' ? 'on' : ''} onClick={() => onMode('auto')}>
-            Automatisch
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {s.channels.map((c, i) => (
+            <span key={i} className="tag" style={channelMode(d, gate, i) === 'classic' ? { background: 'var(--accent-800)' } : undefined}>
+              {c.name} · {channelMode(d, gate, i) === 'classic' ? 'manuell' : 'auto'}
+            </span>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary" onClick={() => all('auto')}>
+            Alle automatisch
           </button>
-          <button className={mode === 'classic' ? 'on' : ''} onClick={() => onMode('classic')}>
-            Manuell (Enter/Exit)
+          <button className="btn btn-secondary" onClick={() => all('classic')}>
+            Alle manuell
           </button>
         </div>
-        <span className="muted small">
-          {mode === 'auto'
-            ? 'Die Schwellen werden aus dem Flug gelernt, pro Pilot. Nichts einzustellen.'
-            : 'Feste Schwellen wie bei RotorHazard. Einstellen in der Rennleitung: Slot antippen, darunter erscheinen Pegelverlauf, Enter und Exit.'}
-        </span>
-        {note && <span className={note.error ? 'error small' : 'small'} style={note.error ? undefined : { color: 'var(--accent-300)' }}>{note.text}</span>}
+        <span className="muted small">Einzelne Kanäle und ihre Enter/Exit-Schwellen: in der Rennleitung den Slot antippen.</span>
+        {note && (
+          <span className={note.error ? 'error small' : 'small'} style={note.error ? undefined : { color: 'var(--accent-300)' }}>
+            {note.text}
+          </span>
+        )}
       </div>
     </div>
   )

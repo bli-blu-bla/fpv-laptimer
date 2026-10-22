@@ -671,9 +671,9 @@ pub fn results(row: &SessionRow, passes: &[PassRecord]) -> Vec<PilotResult> {
 fn detectors(s: &Settings) -> (Detector, Detector) {
     let n = s.channels.len();
     let mut finish = Detector::new(n, detect_config(s));
-    finish.set_fixed(s.detection.fixed(false, n).as_deref());
+    finish.set_fixed(&s.detection.fixed(false, n));
     let mut arming = Detector::new(n, detect_config(s));
-    arming.set_fixed(s.detection.fixed(true, n).as_deref());
+    arming.set_fixed(&s.detection.fixed(true, n));
     (finish, arming)
 }
 

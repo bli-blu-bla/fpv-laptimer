@@ -261,7 +261,12 @@ fn session_trace(app: &App, id: i64) -> Result<Arc<SessionTrace>> {
             .levels_file
             .context("Für diese Session sind keine Pegel aufgezeichnet.")?;
         // Fixed thresholds for every possible channel (8); unused ones don't matter.
-        let fixed = s.config.detection.as_ref().and_then(|d| d.fixed(false, 8));
+        let fixed = s
+            .config
+            .detection
+            .as_ref()
+            .map(|d| d.fixed(false, 8))
+            .unwrap_or_default();
         (
             PathBuf::from(path),
             DetectConfig {
