@@ -1,298 +1,196 @@
 // @ts-check
-// Settings: channels and who flies on them, pilots, race rules, detection.
+// Settings that rarely change: which channels are scanned, the detection,
+// the sound, the boards. (Slots and the race format: on the live page.)
 
-import { useEffect, useState } from 'react'
-import { api } from '../api.js'
-import { START_MODES } from '../format.js'
-
-/** Raceband, MHz. */
-const RACEBAND = [5658, 5695, 5732, 5769, 5806, 5843, 5880, 5917]
+import { useEffect, useRef, useState } from 'react'
+import { Cpu, Minus, Plus, SpeakerHigh, Sliders, Trash, Broadcast } from '@phosphor-icons/react'
+import { saveSettings } from '../api.js'
+import { RACEBAND, slotColor } from '../format.js'
 
 /** @param {{state: import('../types').State}} props */
 export default function SettingsPage({ state }) {
-  const [s, setS] = useState(state.settings)
-  const [msg, setMsg] = useState('')
-  const dirty = JSON.stringify(s) !== JSON.stringify(state.settings)
-
-  // Take over changes from elsewhere while nothing is edited here.
-  useEffect(() => {
-    if (!dirty) setS(state.settings)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.settings])
-
-  /** Changes one part of the settings. @param {Partial<import('../types').Settings>} part */
-  const set = (part) => setS({ ...s, ...part })
-
-  async function save() {
-    setMsg('Speichere …')
-    try {
-      await api('/settings', { method: 'PUT', body: s })
-      setMsg('Gespeichert.')
-    } catch (e) {
-      setMsg('Fehler: ' + /** @type {Error} */ (e).message)
-    }
+  const s = state.settings
+  const running = state.active != null
+  const [error, setError] = useState('')
+  /** @param {Partial<import('../types').Settings>} patch */
+  const save = (patch) => {
+    setError('')
+    return saveSettings(s, patch).catch((e) => setError(e.message))
   }
 
-  /** @param {number} i @param {Partial<import('../types').ChannelSetting>} part */
-  function setChannel(i, part) {
-    set({ channels: s.channels.map((c, j) => (j === i ? { ...c, ...part } : c)) })
-  }
-  /** @param {number} i @param {Partial<import('../types').SeatSetting>} part */
-  function setSeat(i, part) {
-    const seats = s.channels.map((_, j) => s.seats[j] ?? { pilot_id: null, label: '' })
-    seats[i] = { ...seats[i], ...part }
-    set({ seats })
-  }
   function addChannel() {
     const used = new Set(s.channels.map((c) => c.mhz))
     const mhz = RACEBAND.find((f) => !used.has(f)) ?? 5800
     const name = RACEBAND.includes(mhz) ? `R${RACEBAND.indexOf(mhz) + 1}` : String(mhz)
-    set({ channels: [...s.channels, { name, mhz }], seats: [...s.seats, { pilot_id: null, label: '' }] })
+    save({ channels: [...s.channels, { name, mhz }], seats: [...s.channels.map((_, i) => s.seats[i] ?? defSeat()), defSeat()] })
   }
   /** @param {number} i */
-  function removeChannel(i) {
-    set({ channels: s.channels.filter((_, j) => j !== i), seats: s.seats.filter((_, j) => j !== i) })
+  const removeChannel = (i) =>
+    save({ channels: s.channels.filter((_, j) => j !== i), seats: s.channels.map((_, j) => s.seats[j] ?? defSeat()).filter((_, j) => j !== i) })
+  /** @param {number} i @param {string} value  "R3" or MHz */
+  function setChannel(i, value) {
+    const mhz = value.startsWith('R') ? RACEBAND[Number(value.slice(1)) - 1] : Number(value)
+    if (!mhz || mhz < 5300 || mhz > 6000) return
+    const name = RACEBAND.includes(mhz) ? `R${RACEBAND.indexOf(mhz) + 1}` : String(mhz)
+    save({ channels: s.channels.map((c, j) => (j === i ? { name, mhz } : c)) })
   }
 
-  const r = s.race
   return (
-    <section className="settings">
-      <h2>Kanäle und Piloten</h2>
-      <table>
-        <thead>
-          <tr>
-            <th>Kanal</th>
-            <th>MHz</th>
-            <th>Pilot</th>
-            <th>oder Freitext</th>
-            <th />
-          </tr>
-        </thead>
-        <tbody>
+    <div className="two-col" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))' }}>
+      <div className="panel">
+        <div className="panel-head">
+          <Broadcast size={18} /> Kanäle
+          <span className="end muted small">{s.channels.length} von 8</span>
+        </div>
+        <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <span className="muted small">
+            Alle Boards scannen alle Kanäle. Weniger oder nah beieinander liegende Kanäle messen öfter. Wer auf welchem Kanal fliegt, stellst du in
+            der Live-Ansicht am Zahnrad ein.
+          </span>
+          {running && <span className="error small">Während einer Session lassen sich Kanäle nicht ändern.</span>}
           {s.channels.map((c, i) => (
-            <tr key={i}>
-              <td>
-                <select
-                  value={RACEBAND.includes(c.mhz) && c.name === `R${RACEBAND.indexOf(c.mhz) + 1}` ? c.mhz : ''}
-                  onChange={(e) => {
-                    const mhz = Number(e.target.value)
-                    if (mhz) setChannel(i, { mhz, name: `R${RACEBAND.indexOf(mhz) + 1}` })
-                  }}
-                >
-                  <option value="">{c.name}</option>
-                  {RACEBAND.map((f, k) => (
-                    <option key={f} value={f}>
-                      R{k + 1}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td>
-                <input
-                  type="number"
-                  className="narrow"
-                  value={c.mhz}
-                  onChange={(e) => setChannel(i, { mhz: Number(e.target.value), name: e.target.value })}
-                />
-              </td>
-              <td>
-                <select
-                  value={s.seats[i]?.pilot_id ?? ''}
-                  onChange={(e) => setSeat(i, { pilot_id: e.target.value ? Number(e.target.value) : null })}
-                >
-                  <option value="">–</option>
-                  {state.pilots.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-              </td>
-              <td>
-                <input
-                  value={s.seats[i]?.label ?? ''}
-                  placeholder={c.name}
-                  onChange={(e) => setSeat(i, { label: e.target.value })}
-                />
-              </td>
-              <td>
-                {s.channels.length > 1 && (
-                  <button className="x" onClick={() => removeChannel(i)}>
-                    ×
-                  </button>
-                )}
-              </td>
-            </tr>
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <span className="dot" style={{ background: slotColor(i) }} />
+              <span style={{ width: 52 }}>Slot {i + 1}</span>
+              <select
+                className="input"
+                style={{ width: 'auto', flex: 1 }}
+                disabled={running}
+                value={RACEBAND.includes(c.mhz) ? `R${RACEBAND.indexOf(c.mhz) + 1}` : 'x'}
+                onChange={(e) => e.target.value !== 'x' && setChannel(i, e.target.value)}
+              >
+                {RACEBAND.map((f, k) => (
+                  <option key={f} value={`R${k + 1}`}>
+                    R{k + 1} · {f} MHz
+                  </option>
+                ))}
+                {!RACEBAND.includes(c.mhz) && <option value="x">{c.mhz} MHz</option>}
+              </select>
+              <MhzInput value={c.mhz} disabled={running} onSet={(v) => setChannel(i, String(v))} />
+              <button className="btn btn-ghost btn-icon" disabled={running || s.channels.length <= 1} onClick={() => removeChannel(i)} title="Kanal entfernen">
+                <Trash size={16} />
+              </button>
+            </div>
           ))}
-        </tbody>
-      </table>
-      {s.channels.length < 8 && <button onClick={addChannel}>+ Kanal</button>}
-      <p className="muted">
-        Beide ESPs scannen alle Kanäle. Neue Kanäle oder eine andere Verstärkung starten die Boards neu (eine
-        Sekunde). Pilot und Freitext gelten ab der nächsten Session.
-      </p>
-
-      <h2>Rennen</h2>
-      <label>
-        Start
-        <select value={r.start_mode} onChange={(e) => set({ race: { ...r, start_mode: /** @type {any} */ (e.target.value) } })}>
-          {Object.entries(START_MODES).map(([k, v]) => (
-            <option key={k} value={k}>
-              {v}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label>
-        Ende nach
-        <input
-          type="number"
-          className="narrow"
-          min={1}
-          value={r.end_rule.kind === 'open' ? 3 : r.end_rule.value}
-          onChange={(e) =>
-            set({ race: { ...r, end_rule: { kind: r.end_rule.kind === 'seconds' ? 'seconds' : 'laps', value: Number(e.target.value) } } })
-          }
-        />
-        <select
-          value={r.end_rule.kind === 'seconds' ? 'seconds' : 'laps'}
-          onChange={(e) =>
-            set({
-              race: {
-                ...r,
-                end_rule: {
-                  kind: /** @type {'laps' | 'seconds'} */ (e.target.value),
-                  value: r.end_rule.kind === 'open' ? 3 : r.end_rule.value,
-                },
-              },
-            })
-          }
-        >
-          <option value="laps">Runden</option>
-          <option value="seconds">Sekunden</option>
-        </select>
-      </label>
-      <label>
-        Countdown
-        <input
-          type="number"
-          className="narrow"
-          min={0}
-          max={30}
-          value={r.countdown_s}
-          onChange={(e) => set({ race: { ...r, countdown_s: Number(e.target.value) } })}
-        />
-        s
-      </label>
-
-      <h2>Auswertung</h2>
-      <label>
-        Mindestrunde
-        <input
-          type="number"
-          className="narrow"
-          min={1}
-          step={0.5}
-          value={s.min_lap_s}
-          onChange={(e) => set({ min_lap_s: Number(e.target.value) })}
-        />
-        s
-      </label>
-      <label>
-        Beste Runden in Folge
-        <input
-          type="number"
-          className="narrow"
-          min={2}
-          max={20}
-          value={s.consecutive}
-          onChange={(e) => set({ consecutive: Number(e.target.value) })}
-        />
-      </label>
-      <label>
-        Verstärkung (Gain)
-        <input
-          type="number"
-          className="narrow"
-          min={0}
-          max={60}
-          value={s.gain}
-          onChange={(e) => set({ gain: Number(e.target.value) })}
-        />
-        <span className="muted">30 bei 25 mW; kleiner, wenn es übersteuert</span>
-      </label>
-
-      <div className="save-bar">
-        <button className="primary" disabled={!dirty} onClick={save}>
-          Speichern
-        </button>
-        {dirty && <button onClick={() => setS(state.settings)}>Verwerfen</button>}
-        <span className="muted">{msg}</span>
+          {s.channels.length < 8 && (
+            <button className="btn btn-secondary" disabled={running} onClick={addChannel}>
+              <Plus size={16} /> Kanal hinzufügen
+            </button>
+          )}
+        </div>
       </div>
 
-      <Pilots pilots={state.pilots} />
-      <Boards boards={state.boards} />
-    </section>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div className="panel">
+          <div className="panel-head">
+            <Sliders size={18} /> Auswertung
+          </div>
+          <div className="panel-body" style={{ display: 'flex', flexWrap: 'wrap', gap: 20 }}>
+            <Stepper label="Mindest-Rundenzeit" value={s.min_lap_s} unit="s" step={0.5} min={1} max={60} onSet={(v) => save({ min_lap_s: v })} />
+            <Stepper label="Beste Runden in Folge" value={s.consecutive} step={1} min={2} max={20} onSet={(v) => save({ consecutive: v })} />
+            <Stepper
+              label="Verstärkung (Gain)"
+              value={s.gain}
+              step={1}
+              min={0}
+              max={60}
+              hint="30 bei 25 mW; kleiner, wenn das Signal am Gate übersteuert"
+              delayed
+              onSet={(v) => save({ gain: v })}
+            />
+          </div>
+        </div>
+        <div className="panel">
+          <div className="panel-head">
+            <SpeakerHigh size={18} /> Ansagen
+          </div>
+          <div className="panel-body">
+            <button className="row-toggle" onClick={() => save({ sound: !s.sound })}>
+              <span className="text">
+                <span>Ansagen und Töne</span>
+                <span className="hint">Countdown, Startton, Rundenpiep, „Pilot N fertig“, „Neue Bestzeit“ – über den Lautsprecher am Server</span>
+              </span>
+              <span className={s.sound ? 'switch on' : 'switch'} />
+            </button>
+          </div>
+        </div>
+        <div className="panel">
+          <div className="panel-head">
+            <Cpu size={18} /> Boards
+          </div>
+          {!state.boards.length && <div className="empty">Keine Boards gefunden – ESPs anstecken und den Server neu starten.</div>}
+          {state.boards.map((b, i) => (
+            <div key={i} className="list-row" style={{ flexWrap: 'wrap', padding: '8px 16px', alignItems: 'flex-start' }}>
+              <span className={b.failed ? 'status-dot bad' : 'status-dot'} style={{ marginTop: 6 }} />
+              <span style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+                <span style={{ fontWeight: 500, wordBreak: 'break-all' }}>{b.port}</span>
+                <span className="muted small">
+                  {b.levels_per_s.toFixed(0)} Messungen/s · {b.stats?.lost ?? 0} verloren
+                  {b.stats ? ` · Uhr ±${(b.stats.clock_uncertainty_us / 1000).toFixed(1)} ms` : ''}
+                </span>
+                {b.failed && <span className="error small">{b.failed}</span>}
+              </span>
+            </div>
+          ))}
+        </div>
+        {error && <p className="error">{error}</p>}
+      </div>
+    </div>
   )
 }
 
-/** The pilot list. @param {{pilots: import('../types').Pilot[]}} props */
-function Pilots({ pilots }) {
-  const [name, setName] = useState('')
-  const [error, setError] = useState('')
-  /** @param {() => Promise<unknown>} f */
-  const run = async (f) => {
-    setError('')
-    try {
-      await f()
-    } catch (e) {
-      setError(/** @type {Error} */ (e).message)
-    }
+const defSeat = () => ({ pilot_id: null, label: '', enabled: true })
+
+/**
+ * − value + ; `delayed`: saves 0.8 s after the last tap (gain restarts the boards).
+ * @param {{label: string, value: number, unit?: string, step: number, min: number, max: number, hint?: string, delayed?: boolean, onSet: (v: number) => void}} props
+ */
+function Stepper({ label, value, unit, step, min, max, hint, delayed, onSet }) {
+  const [v, setV] = useState(value)
+  const timer = useRef(/** @type {ReturnType<typeof setTimeout> | undefined} */ (undefined))
+  useEffect(() => setV(value), [value])
+  /** @param {number} d */
+  function change(d) {
+    const next = Math.round(Math.max(min, Math.min(max, v + d)) * 10) / 10
+    setV(next)
+    clearTimeout(timer.current)
+    if (delayed) timer.current = setTimeout(() => onSet(next), 800)
+    else onSet(next)
   }
   return (
-    <>
-      <h2>Piloten</h2>
-      <ul className="pilots">
-        {pilots.map((p) => (
-          <li key={p.id}>
-            <input
-              defaultValue={p.name}
-              onBlur={(e) => e.target.value.trim() !== p.name && run(() => api(`/pilots/${p.id}`, { method: 'PUT', body: { name: e.target.value } }))}
-            />
-            <button className="x" onClick={() => run(() => api(`/pilots/${p.id}`, { method: 'DELETE' }))}>
-              ×
-            </button>
-          </li>
-        ))}
-      </ul>
-      <form
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (name.trim()) run(() => api('/pilots', { body: { name } }).then(() => setName('')))
-        }}
-      >
-        <input value={name} placeholder="Neuer Pilot" onChange={(e) => setName(e.target.value)} />
-        <button type="submit">Hinzufügen</button>
-      </form>
-      {error && <p className="error">{error}</p>}
-    </>
+    <div className="field">
+      <span>{label}</span>
+      <div className="stepper">
+        <button className="btn btn-secondary btn-icon" onClick={() => change(-step)}>
+          <Minus />
+        </button>
+        <span className="value">
+          {v}
+          {unit ? ` ${unit}` : ''}
+        </span>
+        <button className="btn btn-secondary btn-icon" onClick={() => change(step)}>
+          <Plus />
+        </button>
+      </div>
+      {hint && <span className="muted small" style={{ maxWidth: 260 }}>{hint}</span>}
+    </div>
   )
 }
 
-/** Board status. @param {{boards: import('../types').Board[]}} props */
-function Boards({ boards }) {
+/** Free frequency, saved on leaving the field. @param {{value: number, disabled: boolean, onSet: (v: number) => void}} props */
+function MhzInput({ value, disabled, onSet }) {
+  const [v, setV] = useState(String(value))
+  useEffect(() => setV(String(value)), [value])
   return (
-    <>
-      <h2>Boards</h2>
-      {!boards.length && <p className="warn">Keine Boards gefunden.</p>}
-      <ul className="boards">
-        {boards.map((b, i) => (
-          <li key={i}>
-            <b>{b.port}</b> <span className="muted">{b.info}</span>
-            {b.failed && <div className="error">{b.failed}</div>}
-          </li>
-        ))}
-      </ul>
-    </>
+    <input
+      className="input tnum"
+      style={{ width: 84 }}
+      inputMode="numeric"
+      disabled={disabled}
+      value={v}
+      onChange={(e) => setV(e.target.value)}
+      onBlur={() => Number(v) !== value && onSet(Number(v))}
+      title="Frequenz in MHz"
+    />
   )
 }

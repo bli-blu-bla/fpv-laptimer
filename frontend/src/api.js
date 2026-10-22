@@ -70,3 +70,10 @@ export function useServer() {
 export function serverNow(clockOffset) {
   return Date.now() * 1000 + clockOffset.current
 }
+
+/** Saves the settings with `patch` applied (the server sends them back
+ * to every page through the WebSocket).
+ * @param {import('./types').Settings} current @param {Partial<import('./types').Settings>} patch */
+export function saveSettings(current, patch) {
+  return api('/settings', { method: 'PUT', body: { ...current, ...patch } })
+}

@@ -11,6 +11,7 @@ mod replay;
 mod server;
 mod sound;
 mod source;
+mod stats;
 mod trace;
 
 use std::path::PathBuf;

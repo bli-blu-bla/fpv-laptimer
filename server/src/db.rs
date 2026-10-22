@@ -12,7 +12,8 @@ use crate::laps::{EndRule, PassRecord, StartMode};
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS pilots (
     id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE
+    name TEXT NOT NULL UNIQUE,     -- the callsign
+    full_name TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS sessions (
     id INTEGER PRIMARY KEY,
@@ -85,7 +86,10 @@ pub struct SessionRow {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Pilot {
     pub id: i64,
+    /// The callsign.
     pub name: String,
+    /// The real name (may be empty).
+    pub full_name: String,
 }
 
 pub struct Db {
@@ -98,6 +102,13 @@ impl Db {
         // WAL: reading while writing; foreign keys: cascade deletes.
         conn.execute_batch("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;")?;
         conn.execute_batch(SCHEMA)?;
+        // Databases from before full_name existed get the column.
+        let has_full_name = conn
+            .prepare("SELECT 1 FROM pragma_table_info('pilots') WHERE name = 'full_name'")?
+            .exists([])?;
+        if !has_full_name {
+            conn.execute_batch("ALTER TABLE pilots ADD COLUMN full_name TEXT NOT NULL DEFAULT ''")?;
+        }
         Ok(Db { conn })
     }
 
@@ -126,24 +137,34 @@ impl Db {
     pub fn pilots(&self) -> Result<Vec<Pilot>> {
         let mut st = self
             .conn
-            .prepare("SELECT id, name FROM pilots ORDER BY name COLLATE NOCASE")?;
+            .prepare("SELECT id, name, full_name FROM pilots ORDER BY name COLLATE NOCASE")?;
         let rows = st.query_map([], |r| {
             Ok(Pilot {
                 id: r.get(0)?,
                 name: r.get(1)?,
+                full_name: r.get(2)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
-    pub fn add_pilot(&self, name: &str) -> Result<i64> {
-        self.conn.execute("INSERT INTO pilots (name) VALUES (?1)", [name])?;
+    pub fn add_pilot(&self, name: &str, full_name: &str) -> Result<i64> {
+        self.conn
+            .execute(
+                "INSERT INTO pilots (name, full_name) VALUES (?1, ?2)",
+                [name, full_name],
+            )
+            .map_err(name_taken)?;
         Ok(self.conn.last_insert_rowid())
     }
 
-    pub fn rename_pilot(&self, id: i64, name: &str) -> Result<()> {
+    pub fn update_pilot(&self, id: i64, name: &str, full_name: &str) -> Result<()> {
         self.conn
-            .execute("UPDATE pilots SET name = ?2 WHERE id = ?1", params![id, name])?;
+            .execute(
+                "UPDATE pilots SET name = ?2, full_name = ?3 WHERE id = ?1",
+                params![id, name, full_name],
+            )
+            .map_err(name_taken)?;
         Ok(())
     }
 
@@ -315,6 +336,16 @@ impl Db {
     }
 }
 
+/// A second pilot with the same callsign: say so in words the page can show.
+fn name_taken(e: rusqlite::Error) -> anyhow::Error {
+    if let rusqlite::Error::SqliteFailure(f, _) = &e
+        && f.code == rusqlite::ErrorCode::ConstraintViolation
+    {
+        return anyhow::anyhow!("Diesen Callsign gibt es schon.");
+    }
+    e.into()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -330,7 +361,8 @@ mod tests {
             min_lap_s: 3.0,
             consecutive: 3,
         };
-        let pilot = db.add_pilot("Anna").unwrap();
+        let pilot = db.add_pilot("Anna", "").unwrap();
+        assert!(db.add_pilot("Anna", "x").is_err()); // callsigns are unique
         let seats = vec![Seat {
             channel: 1,
             channel_name: "R3".into(),

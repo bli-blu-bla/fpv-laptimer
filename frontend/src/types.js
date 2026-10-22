@@ -12,7 +12,8 @@
  *
  * @typedef {object} SeatSetting
  * @property {number | null} pilot_id
- * @property {string} label  free text; empty: pilot name or channel name
+ * @property {string} label  free text; empty: the pilot's callsign or the channel name
+ * @property {boolean} enabled  off: nobody flies on this slot
  *
  * @typedef {object} Settings
  * @property {ChannelSetting[]} channels
@@ -21,10 +22,12 @@
  * @property {{start_mode: StartMode, end_rule: EndRule, countdown_s: number}} race
  * @property {number} min_lap_s
  * @property {number} consecutive
+ * @property {boolean} sound
  *
  * @typedef {object} Pilot
  * @property {number} id
- * @property {string} name
+ * @property {string} name       the callsign
+ * @property {string} full_name  may be empty
  *
  * @typedef {object} SessionConfig
  * @property {boolean} race
@@ -103,6 +106,19 @@
  * @property {number | null} enter_db
  * @property {number | null} exit_db
  * @property {boolean} in_pass
+ *
+ * @typedef {object} PilotStats
+ * @property {number | null} pilot_id
+ * @property {string} label
+ * @property {number | null} best_lap_us
+ * @property {number} sessions
+ * @property {number} races
+ * @property {number} wins
+ *
+ * @typedef {object} Stats  /api/stats
+ * @property {number} today_races
+ * @property {PilotStats[]} all
+ * @property {PilotStats[]} today
  *
  * @typedef {object} Live    the `live` message, 10 times a second
  * @property {number} now_us

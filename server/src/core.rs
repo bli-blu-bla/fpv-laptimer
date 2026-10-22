@@ -36,6 +36,9 @@ pub struct Settings {
     pub race: RaceSettings,
     pub min_lap_s: f64,
     pub consecutive: u32,
+    /// Announcements on.
+    #[serde(default = "yes")]
+    pub sound: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -44,11 +47,28 @@ pub struct ChannelSetting {
     pub mhz: u32,
 }
 
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SeatSetting {
     pub pilot_id: Option<i64>,
-    /// Free text; empty: the pilot's name, or else the channel name.
+    /// Free text; empty: the pilot's callsign, or else the channel name.
     pub label: String,
+    /// Off: nobody flies on this channel; left out of sessions.
+    #[serde(default = "yes")]
+    pub enabled: bool,
+}
+
+impl Default for SeatSetting {
+    fn default() -> Self {
+        SeatSetting {
+            pilot_id: None,
+            label: String::new(),
+            enabled: true,
+        }
+    }
+}
+
+fn yes() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -75,6 +95,7 @@ impl Default for Settings {
             },
             min_lap_s: 3.0,
             consecutive: 3,
+            sound: true,
         }
     }
 }
@@ -139,6 +160,7 @@ impl Core {
             eprintln!("closed {n} session(s) left open by an earlier run");
         }
         let detector = Detector::new(settings.channels.len(), detect_config(&settings));
+        sounds.set_enabled(settings.sound);
         let now = unix_now_us();
         Core {
             db,
@@ -251,7 +273,8 @@ impl Core {
                 lap_done |= r.laps.len() > old_laps;
                 if r.finished_us.is_some() && !a.announced[i] {
                     a.announced[i] = true;
-                    sounds.push(format!("pilot{}_fertig", i + 1));
+                    // "Pilot N" is the slot (channel position), as on the page.
+                    sounds.push(format!("pilot{}_fertig", a.row.seats[i].channel + 1));
                 }
             }
             let best = new.iter().filter_map(|r| r.best_lap_us).min();
@@ -270,7 +293,13 @@ impl Core {
             }
         }
         a.results = new;
-        self.broadcast_state();
+        // A race is over when everybody has finished.
+        let all_done = a.row.config.race && !a.results.is_empty() && a.results.iter().all(|r| r.finished_us.is_some());
+        if all_done {
+            self.stop_session()?;
+        } else {
+            self.broadcast_state();
+        }
         Ok(())
     }
 
@@ -278,7 +307,7 @@ impl Core {
 
     pub fn start_session(&mut self, race: bool) -> Result<i64> {
         if self.active.is_some() {
-            bail!("a session is running; stop it first");
+            bail!("Es läuft schon eine Session – erst stoppen.");
         }
         let s = &self.settings;
         let config = if race {
@@ -305,6 +334,7 @@ impl Core {
             .channels
             .iter()
             .enumerate()
+            .filter(|(i, _)| s.seats.get(*i).is_none_or(|seat| seat.enabled))
             .map(|(i, ch)| {
                 let seat = s.seats.get(i).cloned().unwrap_or_default();
                 let pilot_name = seat
@@ -414,7 +444,11 @@ impl Core {
     /// Saves the settings. Channels and gain only take effect when the
     /// boards are restarted (`server.rs` does that).
     pub fn set_settings(&mut self, s: Settings) -> Result<()> {
+        if self.active.is_some() && s.channels != self.settings.channels {
+            bail!("Kanäle lassen sich erst nach dem Stoppen der Session ändern.");
+        }
         self.db.set_setting("settings", &s)?;
+        self.sounds.set_enabled(s.sound);
         if s.min_lap_s != self.settings.min_lap_s {
             self.detector = Detector::new(s.channels.len(), detect_config(&s));
         }

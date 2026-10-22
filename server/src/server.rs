@@ -34,6 +34,7 @@ use crate::detect::DetectConfig;
 use crate::esp::board::{Event, ScanConfig};
 use crate::sound::Sounds;
 use crate::source::{self, Source};
+use crate::stats;
 use crate::trace::{self, SessionTrace};
 
 pub struct ServeOptions {
@@ -113,7 +114,8 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .route("/passes/{id}", post(set_pass_deleted))
         .route("/settings", get(get_settings).put(put_settings))
         .route("/pilots", post(add_pilot))
-        .route("/pilots/{id}", axum::routing::put(rename_pilot).delete(delete_pilot));
+        .route("/pilots/{id}", axum::routing::put(update_pilot).delete(delete_pilot))
+        .route("/stats", get(get_stats));
     let web = ServeDir::new(&opts.web_dir).fallback(ServeFile::new(opts.web_dir.join("index.html")));
     let router = Router::new()
         .nest("/api", api)
@@ -225,7 +227,7 @@ async fn list_sessions(State(app): State<Arc<App>>) -> ApiResult {
 
 async fn get_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> ApiResult {
     let core = app.core.lock().unwrap();
-    let s = core.db.session(id)?.context("no such session")?;
+    let s = core.db.session(id)?.context("Diese Session gibt es nicht.")?;
     let passes = core.db.passes(id)?;
     Ok(Json(
         json!({ "session": s, "results": results(&s, &passes), "passes": passes }),
@@ -234,9 +236,9 @@ async fn get_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> ApiRes
 
 async fn delete_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> ApiResult {
     let core = app.core.lock().unwrap();
-    let s = core.db.session(id)?.context("no such session")?;
+    let s = core.db.session(id)?.context("Diese Session gibt es nicht.")?;
     if s.ended_us.is_none() {
-        return Err(anyhow::anyhow!("the session is still running").into());
+        return Err(anyhow::anyhow!("Die Session läuft noch.").into());
     }
     if let Some(f) = &s.levels_file {
         let _ = std::fs::remove_file(f);
@@ -252,9 +254,11 @@ async fn delete_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> Api
 fn session_trace(app: &App, id: i64) -> Result<Arc<SessionTrace>> {
     let (path, config) = {
         let mut core = app.core.lock().unwrap();
-        let s = core.db.session(id)?.context("no such session")?;
+        let s = core.db.session(id)?.context("Diese Session gibt es nicht.")?;
         core.flush_levels(id)?;
-        let path = s.levels_file.context("this session has no level file")?;
+        let path = s
+            .levels_file
+            .context("Für diese Session sind keine Pegel aufgezeichnet.")?;
         (
             PathBuf::from(path),
             DetectConfig {
@@ -341,9 +345,27 @@ async fn add_pass(State(app): State<Arc<App>>, Path(id): Path<i64>, Json(req): J
         }
     }
     let mut core = app.core.lock().unwrap();
+    check_room(&core, id, req.channel, time_us, None)?;
     let pass = core.db.add_pass(id, req.channel, time_us, peak_db, true)?;
     core.session_changed(id)?;
     Ok(Json(json!({ "id": pass, "time_us": time_us })))
+}
+
+/// A pass closer than the minimum lap to another (not deleted) pass of the
+/// same channel would make a lap that can't be: refuse it.
+fn check_room(core: &Core, session: i64, channel: u8, time_us: i64, except: Option<i64>) -> Result<()> {
+    let s = core.db.session(session)?.context("Diese Session gibt es nicht.")?;
+    let min_lap_us = (s.config.min_lap_s * 1e6) as i64;
+    let clash = core.db.passes(session)?.into_iter().find(|p| {
+        p.channel == channel && !p.deleted && Some(p.id) != except && (p.time_us - time_us).abs() < min_lap_us
+    });
+    if clash.is_some() {
+        anyhow::bail!(
+            "Hier ist schon ein Durchflug (näher als die Mindest-Rundenzeit von {} s). Erst den anderen löschen.",
+            s.config.min_lap_s
+        );
+    }
+    Ok(())
 }
 
 #[derive(Deserialize)]
@@ -353,7 +375,21 @@ struct SetDeleted {
 
 async fn set_pass_deleted(State(app): State<Arc<App>>, Path(id): Path<i64>, Json(req): Json<SetDeleted>) -> ApiResult {
     let mut core = app.core.lock().unwrap();
-    let session = core.db.set_pass_deleted(id, req.deleted)?.context("no such pass")?;
+    if !req.deleted {
+        // Restoring: the same rule as adding.
+        let session = core.db.pass_session(id)?.context("Diesen Durchflug gibt es nicht.")?;
+        let p = core
+            .db
+            .passes(session)?
+            .into_iter()
+            .find(|p| p.id == id)
+            .context("Diesen Durchflug gibt es nicht.")?;
+        check_room(&core, session, p.channel, p.time_us, Some(id))?;
+    }
+    let session = core
+        .db
+        .set_pass_deleted(id, req.deleted)?
+        .context("Diesen Durchflug gibt es nicht.")?;
     core.session_changed(session)?;
     Ok(Json(json!({})))
 }
@@ -364,7 +400,7 @@ async fn get_settings(State(app): State<Arc<App>>) -> ApiResult {
 
 async fn put_settings(State(app): State<Arc<App>>, Json(s): Json<Settings>) -> ApiResult {
     if s.channels.is_empty() || s.channels.len() > 8 {
-        return Err(anyhow::anyhow!("1 to 8 channels").into());
+        return Err(anyhow::anyhow!("1 bis 8 Kanäle").into());
     }
     let restart = {
         let mut core = app.core.lock().unwrap();
@@ -381,20 +417,35 @@ async fn put_settings(State(app): State<Arc<App>>, Json(s): Json<Settings>) -> A
 }
 
 #[derive(Deserialize)]
-struct PilotName {
+struct PilotData {
+    /// The callsign.
     name: String,
+    #[serde(default)]
+    full_name: String,
 }
 
-async fn add_pilot(State(app): State<Arc<App>>, Json(req): Json<PilotName>) -> ApiResult {
+impl PilotData {
+    fn checked(&self) -> Result<(&str, &str)> {
+        let name = self.name.trim();
+        if name.is_empty() {
+            anyhow::bail!("Der Callsign fehlt.");
+        }
+        Ok((name, self.full_name.trim()))
+    }
+}
+
+async fn add_pilot(State(app): State<Arc<App>>, Json(req): Json<PilotData>) -> ApiResult {
+    let (name, full_name) = req.checked()?;
     let core = app.core.lock().unwrap();
-    let id = core.db.add_pilot(req.name.trim())?;
+    let id = core.db.add_pilot(name, full_name)?;
     core.broadcast_state();
     Ok(Json(json!({ "id": id })))
 }
 
-async fn rename_pilot(State(app): State<Arc<App>>, Path(id): Path<i64>, Json(req): Json<PilotName>) -> ApiResult {
+async fn update_pilot(State(app): State<Arc<App>>, Path(id): Path<i64>, Json(req): Json<PilotData>) -> ApiResult {
+    let (name, full_name) = req.checked()?;
     let core = app.core.lock().unwrap();
-    core.db.rename_pilot(id, req.name.trim())?;
+    core.db.update_pilot(id, name, full_name)?;
     core.broadcast_state();
     Ok(Json(json!({})))
 }
@@ -404,6 +455,23 @@ async fn delete_pilot(State(app): State<Arc<App>>, Path(id): Path<i64>) -> ApiRe
     core.db.delete_pilot(id)?;
     core.broadcast_state();
     Ok(Json(json!({})))
+}
+
+/// Best laps, races and wins per pilot, all time and today (`stats.rs`).
+async fn get_stats(State(app): State<Arc<App>>) -> ApiResult {
+    let core = app.core.lock().unwrap();
+    let mut sessions = Vec::new();
+    for s in core.db.sessions(2000)? {
+        let passes = core.db.passes(s.id)?;
+        let r = results(&s, &passes);
+        sessions.push((s, r));
+    }
+    let today_start = chrono::Local::now()
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .and_then(|t| t.and_local_timezone(chrono::Local).earliest())
+        .map_or(0, |t| t.timestamp_micros());
+    Ok(Json(serde_json::to_value(stats::compute(&sessions, today_start))?))
 }
 
 /// The WebSocket: first the whole state, then every message the core sends.

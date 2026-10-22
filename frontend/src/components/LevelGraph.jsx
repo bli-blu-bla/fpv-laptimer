@@ -6,6 +6,7 @@
 // buttons to move, +/− to zoom; the strip on top shows the whole session.
 
 import { useEffect, useRef, useState } from 'react'
+import { CaretLeft, CaretRight, MagnifyingGlassMinus, MagnifyingGlassPlus } from '@phosphor-icons/react'
 import { api } from '../api.js'
 import { secs } from '../format.js'
 
@@ -248,11 +249,21 @@ export default function LevelGraph({ sessionId, channel, t0, passes, result, onC
         {sel?.kind === 'pass' && <line x1={x(sel.pass.time_us)} x2={x(sel.pass.time_us)} y1={0} y2={plotH} className="cursor" />}
       </svg>
       <div className="graph-tools">
-        <button onClick={() => pan(-0.5)}>◀</button>
-        <button onClick={() => zoom(2)}>−</button>
-        <button onClick={() => zoom(0.5)}>+</button>
-        <button onClick={() => pan(0.5)}>▶</button>
-        <button onClick={() => setRange([start, end])}>Alles</button>
+        <button className="btn btn-secondary btn-icon" onClick={() => pan(-0.5)} title="Zurück">
+          <CaretLeft />
+        </button>
+        <button className="btn btn-secondary btn-icon" onClick={() => zoom(2)} title="Weniger Zoom">
+          <MagnifyingGlassMinus />
+        </button>
+        <button className="btn btn-secondary btn-icon" onClick={() => zoom(0.5)} title="Mehr Zoom">
+          <MagnifyingGlassPlus />
+        </button>
+        <button className="btn btn-secondary btn-icon" onClick={() => pan(0.5)} title="Weiter">
+          <CaretRight />
+        </button>
+        <button className="btn btn-secondary" onClick={() => setRange([start, end])}>
+          Alles
+        </button>
         <span className="muted">
           {secs(from - t0)}–{secs(to - t0)} s
         </span>
@@ -269,7 +280,7 @@ export default function LevelGraph({ sessionId, channel, t0, passes, result, onC
                     : 'Suche den Gipfel …'}
               </span>
               <button
-                className="primary"
+                className="btn btn-primary"
                 disabled={busy || !sel.snap}
                 onClick={() =>
                   act(() =>
@@ -289,7 +300,7 @@ export default function LevelGraph({ sessionId, channel, t0, passes, result, onC
                 {sel.pass.deleted ? ' – gelöscht' : ''}
               </span>
               <button
-                className={sel.pass.deleted ? 'primary' : 'stop'}
+                className={sel.pass.deleted ? 'btn btn-primary' : 'btn btn-danger'}
                 disabled={busy}
                 onClick={() => act(() => api(`/passes/${sel.pass.id}`, { body: { deleted: !sel.pass.deleted } }))}
               >
@@ -297,11 +308,13 @@ export default function LevelGraph({ sessionId, channel, t0, passes, result, onC
               </button>
             </>
           )}
-          <button onClick={() => setSel(null)}>Abbrechen</button>
+          <button className="btn btn-secondary" onClick={() => setSel(null)}>
+            Abbrechen
+          </button>
         </div>
       )}
       <p className="muted small">
-        Orange: beide Boards zusammen, blass: die einzelnen Boards, gestrichelt: Eintritts- und Austrittsschwelle.
+        Farbig: beide Boards zusammen, blass: die einzelnen Boards, gestrichelt: Eintritts- und Austrittsschwelle.
         Grün: erkannt, blau: von Hand, grau: gelöscht. Tippen nahe einem Gipfel fügt dort einen Durchflug ein, Tippen
         auf einen Durchflug löscht ihn; ziehen verschiebt den Ausschnitt.
       </p>

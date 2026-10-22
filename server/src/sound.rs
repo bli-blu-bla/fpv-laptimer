@@ -8,19 +8,28 @@
 
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::thread;
 
 pub struct Sounds {
     tx: Sender<String>,
+    /// Off: sounds are dropped (also those already waiting).
+    enabled: Arc<AtomicBool>,
 }
 
 impl Sounds {
     pub fn new(dir: PathBuf) -> Sounds {
         let (tx, rx) = mpsc::channel::<String>();
+        let enabled = Arc::new(AtomicBool::new(true));
+        let on = Arc::clone(&enabled);
         thread::spawn(move || {
             // `for … in rx` ends when every Sender is gone.
             for name in rx {
+                if !on.load(Ordering::Relaxed) {
+                    continue;
+                }
                 let path = dir.join(format!("{name}.mp3"));
                 if !path.exists() {
                     continue;
@@ -38,7 +47,11 @@ impl Sounds {
                 }
             }
         });
-        Sounds { tx }
+        Sounds { tx, enabled }
+    }
+
+    pub fn set_enabled(&self, on: bool) {
+        self.enabled.store(on, Ordering::Relaxed);
     }
 
     pub fn play(&self, name: &str) {

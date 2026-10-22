@@ -73,10 +73,17 @@ USB-Ports, an einem dritten 2,4 ms; also ±0,4 bis ±1,2 ms Unsicherheit.
 | `src/laps.rs` | Runden aus Durchflügen (rein, getestet): Start `holeshot`/`from_start`/`flying`, Ende `open`/`laps`/`seconds`, beste Runde, beste N in Folge, ignorierte Durchflüge |
 | `src/db.rs` | Tabellen `pilots`, `sessions` (Config als JSON, damit alte Ergebnisse bleiben), `seats`, `passes` (`manual`, `deleted` fürs Rückgängigmachen; vom Detektor zurückgenommene werden gelöscht), `settings` |
 | `src/trace.rs` | Pegelgraph einer Session: die Pegel-Datei noch einmal durch den Detektor (`Detector::with_trace` zeichnet pro 10-ms-Slot Hüllkurve kombiniert, je Board, Eintritt, Austritt auf), dann `graph` (Zeitbereich auf N Punkte, je Punkt das Maximum, damit kein Gipfel verloren geht) und `snap` (höchster Punkt ±1 s, von dort ±50 ms-weise bergauf, Buckel bis 3 dB darunter, darin Mitte zwischen erstem und letztem Punkt innerhalb 1 dB, wie der Detektor). Im Server zwischengespeichert pro Session und Dateigröße (höchstens 4); gelesen ohne die Core-Sperre (`spawn_blocking`). `/api/sessions/{id}/graph?channel&from_us&to_us&points`, `/api/sessions/{id}/snap?channel&time_us`; `POST …/passes` mit `snap: true` |
-| `src/source.rs` | Boards oder Replay |
+| `src/stats.rs` | Bestzeit, Sessions, Rennen, Siege pro Pilot (nach `pilot_id`, sonst nach Label), gesamt und heute; `race_order` (mehr Runden, dann frühere Gesamtzeit). `/api/stats` |
+| `src/source.rs` | Boards oder Replay (Replay liefert die Pegel nach Kanal-Position der Aufnahme, nicht nach Frequenz: nach einem Kanaltausch passen sie nicht mehr) |
 | `src/sound.rs` | MP3s nacheinander in eigenem Thread (`afplay` auf macOS, `mpg123 -q` sonst); fehlende Dateien werden übersprungen |
 
-Laps werden nie gespeichert, nur Durchflüge: jede Korrektur rechnet alles neu. Löschen
+Laps werden nie gespeichert, nur Durchflüge: jede Korrektur rechnet alles neu. Ein von
+Hand eingefügter oder wiederhergestellter Durchflug näher als die Mindestrunde an einem
+anderen wird abgelehnt. Ein Rennen stoppt von selbst, wenn alle Slots im Ziel sind.
+Piloten: `name` ist der Callsign (eindeutig), `full_name` optional (Spalte wird in alten
+Datenbanken beim Öffnen ergänzt). Settings: `seats[].enabled` (freie Slots fehlen in der
+Session), `sound` (Ansagen an/aus). Fehlermeldungen der API sind deutsch, die Seite zeigt
+sie direkt an. Löschen
 markiert erkannte Durchflüge (wiederherstellbar), von Hand eingefügte werden entfernt. Beim
 Start schließt der Server Sessions, die ein früherer Lauf offen gelassen hat
 (`close_open_sessions`: Ende = letzter Durchflug).
@@ -92,17 +99,29 @@ vermutlich ein Vielfaches: für lange Sessions später den Verlauf beim Beenden 
 
 Vite + React, JavaScript mit JSDoc und `// @ts-check`; `npm run check` (tsc über
 `jsconfig.json`, TypeScript nur als Prüfer). `src/types.js` spiegelt das JSON des Servers.
-`src/api.js`: `api()` für REST, `useServer()` hält `state`/`live` über den WebSocket
-(Reconnect) und den Uhrversatz zum Server. Seiten: `Live` (Start/Stopp, Countdown, Karte
-pro Pilot mit Pegelbalken und Schwellen, × löscht den Durchflug am Ende einer Runde,
-„+ Durchflug eben verpasst“ rastet am Gipfel der letzten 2 s ein), `Sessions` (Liste, Detail
-mit allen Durchflügen, löschen/wiederherstellen, Session löschen, „Pegel“ öffnet
-`components/LevelGraph.jsx`: SVG ohne Bibliothek, Übersicht + Ausschnitt, ziehen/◀▶/±,
-Tipp auf einen Durchflug: löschen/wiederherstellen, Tipp daneben: Vorschau der eingerasteten
-Stelle, dann einfügen), `Einstellungen`. `npm run dev` proxied `/api` und `/ws` auf Port 5800.
-Hell als Standard (Sonnenlicht), dunkel nach Systemeinstellung; auf 390 px Breite geprüft
-(Screenshots mit puppeteer-core und dem installierten Chrome, Handy-Emulation; Chrome
-headless ohne Emulation wird nicht schmaler als ~500 px).
+
+Design nach dem Entwurf „FPV Race Control“ des Nutzers (Claude Design, Design-System
+„Nocturne“): **nur dunkel**, Akzent orange `#ff8a3d`, Schrift Inter und Icons (Phosphor)
+als npm-Pakete gebündelt (am Platz gibt es kein Internet). Feste Farbe pro Slot
+(`slotColor`). Regeln des Nutzers: keine überladene UX; Einstellungen dort, wo man sie
+braucht; nicht Zusammengehöriges auf getrennten Seiten.
+
+| Datei | Inhalt |
+|---|---|
+| `App.jsx` | Navigation (Seitenleiste ab 820 px, sonst Tab-Leiste unten), Kopf mit „Heute · N Rennen“, Board-Status, Ton an/aus; lädt `/api/stats` |
+| `pages/Live.jsx` | Kopf: Status-Chip, Uhr, Training / Rennen starten (+ Zahnrad → `RaceDialog`), Stopp / Abbrechen (löscht). Nach dem Ende bleibt das Ergebnis stehen („Beendet“: Verwerfen, Schließen, „Runden korrigieren“ pro Karte → `CorrectDialog` mit dem Pegelgraphen). Karten (`Lane`): Position, letzte Runde, Runde n/N, Bestzeit, Abstand, Signalverlauf (`Sparkline`, 15 s aus den `live`-Nachrichten); Zahnrad → `SlotDialog`. Darunter `PassLog` und `DayBest`. Countdown als Vollbild |
+| `components/SlotDialog.jsx` | Pilot (Tausch mit dem Slot, der ihn hatte), Freitext, Kanal R1–R8 (Tausch; während einer Session gesperrt), Slot belegt an/aus. Speichert sofort |
+| `components/RaceDialog.jsx` | Start (Holeshot / Ab Startton / Fliegend), Ende nach Runden oder Zeit, Countdown aus/3/5/10 s |
+| `pages/Sessions.jsx` | Liste + Detail (`Ranking`: Tabelle und Rundenzeiten-Chips), Korrigieren pro Pilot, Löschen |
+| `pages/Pilots.jsx` | Callsign + Name, PB, Rennen, Siege; Dialog zum Anlegen/Bearbeiten/Löschen |
+| `pages/Settings.jsx` | Kanäle (hinzufügen/entfernen, R1–R8 oder freie MHz), Auswertung (Mindestrunde, beste N in Folge, Gain mit 0,8 s Verzögerung, weil er die Boards neu startet), Ansagen, Boards |
+| `model.js` | `slotsOf`, `standings` (Rennen: Runden, dann Gesamtzeit; Training: Bestzeit; Abstand), `passLog` |
+
+`npm run dev` proxied `/api` und `/ws` auf Port 5800. Geprüft mit puppeteer-core und dem
+installierten Chrome, Desktop 1280 px und Handy 390 px (Emulation; ohne sie wird Chrome
+headless nicht schmaler als ~500 px). Achtung: CSS-Klassennamen sind global; `.main` ist
+der Hauptbereich der App (eine gleichnamige Klasse im Slot-Dialog bekam dessen
+Handy-Abstand von 84 px).
 
 ## Aufzeichnen und Auswerten
 
