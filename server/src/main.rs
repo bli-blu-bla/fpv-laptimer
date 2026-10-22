@@ -1,10 +1,16 @@
 //! FPV lap timer. For now: `laptimer ports` and `laptimer record`.
 
 mod clock;
+mod core;
+mod db;
 mod detect;
 mod esp;
+mod laps;
 mod record;
 mod replay;
+mod server;
+mod sound;
+mod source;
 
 use std::path::PathBuf;
 
@@ -50,6 +56,24 @@ enum Command {
         /// Minimum lap, seconds.
         #[arg(long, default_value_t = 3.0)]
         min_lap: f64,
+    },
+    /// Run the lap timer: web page, database, announcements.
+    Serve {
+        /// Web port.
+        #[arg(long, default_value_t = 5800)]
+        port: u16,
+        /// Database and session levels.
+        #[arg(long, default_value = "data")]
+        data: PathBuf,
+        /// The built web page.
+        #[arg(long, default_value = "../frontend/dist")]
+        web: PathBuf,
+        /// The announcement MP3s.
+        #[arg(long, default_value = "../sounds")]
+        sounds: PathBuf,
+        /// Play this recording (in a loop) instead of reading boards.
+        #[arg(long)]
+        replay: Option<PathBuf>,
     },
     /// Run a recording through the pass detection.
     Replay {
@@ -99,6 +123,19 @@ fn main() -> Result<()> {
                 },
             })
         }
+        Command::Serve {
+            port,
+            data,
+            web,
+            sounds,
+            replay,
+        } => server::run(server::ServeOptions {
+            port,
+            data_dir: data,
+            web_dir: web,
+            sounds_dir: sounds,
+            replay,
+        }),
         Command::Replay { csv, board, min_lap } => {
             let config = detect::DetectConfig {
                 min_lap_us: (min_lap * 1e6) as i64,

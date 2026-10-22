@@ -92,7 +92,7 @@ pub enum Event {
 }
 
 /// What the display shows per channel.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, serde::Serialize)]
 pub struct ChannelStatus {
     /// Latest combined envelope, dBFS.
     pub level_db: Option<f32>,

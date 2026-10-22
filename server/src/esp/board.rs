@@ -39,7 +39,7 @@ pub struct Level {
 }
 
 /// Health of a board's link, sent about once a second.
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, serde::Serialize)]
 pub struct LinkStats {
     pub crc_errors: u64,
     /// Measurements the board could not send (its queue was full).

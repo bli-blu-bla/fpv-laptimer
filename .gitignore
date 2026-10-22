@@ -20,3 +20,6 @@ __pycache__/
 
 # Recordings
 recordings/
+
+# Server data (database, session levels)
+server/data/
