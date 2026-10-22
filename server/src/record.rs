@@ -46,7 +46,7 @@ struct BoardView {
 
 pub fn run(opts: RecordOptions) -> Result<()> {
     let ports = if opts.ports.is_empty() {
-        find_ports()?
+        find_ports()?.into_iter().map(|p| p.name).collect()
     } else {
         opts.ports.clone()
     };

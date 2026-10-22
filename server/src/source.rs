@@ -38,20 +38,30 @@ impl Drop for Source {
     }
 }
 
-/// What the page shows about each board: (port, info).
-pub type BoardNames = Vec<(String, String)>;
+/// What the page shows about each board, in board-index order.
+pub struct BoardName {
+    pub port: String,
+    /// Stable across plugging (USB serial number), for the board's role.
+    pub id: String,
+    pub info: String,
+}
+pub type BoardNames = Vec<BoardName>;
 
 /// Opens every board found (a board that fails is reported, the others run).
 pub fn start_boards(config: &ScanConfig, origin: Instant, tx: &Sender<Event>) -> Result<(Source, BoardNames)> {
     let mut boards = Vec::new();
     let mut names = Vec::new();
     for port in find_ports()? {
-        match Board::start(boards.len(), &port, config, origin, tx.clone()) {
+        match Board::start(boards.len(), &port.name, config, origin, tx.clone()) {
             Ok(b) => {
-                names.push((port.clone(), b.info.clone()));
+                names.push(BoardName {
+                    port: port.name.clone(),
+                    id: port.id.clone(),
+                    info: b.info.clone(),
+                });
                 boards.push(b);
             }
-            Err(e) => eprintln!("{port}: {e:#}"),
+            Err(e) => eprintln!("{}: {e:#}", port.name),
         }
     }
     Ok((Source::Boards(boards), names))
@@ -65,7 +75,11 @@ pub fn start_replay(path: &Path, origin: Instant, tx: Sender<Event>) -> Result<(
     for line in BufReader::new(File::open(path).with_context(|| format!("opening {}", path.display()))?).lines() {
         let line = line?;
         if let Some(rest) = line.strip_prefix("# board ") {
-            names.push((format!("replay {}", path.display()), rest.to_string()));
+            names.push(BoardName {
+                port: format!("replay {}", path.display()),
+                id: format!("replay-{}", names.len()),
+                info: rest.to_string(),
+            });
             continue;
         }
         if line.starts_with('#') || line.starts_with("board") || line.is_empty() {

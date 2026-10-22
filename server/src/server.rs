@@ -165,7 +165,7 @@ fn restart_source(app: &App) -> Result<()> {
     *source = Some(new);
     let views = names
         .into_iter()
-        .map(|(port, info)| BoardView::new(port, info))
+        .map(|n| BoardView::new(n.port, n.id, n.info))
         .collect();
     app.core.lock().unwrap().boards_started(views);
     Ok(())

@@ -124,16 +124,57 @@ impl Drop for Board {
     }
 }
 
-/// The serial ports that look like ESP32-C5 boards (their USB Serial/JTAG port).
-pub fn find_ports() -> Result<Vec<String>> {
-    let mut ports: Vec<String> = serialport::available_ports()?
+/// A serial port that looks like an ESP32-C5 board (its USB Serial/JTAG port).
+#[derive(Debug, Clone)]
+pub struct PortInfo {
+    pub name: String,
+    /// The USB serial number (the chip's MAC address, e.g. "10:BD:A3:C7:F7:FC"):
+    /// stays the same when the board is plugged in elsewhere. The port name
+    /// when it can't be read.
+    pub id: String,
+}
+
+pub fn find_ports() -> Result<Vec<PortInfo>> {
+    let by_id = linux_serial_ids();
+    let mut ports: Vec<PortInfo> = serialport::available_ports()?
         .into_iter()
-        .map(|p| p.port_name)
         // macOS: /dev/cu.usbmodem*, Linux: /dev/ttyACM* (USB Serial/JTAG).
-        .filter(|name| name.starts_with("/dev/cu.usbmodem") || name.starts_with("/dev/ttyACM"))
+        .filter(|p| p.port_name.starts_with("/dev/cu.usbmodem") || p.port_name.starts_with("/dev/ttyACM"))
+        .map(|p| {
+            let usb = match &p.port_type {
+                serialport::SerialPortType::UsbPort(u) => u.serial_number.clone(),
+                _ => None,
+            };
+            let id = usb
+                .or_else(|| {
+                    by_id
+                        .iter()
+                        .find(|(dev, _)| *dev == p.port_name)
+                        .map(|(_, id)| id.clone())
+                })
+                .unwrap_or_else(|| p.port_name.clone());
+            PortInfo { name: p.port_name, id }
+        })
         .collect();
-    ports.sort();
+    ports.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(ports)
+}
+
+/// Linux without libudev: the serial numbers from the names in
+/// /dev/serial/by-id, e.g. "usb-Espressif_USB_JTAG_serial_debug_unit_10:BD:A3:C7:F7:FC-if00"
+/// → ("/dev/ttyACM0", "10:BD:A3:C7:F7:FC").
+fn linux_serial_ids() -> Vec<(String, String)> {
+    let Ok(dir) = std::fs::read_dir("/dev/serial/by-id") else {
+        return Vec::new();
+    };
+    dir.filter_map(|e| {
+        let e = e.ok()?;
+        let name = e.file_name().to_string_lossy().to_string();
+        let target = std::fs::canonicalize(e.path()).ok()?.to_string_lossy().to_string();
+        let id = name.trim_end_matches("-if00").rsplit('_').next()?.to_string();
+        Some((target, id))
+    })
+    .collect()
 }
 
 /// The serial connection, with what has been read but not used yet.

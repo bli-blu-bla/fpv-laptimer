@@ -104,6 +104,8 @@ impl Default for Settings {
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct BoardView {
     pub port: String,
+    /// USB serial number (MAC), stable across plugging.
+    pub id: String,
     pub info: String,
     pub levels_per_s: f64,
     pub stats: Option<LinkStats>,
@@ -113,9 +115,10 @@ pub struct BoardView {
 }
 
 impl BoardView {
-    pub fn new(port: String, info: String) -> BoardView {
+    pub fn new(port: String, id: String, info: String) -> BoardView {
         BoardView {
             port,
+            id,
             info,
             ..Default::default()
         }

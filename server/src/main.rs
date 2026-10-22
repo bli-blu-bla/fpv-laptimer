@@ -94,7 +94,7 @@ fn main() -> Result<()> {
     match cli.command {
         Command::Ports => {
             for p in find_ports()? {
-                println!("{p}");
+                println!("{}  {}", p.name, p.id);
             }
             Ok(())
         }
