@@ -1,0 +1,21 @@
+{
+  "name": "laptimer-client",
+  "version": "0.1.0",
+  "description": "JavaScript-Client für die API des FPV-Laptimers (/api/v1): Befehle per HTTP oder WebSocket, Events live",
+  "type": "module",
+  "main": "./src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": [
+    "src"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test",
+    "check": "npx -y -p typescript@5.9.3 tsc -p jsconfig.json"
+  },
+  "license": "GPL-3.0-or-later"
+}

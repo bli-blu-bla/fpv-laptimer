@@ -1,0 +1,18 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "laptimer-client"
+version = "0.1.0"
+description = "Python-Client für die API des FPV-Laptimers (/api/v1)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+dependencies = []  # HTTP-Befehle brauchen nur die Standardbibliothek
+
+[project.optional-dependencies]
+events = ["websockets>=13"]  # Events über den WebSocket
+
+[tool.setuptools]
+packages = ["laptimer_client"]
