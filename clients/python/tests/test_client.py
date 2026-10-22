@@ -118,11 +118,16 @@ class HttpTest(unittest.TestCase):
         self.assertEqual((s["end"], s["end_value"]), ("laps", 2))
         with self.assertRaises(LaptimerError):
             self.lt.start_session()  # already running
-        t = now_us()
+        with self.assertRaises(LaptimerError) as cm:
+            self.lt.add_pass(0, now_us() + 60_000_000)  # in the future
+        self.assertEqual(cm.exception.status, 400)
+        # Passes can't lie in the future: wait until both times have passed.
+        time.sleep(3.5)
+        t = s["start_us"] + 100_000
         added = self.lt.add_pass(0, t)
-        self.lt.add_pass(0, t + 4_000_000)
+        self.lt.add_pass(0, t + 3_200_000)
         with self.assertRaises(LaptimerError):
-            self.lt.add_pass(0, t + 5_000_000)  # closer than the minimum lap
+            self.lt.add_pass(0, t + 3_300_000)  # closer than the minimum lap
         self.assertEqual(self.lt.stop_session()["session_id"], s["id"])
         self.assertEqual(self.lt.state()["unconfirmed"]["id"], s["id"])
         with self.assertRaises(LaptimerError):
@@ -173,11 +178,13 @@ class EventTest(unittest.TestCase):
                 self.assertIn("channels", conn.initial_state)
                 self.assertIn("boards", await conn.state())
                 s = await conn.start_session()
-                t = now_us()
+                await asyncio.sleep(3.7)  # passes can't lie in the future
+                t = s["start_us"] + 100_000
                 await conn.add_pass(0, t)
                 await conn.add_pass(0, t + 3_500_000)
                 with self.assertRaises(LaptimerError) as cm:
                     await conn.command("gibt.es.nicht")
+                self.assertEqual(cm.exception.status, 404)
                 self.assertIn("Unbekannter Befehl", cm.exception.message)
                 await conn.stop_session()
 
@@ -225,7 +232,8 @@ class EventTest(unittest.TestCase):
         @self.lt.on("connected")
         def connected(ev):
             s = self.lt.start_session()  # plain HTTP inside a handler
-            t = now_us()
+            time.sleep(3.4)  # passes can't lie in the future
+            t = s["start_us"] + 100_000
             self.lt.add_pass(0, t)
             self.lt.add_pass(0, t + 3_200_000)
             self.lt.stop_session()

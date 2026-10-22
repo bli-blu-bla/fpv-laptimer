@@ -48,9 +48,10 @@ Arten:
    ```
    ← {"id": 1, "cmd": "session.start", "args": {"race": true}}
    → {"type": "reply", "id": 1, "ok": true, "data": {…}}
-   → {"type": "reply", "id": 2, "ok": false, "error": "Es läuft schon eine Session – erst stoppen."}
+   → {"type": "reply", "id": 2, "ok": false, "status": 400, "error": "Es läuft schon eine Session – erst stoppen."}
    ```
-   `id` ist frei wählbar und kommt in der Antwort zurück.
+   `id` ist frei wählbar und kommt in der Antwort zurück. `status` bei Fehlern wie per HTTP:
+   400 abgelehnt, 404 unbekannter Befehl (auch 400 für eine Nachricht, die kein Befehl ist).
 
 Antworten per HTTP: 200 mit dem Ergebnis als JSON; Fehler 400 `{"error": "…"}` (deutsch, zum
 direkten Anzeigen), unbekannter Befehl 404.
@@ -84,14 +85,14 @@ Zeiten sind µs (Wanduhr: seit 1970).
 | `pilots.delete` | `DELETE /pilots/{id}` | `id` | `{}` |
 | `session.start` | `POST /session/start` | `race` (Standard `false` = Training); Rennen: `laps` oder `seconds`, `countdown_s`, `start_mode` | die [Session](#session) |
 | `session.stop` | `POST /session/stop` | – | `{"session_id"}` |
-| `session.cancel` | `POST /session/cancel` | – | stoppt und löscht die laufende Session |
+| `session.cancel` | `POST /session/cancel` | – | `{"session_id"}`; stoppt und löscht die laufende Session |
 | `session.confirm` | `POST /session/confirm` | `id` (Standard: das Rennen, das auf Bestätigung wartet) | `{"session_id"}` |
-| `session.discard` | `POST /session/discard` | `id` (wie oben) | löscht die beendete Session |
+| `session.discard` | `POST /session/discard` | `id` (wie oben) | `{"session_id"}`; löscht die beendete Session |
 | `sessions.list` | `GET /sessions?limit=20` | `limit` (Standard 20) | Liste von [Sessions](#session) |
 | `sessions.get` | `GET /sessions/{id}` | `id` | Session mit `passes` (alle Durchflüge) |
 | `passes.add` | `POST /passes` | `channel` (Index), `time_us` (Standard: jetzt), `session_id` (Standard: die laufende) | `{"pass_id", "session_id", "time_us"}` |
-| `passes.delete` | `DELETE /passes/{id}` | `id` | erkannte werden nur markiert |
-| `passes.restore` | `POST /passes/{id}/restore` | `id` | |
+| `passes.delete` | `DELETE /passes/{id}` | `id` | `{"session_id"}`; erkannte werden nur markiert, von Hand eingefügte gelöscht |
+| `passes.restore` | `POST /passes/{id}/restore` | `id` | `{"session_id"}`; nur für erkannte (von Hand eingefügte sind nach dem Löschen weg) |
 
 Einzelheiten:
 
@@ -112,8 +113,9 @@ Einzelheiten:
   `session.discard`.
 - **`passes.add`**: zählt wie ein erkannter Durchflug (Ansage, Event `pilot_pass` mit
   `manual: true`), z. B. von einem Taster. Abgelehnt, wenn er näher als die
-  Mindest-Rundenzeit an einem anderen Durchflug desselben Kanals liegt. Ohne Boards gut zum
-  Testen.
+  Mindest-Rundenzeit an einem anderen Durchflug desselben Kanals liegt, oder wenn `time_us`
+  außerhalb der Session liegt: vor dem Druck auf Start oder nach dem Ende (läuft sie noch:
+  mehr als 1 s in der Zukunft). Ohne Boards gut zum Testen.
 
 ## Events
 
@@ -134,7 +136,7 @@ Kanalname).
 |---|---|---|
 | `session_started` | Start gedrückt (vor dem Countdown) | `session_id`, `race`, `start_mode`, `end` (`open`/`laps`/`seconds`), `end_value`, `countdown_s`, `created_us`, `start_us`, `pilot_count`, `seats` (Liste der Sitze) |
 | `countdown` | jede Sekunde des Countdowns | `session_id`, `race`, `seconds_left` |
-| `start_signal` | Startsignal; Training: gleich nach dem Start | `session_id`, `race`, `start_us` |
+| `start_signal` | Startsignal; Training: gleich nach `session_started`. Kommt immer vor dem ersten `pilot_pass` nach dem Start | `session_id`, `race`, `start_us` |
 | `pilot_pass` | ein Pilot fliegt durchs Ziel | Sitz, `session_id`, `race`, `pass_id`, `time_us`, `manual`, `kind`, `lap`, `lap_time_us`, `lap_time_s`, `laps`, `best_lap_us`, `best_lap_s`, `personal_best`, `session_best`, `holeshot_us`, `finished`, `position` |
 | `pilot_finished` | ein Pilot hat das Rennende erreicht | Sitz, `session_id`, `laps`, `total_us`, `total_s`, `best_lap_us`, `best_lap_s`, `position` |
 | `session_stopped` | Session beendet | `session_id`, `race`, `reason` (`stopped` von Hand, `finished` alle im Ziel, `cancelled` wird gleich gelöscht), `ended_us`, `needs_confirmation`, `winner`, `results` |

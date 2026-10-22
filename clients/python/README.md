@@ -37,8 +37,8 @@ lt.confirm()                                                # Ergebnis bestätig
   `lt.set_channel(2, NOBODY)`.
 - Fehler werfen `LaptimerError`: `e.message` ist die (deutsche) Meldung des Servers zum
   direkten Anzeigen, `e.status` der HTTP-Status (400 falsche Argumente, 401 Schlüssel
-  falsch, 404 unbekannter Befehl; `None` bei WebSocket-Antworten und wenn der Server nicht
-  erreichbar ist).
+  falsch, 404 unbekannter Befehl; über den WebSocket dieselben Zahlen; `None`, wenn der
+  Server nicht erreichbar ist).
 - `Laptimer()` ohne Angaben nimmt `LAPTIMER_API_URL` (Standard `http://localhost:5800`) und
   `LAPTIMER_API_KEY` aus der Umgebung. Die Adresse darf auch `pi:5800` oder `…/api/v1` sein.
 

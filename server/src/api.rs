@@ -389,7 +389,11 @@ async fn ws_session(app: Arc<App>, mut socket: WebSocket) {
             msg = socket.recv() => {
                 let text = match msg {
                     Some(Ok(Message::Text(t))) => t.to_string(),
-                    Some(Ok(Message::Close(_))) | Some(Err(_)) | None => return,
+                    // The library has queued the answer to the client's Close;
+                    // it goes out on the next read, which then ends with None.
+                    // (Returning at once: the client sees 1006, "abnormal".)
+                    Some(Ok(Message::Close(_))) => continue,
+                    Some(Err(_)) | None => return,
                     Some(Ok(_)) => continue, // ping/pong/binary
                 };
                 let reply = ws_command(&app, &text).await;
@@ -426,19 +430,18 @@ async fn ws_command(app: &Arc<App>, text: &str) -> Value {
         Ok(r) => r,
         Err(e) => {
             let error = format!("Erwartet {{\"id\": …, \"cmd\": \"…\", \"args\": {{…}}}}: {e}");
-            return json!({ "type": "reply", "id": null, "ok": false, "error": error });
+            return json!({ "type": "reply", "id": null, "ok": false, "status": 400, "error": error });
         }
     };
     let app = Arc::clone(app);
     let args = if req.args.is_null() { json!({}) } else { req.args };
     let cmd = req.cmd;
-    let result = tokio::task::spawn_blocking(move || command(&app, &cmd, args))
-        .await
-        .map_err(|e| anyhow!("{e}"))
-        .and_then(|r| r);
-    match result {
-        Ok(data) => json!({ "type": "reply", "id": req.id, "ok": true, "data": data }),
-        Err(e) => json!({ "type": "reply", "id": req.id, "ok": false, "error": format!("{e:#}") }),
+    // The same status numbers as over HTTP: 404 unknown command, 400 refused.
+    let status = if COMMANDS.contains(&cmd.as_str()) { 400 } else { 404 };
+    match tokio::task::spawn_blocking(move || command(&app, &cmd, args)).await {
+        Ok(Ok(data)) => json!({ "type": "reply", "id": req.id, "ok": true, "data": data }),
+        Ok(Err(e)) => json!({ "type": "reply", "id": req.id, "ok": false, "status": status, "error": format!("{e:#}") }),
+        Err(e) => json!({ "type": "reply", "id": req.id, "ok": false, "status": 500, "error": e.to_string() }),
     }
 }
 
@@ -893,6 +896,12 @@ fn add_pass(app: &App, args: &Value) -> Result<Value> {
     let s = core.db.session(session)?.context("Diese Session gibt es nicht.")?;
     if !s.seats.iter().any(|x| x.channel == channel) {
         bail!("Kanal {channel} fliegt in dieser Session nicht mit.");
+    }
+    // Between the start button and the end (running: now, with 1 s for
+    // a client clock that is a little ahead).
+    let latest = s.ended_us.unwrap_or_else(|| unix_now_us() + 1_000_000);
+    if time_us < s.created_us || time_us > latest {
+        bail!("'time_us' liegt außerhalb der Session (vor dem Start oder nach dem Ende bzw. in der Zukunft).");
     }
     check_room(&core, session, channel, time_us, None)?;
     let id = core.db.add_pass(session, channel, time_us, 0.0, true)?;

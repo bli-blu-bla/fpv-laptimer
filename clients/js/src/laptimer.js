@@ -12,7 +12,7 @@ export class LaptimerError extends Error {
   /**
    * @param {string} message
    * @param {object} [info]
-   * @param {number | null} [info.status]   HTTP status (400 bad arguments, 401 key, 404 unknown command); null over the WebSocket or without an answer
+   * @param {number | null} [info.status]   HTTP status (400 bad arguments, 401 key, 404 unknown command), the same over the WebSocket; null without an answer
    * @param {string} [info.command]
    * @param {unknown} [info.cause]
    */
@@ -348,7 +348,7 @@ export class Laptimer {
           this.#pending.delete(msg.id)
           clearTimeout(p.timer)
           if (msg.ok) p.resolve(msg.data)
-          else p.reject(new LaptimerError(msg.error, { command: p.cmd }))
+          else p.reject(new LaptimerError(msg.error, { status: msg.status ?? null, command: p.cmd }))
         } else if (msg.type === 'lagged') {
           this.#emit('lagged', { missed: msg.missed }, msg)
         }

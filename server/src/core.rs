@@ -454,6 +454,9 @@ impl Core {
     /// Reloads the active session's passes, recomputes the laps and tells
     /// the browsers. `announce`: play the sounds for what changed.
     fn refresh(&mut self, announce: bool) -> Result<()> {
+        // A pass right after the start must not be reported before the
+        // `start_signal` (that one otherwise waits for the next `tick`).
+        self.countdown_events(unix_now_us());
         let Some(a) = self.active.as_mut() else { return Ok(()) };
         a.passes = self.db.passes(a.row.id)?;
         let new = results(&a.row, &a.passes);

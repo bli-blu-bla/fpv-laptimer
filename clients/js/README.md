@@ -78,8 +78,8 @@ try {
 ```
 
 `status`: HTTP-Status (400 falsche Argumente oder nicht erlaubt, 401 Schlüssel fehlt oder ist
-falsch, 404 unbekannter Befehl); `null` bei Befehlen über den WebSocket (der kennt keinen
-Status) und wenn der Server nicht erreichbar ist. `command`: der Befehl.
+falsch, 404 unbekannter Befehl; über den WebSocket dieselben Zahlen); `null`, wenn der Server
+nicht erreichbar ist. `command`: der Befehl.
 
 Zum Ausprobieren in [`examples/`](examples/):
 

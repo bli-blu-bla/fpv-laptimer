@@ -8,6 +8,8 @@ import { test, before, beforeEach, after } from 'node:test'
 import assert from 'node:assert/strict'
 import { Laptimer, LaptimerError } from '../src/index.js'
 
+/** @param {number} ms */
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
 const url = process.env.LAPTIMER_URL
 const key = process.env.LAPTIMER_KEY
 const skip = !url || !key ? 'LAPTIMER_URL und LAPTIMER_KEY setzen' : false
@@ -119,7 +121,7 @@ test('WebSocket: hello, commands, error replies', { skip }, async () => {
   assert.equal(pong.pong, true)
   const [a, b] = await Promise.all([lt.channels.list(), lt.state()])
   assert.deepEqual(a, b.channels)
-  await assert.rejects(lt.command('gibts.nicht'), (e) => e instanceof LaptimerError && e.status === null && /Unbekannter Befehl/.test(e.message))
+  await assert.rejects(lt.command('gibts.nicht'), (e) => e instanceof LaptimerError && e.status === 404 && /Unbekannter Befehl/.test(e.message))
   await assert.rejects(lt.pilots.get(999999), (e) => e instanceof LaptimerError && e.command === 'pilots.get')
 })
 
@@ -136,8 +138,12 @@ test('events: training with passes', { skip }, async () => {
   assert.equal((await started).session_id, session.id)
   assert.equal((await signal).session_id, session.id)
 
-  // Two passes with explicit times (at least the minimum lap apart).
-  const t0 = session.start_us + 1_000_000
+  // A pass in the future is refused; so wait until the times below have passed.
+  await assert.rejects(lt.passes.add(0, { time_us: Date.now() * 1000 + 60_000_000 }), (e) => e instanceof LaptimerError && e.status === 400)
+  await sleep(3_700)
+
+  // Two passes with explicit times (at least the minimum lap of 3 s apart).
+  const t0 = session.start_us + 100_000
   const first = lt.waitFor('pilot_pass', { filter: (d) => d.session_id === session.id })
   const p1 = await lt.passes.add(0, { time_us: t0 })
   const d1 = await first
@@ -148,17 +154,17 @@ test('events: training with passes', { skip }, async () => {
   assert.equal(d1.laps, 0)
 
   const second = lt.waitFor('pilot_pass', { filter: (d) => d.session_id === session.id })
-  await lt.passes.add(0, { time_us: t0 + 4_000_000 })
+  await lt.passes.add(0, { time_us: t0 + 3_200_000 })
   const d2 = await second
   assert.equal(d2.kind, 'lap')
   assert.equal(d2.lap, 1)
-  assert.equal(d2.lap_time_us, 4_000_000)
-  assert.equal(d2.lap_time_s, 4)
+  assert.equal(d2.lap_time_us, 3_200_000)
+  assert.equal(d2.lap_time_s, 3.2)
   assert.equal(d2.personal_best, true)
   assert.equal(d2.position, 1)
 
   // Too close to another pass: refused with the server's message.
-  await assert.rejects(lt.passes.add(0, { time_us: t0 + 5_000_000 }), (e) => e instanceof LaptimerError)
+  await assert.rejects(lt.passes.add(0, { time_us: t0 + 3_500_000 }), (e) => e instanceof LaptimerError)
 
   // Delete a pass: passes_changed. A pass added by hand is removed for good
   // (only detected ones can be restored), so add it again.
@@ -202,8 +208,9 @@ test('events: race to the finish, then confirm', { skip }, async () => {
   const finished = []
   const offFinished = lt.on('pilot_finished', (d) => finished.push(d))
   const stopped = lt.waitFor('session_stopped', { filter: (d) => d.session_id === session.id })
+  await sleep(3_600) // the lap must be over (minimum lap 3 s), passes can't lie in the future
   for (const [i, c] of channels.entries()) {
-    await lt.passes.add(c.index, { time_us: session.start_us + 5_000_000 + i * 100_000 })
+    await lt.passes.add(c.index, { time_us: session.start_us + 3_100_000 + i * 100_000 })
   }
   const s = await stopped
   offFinished()

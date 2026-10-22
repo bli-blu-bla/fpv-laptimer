@@ -58,7 +58,7 @@ class LaptimerError(Exception):
 
     `message` is the server's text (German, meant to be shown as is);
     `status` is the HTTP status (400 bad arguments, 401 bad key, 404
-    unknown command), or None for WebSocket replies and network errors.
+    unknown command; the same over the WebSocket), or None for network errors.
     """
 
     def __init__(self, message: str, status: int | None = None):
@@ -566,7 +566,7 @@ class Connection(_Commands):
                     if msg.get("ok"):
                         reply.set_result(msg.get("data"))
                     else:
-                        reply.set_exception(LaptimerError(msg.get("error") or "Fehler"))
+                        reply.set_exception(LaptimerError(msg.get("error") or "Fehler", msg.get("status")))
         except Exception:
             pass  # closed (normally or not): handled below
         finally:
