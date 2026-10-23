@@ -81,14 +81,17 @@ pub enum DetectMode {
     Classic,
 }
 
-/// One channel's detection: its mode (None: the gate's) and its fixed
-/// thresholds (dBFS, used in classic mode).
+/// One channel's detection: its mode (None: the gate's), its fixed
+/// thresholds (dBFS, used in classic mode) and its minimum swing (automatic
+/// mode; None: `DetectionSettings::min_rise_db`).
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Thresholds {
     pub enter_db: f32,
     pub exit_db: f32,
     #[serde(default)]
     pub mode: Option<DetectMode>,
+    #[serde(default)]
+    pub min_rise_db: Option<f32>,
 }
 
 impl Default for Thresholds {
@@ -97,6 +100,7 @@ impl Default for Thresholds {
             enter_db: -25.0,
             exit_db: -30.0,
             mode: None,
+            min_rise_db: None,
         }
     }
 }
@@ -117,7 +121,7 @@ pub struct DetectionSettings {
     pub arming: Vec<Thresholds>,
     /// Minimum swing (dB above the course) for a pass in automatic mode:
     /// keeps flybys above the gate from counting. A stronger transmitter or
-    /// another quad may need another value.
+    /// another quad may need another value (a channel's own `min_rise_db`).
     #[serde(default = "default_min_rise_db")]
     pub min_rise_db: f32,
 }
@@ -154,6 +158,15 @@ impl DetectionSettings {
             })
             .collect()
     }
+
+    /// For `Detector::set_min_rise`: per channel, its own minimum swing or
+    /// else the common one.
+    pub fn min_rise(&self, arming: bool, n_channels: usize) -> Vec<f32> {
+        let list = if arming { &self.arming } else { &self.finish };
+        (0..n_channels)
+            .map(|c| list.get(c).and_then(|t| t.min_rise_db).unwrap_or(self.min_rise_db))
+            .collect()
+    }
 }
 
 /// Settings the user may change.
@@ -161,7 +174,8 @@ impl DetectionSettings {
 pub struct DetectConfig {
     /// Crossings closer than this to the previous pass count as the same pass.
     pub min_lap_us: i64,
-    /// A pass must rise at least this many dB above the course level.
+    /// A pass must rise at least this many dB above the course level
+    /// (channels with their own value: `Detector::set_min_rise`).
     pub min_rise_db: f32,
 }
 
@@ -272,6 +286,14 @@ impl Detector {
                 .copied()
                 .flatten()
                 .map(|(e, x)| (db_code_f(e), db_code_f(x)));
+            ch.update_thresholds();
+        }
+    }
+
+    /// Minimum swing per channel, dB (instead of `DetectConfig::min_rise_db`).
+    pub fn set_min_rise(&mut self, min_rise_db: &[f32]) {
+        for (ch, &m) in self.channels.iter_mut().zip(min_rise_db) {
+            ch.min_rise_db = m;
             ch.update_thresholds();
         }
     }
@@ -425,7 +447,7 @@ impl BoardChannel {
 /// The pass state machine of one channel.
 struct ChannelDetector {
     channel: u8,
-    /// `DetectConfig::min_rise_db`.
+    /// `DetectConfig::min_rise_db`, or the channel's own (`set_min_rise`).
     min_rise_db: f32,
     stats: LevelStats,
     /// The last pass peaks (codes).
@@ -823,6 +845,10 @@ mod tests {
             ..Default::default()
         }];
         assert_eq!(d.fixed(false, 2), vec![None, Some((-25.0, -30.0))]);
+        // A channel's own minimum swing, else the common one.
+        d.finish[0].min_rise_db = Some(8.0);
+        assert_eq!(d.min_rise(false, 2), vec![8.0, MIN_RISE_DB]);
+        assert_eq!(d.min_rise(true, 1), vec![MIN_RISE_DB]);
     }
 
     #[test]

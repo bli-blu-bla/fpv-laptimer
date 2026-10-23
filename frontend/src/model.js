@@ -154,3 +154,26 @@ export function computeLaps(passes, c, startUs) {
 export function channelMode(d, gate, i) {
   return d[gate][i]?.mode ?? (gate === 'finish' ? d.finish_mode : d.arming_mode)
 }
+
+/** A channel's minimum swing at a gate (automatic mode): its own, else the common one.
+ * @param {import('./types').DetectionSettings} d @param {'finish' | 'arming'} gate @param {number} i */
+export function channelMinRise(d, gate, i) {
+  return d[gate][i]?.min_rise_db ?? d.min_rise_db
+}
+
+/** A preset in a few words: "Automatisch · 12 dB" or "Manuell · −20 / −26 dB".
+ * @param {import('./types').Preset} p */
+export function presetSummary(p) {
+  return p.mode === 'classic' ? `Manuell · ${p.enter_db} / ${p.exit_db} dB` : `Automatisch · ${p.min_rise_db} dB`
+}
+
+/** Whether slot `i`'s finish-gate detection is no longer what preset `p` holds
+ * (tuned since it was applied). Only what the mode uses counts.
+ * @param {import('./types').Settings} s @param {number} i @param {import('./types').Preset} p */
+export function presetChanged(s, i, p) {
+  const d = s.detection
+  const t = d.finish[i] ?? { enter_db: -25, exit_db: -30 }
+  const mode = channelMode(d, 'finish', i)
+  if (mode !== p.mode) return true
+  return mode === 'classic' ? t.enter_db !== p.enter_db || t.exit_db !== p.exit_db : channelMinRise(d, 'finish', i) !== p.min_rise_db
+}

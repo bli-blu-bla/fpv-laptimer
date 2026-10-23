@@ -15,6 +15,13 @@ CREATE TABLE IF NOT EXISTS pilots (
     name TEXT NOT NULL UNIQUE,     -- the callsign
     full_name TEXT NOT NULL DEFAULT ''
 );
+CREATE TABLE IF NOT EXISTS presets (
+    id INTEGER PRIMARY KEY,
+    pilot_id INTEGER NOT NULL REFERENCES pilots(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,            -- e.g. the quad: Whoop, 5 Zoll O3
+    data TEXT NOT NULL,            -- JSON, PresetValues
+    UNIQUE (pilot_id, name)
+);
 CREATE TABLE IF NOT EXISTS sessions (
     id INTEGER PRIMARY KEY,
     config TEXT NOT NULL,          -- JSON, SessionConfig
@@ -133,6 +140,32 @@ pub struct Pilot {
     pub name: String,
     /// The real name (may be empty).
     pub full_name: String,
+}
+
+/// A pilot's detection settings for one quad, copied into the channel the
+/// pilot flies on (`Core::apply_presets`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Preset {
+    pub id: i64,
+    pub pilot_id: i64,
+    pub name: String,
+    /// `flatten`: the values sit next to id and name in the JSON.
+    #[serde(flatten)]
+    pub values: PresetValues,
+}
+
+/// What a preset holds: the finish gate's settings of one channel.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PresetValues {
+    pub mode: crate::detect::DetectMode,
+    /// Fixed thresholds (manual mode), dBFS.
+    pub enter_db: f32,
+    pub exit_db: f32,
+    /// Minimum swing (automatic mode), dB.
+    pub min_rise_db: f32,
+    /// The boards' gain when it was saved: fixed thresholds only fit that
+    /// gain (and that gate setup); the page points out a different one.
+    pub gain: u8,
 }
 
 /// An API key as listed (without the key itself).
@@ -264,6 +297,53 @@ impl Db {
         self.conn
             .execute("UPDATE seats SET pilot_id = NULL WHERE pilot_id = ?1", [id])?;
         self.conn.execute("DELETE FROM pilots WHERE id = ?1", [id])?;
+        Ok(())
+    }
+
+    // --- presets ---
+
+    pub fn presets(&self) -> Result<Vec<Preset>> {
+        let mut st = self
+            .conn
+            .prepare("SELECT id, pilot_id, name, data FROM presets ORDER BY pilot_id, name COLLATE NOCASE")?;
+        let rows = st.query_map([], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, i64>(1)?, r.get::<_, String>(2)?, r.get::<_, String>(3)?))
+        })?;
+        let mut list = Vec::new();
+        for row in rows {
+            let (id, pilot_id, name, data) = row?;
+            list.push(Preset {
+                id,
+                pilot_id,
+                name,
+                values: serde_json::from_str(&data)?,
+            });
+        }
+        Ok(list)
+    }
+
+    pub fn add_preset(&self, pilot_id: i64, name: &str, values: &PresetValues) -> Result<i64> {
+        self.conn
+            .execute(
+                "INSERT INTO presets (pilot_id, name, data) VALUES (?1, ?2, ?3)",
+                params![pilot_id, name, serde_json::to_string(values)?],
+            )
+            .map_err(preset_name_taken)?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn update_preset(&self, id: i64, name: &str, values: &PresetValues) -> Result<()> {
+        self.conn
+            .execute(
+                "UPDATE presets SET name = ?2, data = ?3 WHERE id = ?1",
+                params![id, name, serde_json::to_string(values)?],
+            )
+            .map_err(preset_name_taken)?;
+        Ok(())
+    }
+
+    pub fn delete_preset(&self, id: i64) -> Result<()> {
+        self.conn.execute("DELETE FROM presets WHERE id = ?1", [id])?;
         Ok(())
     }
 
@@ -664,6 +744,15 @@ fn name_taken(e: rusqlite::Error) -> anyhow::Error {
         && f.code == rusqlite::ErrorCode::ConstraintViolation
     {
         return anyhow::anyhow!("Diesen Callsign gibt es schon.");
+    }
+    e.into()
+}
+
+fn preset_name_taken(e: rusqlite::Error) -> anyhow::Error {
+    if let rusqlite::Error::SqliteFailure(f, _) = &e
+        && f.code == rusqlite::ErrorCode::ConstraintViolation
+    {
+        return anyhow::anyhow!("Ein Preset mit diesem Namen hat der Pilot schon.");
     }
     e.into()
 }

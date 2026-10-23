@@ -39,8 +39,13 @@ pub struct Graph {
 /// Reads a level file (`core.rs` writes one per session, `laptimer record`
 /// writes the same format) and runs it through the detector: the finish-gate
 /// boards only (from the "# roles:" line; without it, all boards), with the
-/// session's fixed thresholds in classic mode.
-pub fn load(path: &Path, config: DetectConfig, fixed: Vec<Option<(f32, f32)>>) -> Result<SessionTrace> {
+/// session's fixed thresholds in classic mode and its minimum swing per channel.
+pub fn load(
+    path: &Path,
+    config: DetectConfig,
+    fixed: Vec<Option<(f32, f32)>>,
+    min_rise: Vec<f32>,
+) -> Result<SessionTrace> {
     let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut offset_us = 0;
     let mut det: Option<Detector> = None;
@@ -80,6 +85,7 @@ pub fn load(path: &Path, config: DetectConfig, fixed: Vec<Option<(f32, f32)>>) -
         let d = det.get_or_insert_with(|| {
             let mut d = Detector::with_trace(n_channels.max(1), config);
             d.set_fixed(&fixed);
+            d.set_min_rise(&min_rise);
             d
         });
         let level = Level {

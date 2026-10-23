@@ -1,11 +1,14 @@
 // @ts-check
 // Settings of one slot, from its gear on the live page: who flies (a pilot,
-// or a name typed in), on which channel, or nobody. Takes effect at once and
-// is saved; a pilot or channel used by another slot is swapped with it.
+// or a name typed in), with which of the pilot's presets, on which channel,
+// or nobody. Takes effect at once and is saved; a pilot or channel used by
+// another slot is swapped with it. The server copies the preset into the
+// channel's detection (a pilot with one preset gets it on their own).
 
 import { useState } from 'react'
 import { saveSettings } from '../api.js'
 import { RACEBAND, secs } from '../format.js'
+import { presetSummary } from '../model.js'
 import Dialog from './Dialog.jsx'
 
 /**
@@ -34,15 +37,20 @@ export default function SlotDialog({ state, stats, index, color, onClose }) {
     }
   }
 
-  /** Pilot for this slot; the slot that had them gets this slot's pilot. @param {number | null} id */
+  /** Pilot for this slot; the slot that had them gets this slot's pilot.
+   * Their presets go with them. @param {number | null} id */
   function pickPilot(id) {
     const next = seats.map((x) => ({ ...x }))
     const other = id == null ? -1 : next.findIndex((x, j) => j !== index && x.pilot_id === id)
-    if (other >= 0) next[other].pilot_id = seat.pilot_id
-    next[index] = { ...next[index], pilot_id: id, label: '', enabled: true }
+    const preset = other >= 0 ? next[other].preset_id : null
+    if (other >= 0) next[other] = { ...next[other], pilot_id: seat.pilot_id, preset_id: seat.preset_id }
+    next[index] = { ...next[index], pilot_id: id, preset_id: preset, label: '', enabled: true }
     setLabel('')
     save({ seats: next })
   }
+
+  /** @param {number | null} id */
+  const pickPreset = (id) => save({ seats: seats.map((x, j) => (j === index ? { ...x, preset_id: id } : x)) })
 
   /** Channel for this slot; the slot that had it gets this slot's channel. @param {number} mhz */
   function pickChannel(mhz) {
@@ -65,6 +73,8 @@ export default function SlotDialog({ state, stats, index, color, onClose }) {
 
   const pb = (/** @type {number} */ id) => stats?.all.find((p) => p.pilot_id === id)?.best_lap_us
   const ch = s.channels[index]
+  const flying = seat.label.trim() ? null : seat.pilot_id
+  const presets = state.presets.filter((p) => p.pilot_id === flying)
   return (
     <Dialog
       onClose={() => {
@@ -96,6 +106,24 @@ export default function SlotDialog({ state, stats, index, color, onClose }) {
         {!state.pilots.length && <span className="muted small">Noch keine Piloten – unter „Piloten“ anlegen, oder hier einen Namen eintragen.</span>}
         <input className="input" value={label} placeholder={`oder Name eintragen (sonst „${ch.name}“)`} onChange={(e) => setLabel(e.target.value)} onBlur={saveLabel} />
       </div>
+
+      {presets.length > 0 && (
+        <div className="field">
+          <span>Preset · Erkennung</span>
+          <div className="options" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' }}>
+            {presets.map((p) => (
+              <button key={p.id} className={'option' + (seat.preset_id === p.id ? ' on' : '')} onClick={() => seat.preset_id !== p.id && pickPreset(p.id)}>
+                <span className="opt-main">{p.name}</span>
+                <span className="note">{presetSummary(p)}</span>
+              </button>
+            ))}
+            <button className={'option' + (seat.preset_id == null ? ' on' : '')} onClick={() => seat.preset_id != null && pickPreset(null)}>
+              <span className="opt-main">Keins</span>
+              <span className="note">Kanal behält seine Werte</span>
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="field">
         <span>Kanal · Raceband</span>

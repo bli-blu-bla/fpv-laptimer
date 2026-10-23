@@ -16,8 +16,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
-use crate::db::{Db, Pilot, Seat, SessionConfig, SessionRow};
-use crate::detect::{ChannelStatus, DetectConfig, DetectionSettings, Detector, Event as DetectEvent};
+use crate::db::{Db, Pilot, Preset, PresetValues, Seat, SessionConfig, SessionRow};
+use crate::detect::{ChannelStatus, DetectConfig, DetectionSettings, Detector, Event as DetectEvent, Thresholds};
 use crate::esp::board::{Event as BoardEvent, Level, LinkStats};
 use crate::events::Events;
 use crate::laps::{self, EndRule, PassRecord, PilotResult, StartMode};
@@ -139,6 +139,10 @@ pub struct SeatSetting {
     /// Off: nobody flies on this channel; left out of sessions.
     #[serde(default = "yes")]
     pub enabled: bool,
+    /// The pilot's preset last copied into this channel's detection
+    /// (`Core::apply_presets`). The channel keeps its values without one.
+    #[serde(default)]
+    pub preset_id: Option<i64>,
 }
 
 impl Default for SeatSetting {
@@ -147,6 +151,7 @@ impl Default for SeatSetting {
             pilot_id: None,
             label: String::new(),
             enabled: true,
+            preset_id: None,
         }
     }
 }
@@ -873,10 +878,11 @@ impl Core {
 
     /// Saves the settings. Channels and gain only take effect when the
     /// boards are restarted (`server.rs` does that).
-    pub fn set_settings(&mut self, s: Settings) -> Result<()> {
+    pub fn set_settings(&mut self, mut s: Settings) -> Result<()> {
         if self.active.is_some() && s.channels != self.settings.channels {
             bail!("Kanäle lassen sich erst nach dem Stoppen der Session ändern.");
         }
+        self.apply_presets(&mut s)?;
         self.db.set_setting("settings", &s)?;
         let channels_changed = s.channels != self.settings.channels || s.seats != self.settings.seats;
         self.sounds.set_enabled(s.sound);
@@ -924,6 +930,137 @@ impl Core {
                 })
             })
             .collect()
+    }
+
+    /// Presets in new settings `s`, per seat: a seat whose pilot changed gets
+    /// the pilot's preset if they have exactly one (none otherwise, also for
+    /// free text); a seat whose preset changed gets its values copied into
+    /// the finish gate's detection of that channel. Without a preset the
+    /// channel keeps what it has (guests, free text).
+    fn apply_presets(&self, s: &mut Settings) -> Result<()> {
+        let presets = self.db.presets()?;
+        for i in 0..s.seats.len() {
+            let old = self.settings.seats.get(i).cloned().unwrap_or_default();
+            let seat = &mut s.seats[i];
+            // Who flies: free text means no pilot (and no preset).
+            let flying = |x: &SeatSetting| if x.label.trim().is_empty() { x.pilot_id } else { None };
+            let pilot = flying(seat);
+            let old_pilot = flying(&old);
+            let theirs: Vec<&Preset> = presets.iter().filter(|p| Some(p.pilot_id) == pilot).collect();
+            if pilot != old_pilot {
+                // A swap may bring the preset along (the page does that).
+                if !seat.preset_id.is_some_and(|id| theirs.iter().any(|p| p.id == id)) {
+                    seat.preset_id = match theirs.as_slice() {
+                        [only] => Some(only.id),
+                        _ => None,
+                    };
+                }
+            } else if !seat.preset_id.is_some_and(|id| theirs.iter().any(|p| p.id == id)) {
+                seat.preset_id = None; // deleted, or not this pilot's
+            }
+            // Unchanged: the channel's values may have been tuned since.
+            if seat.preset_id == old.preset_id {
+                continue;
+            }
+            let Some(p) = seat.preset_id.and_then(|id| presets.iter().find(|p| p.id == id)) else {
+                continue;
+            };
+            let list = &mut s.detection.finish;
+            while list.len() <= i {
+                list.push(Thresholds::default());
+            }
+            list[i] = Thresholds {
+                enter_db: p.values.enter_db,
+                exit_db: p.values.exit_db,
+                mode: Some(p.values.mode),
+                min_rise_db: Some(p.values.min_rise_db),
+            };
+        }
+        Ok(())
+    }
+
+    /// The finish gate's detection of channel `slot` as preset values (its
+    /// mode and minimum swing resolved: what it uses right now).
+    fn preset_values(&self, slot: usize) -> Result<PresetValues> {
+        if slot >= self.settings.channels.len() {
+            bail!("Diesen Slot gibt es nicht.");
+        }
+        let d = &self.settings.detection;
+        let t = d.finish.get(slot).copied().unwrap_or_default();
+        Ok(PresetValues {
+            mode: t.mode.unwrap_or(d.finish_mode),
+            enter_db: t.enter_db,
+            exit_db: t.exit_db,
+            min_rise_db: t.min_rise_db.unwrap_or(d.min_rise_db),
+            gain: self.settings.gain,
+        })
+    }
+
+    // --- presets ---
+
+    /// A new preset for `pilot_id` from slot `slot`'s current detection; the
+    /// slot then uses it.
+    pub fn add_preset(&mut self, pilot_id: i64, name: &str, slot: usize) -> Result<i64> {
+        let name = name.trim();
+        if name.is_empty() {
+            bail!("Das Preset braucht einen Namen.");
+        }
+        self.pilot(pilot_id)?;
+        let values = self.preset_values(slot)?;
+        let id = self.db.add_preset(pilot_id, name, &values)?;
+        self.set_seat_preset(slot, pilot_id, id)?; // broadcasts
+        Ok(id)
+    }
+
+    /// Renames a preset, and with `slot` overwrites its values with that
+    /// slot's current detection.
+    pub fn update_preset(&mut self, id: i64, name: Option<&str>, slot: Option<usize>) -> Result<()> {
+        let Some(p) = self.db.presets()?.into_iter().find(|p| p.id == id) else {
+            bail!("Dieses Preset gibt es nicht.");
+        };
+        let name = name.map_or(p.name.clone(), |n| n.trim().to_string());
+        if name.is_empty() {
+            bail!("Das Preset braucht einen Namen.");
+        }
+        let values = match slot {
+            Some(slot) => self.preset_values(slot)?,
+            None => p.values,
+        };
+        self.db.update_preset(id, &name, &values)?;
+        match slot {
+            Some(slot) => self.set_seat_preset(slot, p.pilot_id, id)?,
+            None => self.broadcast_state(),
+        }
+        Ok(())
+    }
+
+    /// Seats using it keep their values.
+    pub fn delete_preset(&mut self, id: i64) -> Result<()> {
+        self.db.delete_preset(id)?;
+        if self.settings.seats.iter().any(|s| s.preset_id == Some(id)) {
+            let s = self.settings.clone();
+            self.set_settings(s)?; // apply_presets clears it; broadcasts
+        } else {
+            self.broadcast_state();
+        }
+        Ok(())
+    }
+
+    /// Slot `slot` uses preset `id` (just saved from it, so its values are
+    /// already the channel's), if `pilot_id` flies there.
+    fn set_seat_preset(&mut self, slot: usize, pilot_id: i64, id: i64) -> Result<()> {
+        let mut s = self.settings.clone();
+        match s.seats.get_mut(slot) {
+            Some(seat) if seat.pilot_id == Some(pilot_id) && seat.label.trim().is_empty() => {
+                seat.preset_id = Some(id);
+                // Saved directly: the values are the channel's already.
+                self.db.set_setting("settings", &s)?;
+                self.settings = s;
+            }
+            _ => {}
+        }
+        self.broadcast_state();
+        Ok(())
     }
 
     // --- pilots (here, so every change is an event) ---
@@ -1069,6 +1206,7 @@ impl Core {
             "version": crate::VERSION,
             "settings": self.settings,
             "pilots": pilots,
+            "presets": self.db.presets().unwrap_or_default(),
             "boards": self.boards,
             "active": active,
             // The ended race still waiting for its result to be confirmed.
@@ -1224,8 +1362,10 @@ fn detectors(s: &Settings) -> (Detector, Detector) {
     let n = s.channels.len();
     let mut finish = Detector::new(n, detect_config(s));
     finish.set_fixed(&s.detection.fixed(false, n));
+    finish.set_min_rise(&s.detection.min_rise(false, n));
     let mut arming = Detector::new(n, detect_config(s));
     arming.set_fixed(&s.detection.fixed(true, n));
+    arming.set_min_rise(&s.detection.min_rise(true, n));
     (finish, arming)
 }
 
@@ -1246,4 +1386,96 @@ pub fn unix_now_us() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_micros() as i64)
         .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::detect::DetectMode;
+
+    /// A core with an in-memory database and the sound cache in a temp folder.
+    fn core() -> Core {
+        let dir = std::env::temp_dir().join(format!("laptimer-core-test-{}", std::process::id()));
+        let (tx, _) = broadcast::channel(16);
+        let (hooks, _) = std::sync::mpsc::channel();
+        Core::new(
+            Db::open(":memory:").unwrap(),
+            dir.clone(),
+            Instant::now(),
+            Sounds::new(dir.join("clips"), dir.join("tts"), tx.clone()),
+            tx.clone(),
+            Events::new(tx, hooks),
+        )
+    }
+
+    fn seat(pilot_id: Option<i64>, preset_id: Option<i64>) -> SeatSetting {
+        SeatSetting {
+            pilot_id,
+            preset_id,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn presets_follow_the_pilot() {
+        let mut c = core();
+        let anna = c.add_pilot("Anna", "").unwrap();
+        let ben = c.add_pilot("Ben", "").unwrap();
+        // Slot 0 manual at -20/-26 with 10 dB: saved as Anna's preset.
+        let mut s = c.settings.clone();
+        s.seats[0] = seat(Some(anna), None);
+        s.detection.finish = vec![Thresholds {
+            enter_db: -20.0,
+            exit_db: -26.0,
+            mode: Some(DetectMode::Classic),
+            min_rise_db: Some(10.0),
+        }];
+        c.set_settings(s).unwrap();
+        let whoop = c.add_preset(anna, "Whoop", 0).unwrap();
+        assert_eq!(c.settings.seats[0].preset_id, Some(whoop));
+
+        // Anna moves to slot 2 (swap with nobody): her only preset comes along.
+        let mut s = c.settings.clone();
+        s.seats[0] = seat(Some(ben), None);
+        s.seats[2] = seat(Some(anna), None);
+        c.set_settings(s).unwrap();
+        assert_eq!(c.settings.seats[2].preset_id, Some(whoop));
+        assert_eq!(c.settings.detection.finish[2].enter_db, -20.0);
+        assert_eq!(c.settings.detection.finish[2].mode, Some(DetectMode::Classic));
+        assert_eq!(c.settings.detection.min_rise(false, 3)[2], 10.0);
+        // Ben has none: slot 0 keeps its values.
+        assert_eq!(c.settings.seats[0].preset_id, None);
+        assert_eq!(c.settings.detection.finish[0].enter_db, -20.0);
+
+        // Tuned by hand afterwards: stays, the preset is not applied again.
+        let mut s = c.settings.clone();
+        s.detection.finish[2].enter_db = -18.0;
+        c.set_settings(s).unwrap();
+        assert_eq!(c.settings.detection.finish[2].enter_db, -18.0);
+
+        // Two presets: none is picked on its own, one can be chosen.
+        let race = c.add_preset(anna, "5 Zoll", 2).unwrap();
+        assert!(c.add_preset(anna, "5 Zoll", 2).is_err()); // names are unique per pilot
+        let mut s = c.settings.clone();
+        s.seats[2] = seat(None, None);
+        s.seats[3] = seat(Some(anna), None);
+        c.set_settings(s).unwrap();
+        assert_eq!(c.settings.seats[3].preset_id, None);
+        let mut s = c.settings.clone();
+        s.seats[3].preset_id = Some(race);
+        c.set_settings(s).unwrap();
+        assert_eq!(c.settings.detection.finish[3].enter_db, -18.0);
+
+        // Free text: no preset. A deleted preset leaves the values.
+        let mut s = c.settings.clone();
+        s.seats[3].label = "Gast".into();
+        c.set_settings(s).unwrap();
+        assert_eq!(c.settings.seats[3].preset_id, None);
+        let mut s = c.settings.clone();
+        s.seats[1] = seat(Some(anna), Some(whoop));
+        c.set_settings(s).unwrap();
+        c.delete_preset(whoop).unwrap();
+        assert_eq!(c.settings.seats[1].preset_id, None);
+        assert_eq!(c.settings.detection.finish[1].enter_db, -20.0);
+    }
 }

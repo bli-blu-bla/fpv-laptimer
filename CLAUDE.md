@@ -126,14 +126,28 @@ der Pegelgraph nimmt nur die Ziel-Boards. `live.boards[].level_db`: Pegel pro Bo
 Zuordnen; `live.arming`: Status des Freigabe-Gates.
 
 **Erkennungsmodus pro Kanal und Gate** (`settings.detection`, `detect::DetectionSettings`):
-`finish[i]` / `arming[i]` haben `enter_db`, `exit_db` und `mode` (`auto` = gelernte
+`finish[i]` / `arming[i]` haben `enter_db`, `exit_db`, `mode` (`auto` = gelernte
 Schwellen, `classic` = feste Enter/Exit; `null` = der Gate-Modus `finish_mode` /
-`arming_mode`). `fixed()` liefert pro Kanal `Some((enter, exit))` oder `None` für
+`arming_mode`) und `min_rise_db` (`null` = der gemeinsame `min_rise_db`; `min_rise()` →
+`Detector::set_min_rise`). `fixed()` liefert pro Kanal `Some((enter, exit))` oder `None` für
 `Detector::set_fixed` (feste Kanäle ohne Anlernen und Zurücknehmen). Eingestellt in der
 Rennleitung (Slot antippen); „Alle automatisch / Alle manuell“ auf der Boards-Seite setzt den
 Gate-Modus und löscht die Kanal-Modi. Ältere Einstellungen mit einem `mode` werden als `finish_mode`
 gelesen (`serde(alias)`). Die Session speichert die Einstellung in `config.detection`, damit
 ihr Graph dieselben Schwellen zeigt.
+
+**Presets** (pro Pilot mehrere, z. B. eine pro Drohne; Tabelle `presets`: `pilot_id`, Name
+eindeutig pro Pilot, JSON `PresetValues` mit `mode`, `enter_db`, `exit_db`, `min_rise_db`,
+`gain`): die Ziel-Gate-Erkennung eines Kanals. `seats[].preset_id` sagt, welches zuletzt in
+den Kanal kopiert wurde. `Core::apply_presets` in `set_settings`: wechselt der Pilot eines
+Slots, bekommt er sein Preset, wenn er genau eins hat (sonst keins; Freitext nie); ändert
+sich `preset_id`, werden die Werte nach `detection.finish[i]` kopiert (Kopie, kein Verweis:
+Nachstellen ändert das Preset nicht). Ohne Preset behält der Kanal seine Werte (Gäste).
+`POST /api/presets {pilot_id, name, slot}` (aus dem aktuellen Kanal, Modus und
+Mindestausschlag aufgelöst, plus Gain), `PUT /api/presets/{id} {name?, slot?}`,
+`DELETE` (Slots behalten die Werte); Piloten löschen löscht ihre Presets (Cascade).
+`state.presets`. Feste Schwellen hängen am Aufbau und Gain: die Seite weist auf einen anderen
+Gain hin; beobachten, ob das am Stammtisch passt.
 
 **Ergebnis bestätigen:** Ein beendetes Rennen muss bestätigt (`POST /api/sessions/{id}/confirm`,
 `sessions.confirmed_us`) oder verworfen werden, bevor eine neue Session startet
@@ -177,15 +191,15 @@ braucht; nicht Zusammengehöriges auf getrennten Seiten.
 | `App.jsx` | Navigation mit 8 Seiten (Seitenleiste ab 820 px, sonst Tab-Leiste unten mit Kurznamen), Kopf mit „Heute · N Rennen“, Board-Status, Ton an/aus; lädt `/api/stats`. `?view=zuschauer`: nur die Zuschauer-Ansicht, ohne Navigation (Fernseher/Tablet) |
 | `pages/Control.jsx` | **Rennleitung**: Kopf mit Status, Uhr, Training / Rennen starten (+ Zahnrad → `RaceDialog`), während des Laufs Stopp / Abbrechen (löscht); nach dem Ende darunter eine Karte mit Verwerfen und „Ergebnis bestätigen“ (Rennen; bis dahin sind die Start-Knöpfe gesperrt), danach Schließen. Karten (`Lane`) mit Zahnrad → `SlotDialog`; während des Laufs `PassLog`. Nach dem Ende: Ergebnis (`Ranking`) und darunter `PassEditor` (Nachbearbeitung) |
 | `pages/Boards.jsx` | **Boards**: „Boards neu suchen“ (später eingesteckte ESPs), Rolle pro Board (Ziel / Freigabe / Aus) mit Live-Pegel, darunter Ziel- und Freigabe-Gate mit dem Modus jedes Kanals und „Alle automatisch / Alle manuell“ |
-| `components/ThresholdPanel.jsx` | Erkennung eines Kanals in der Rennleitung (wie RotorHazards Node-Anzeige): Slot-Karte antippen, darunter Gate-Wahl, Automatisch/Manuell für diesen Kanal, Pegelverlauf der letzten 30 s mit Enter/Exit-Linien (im manuellen Modus ziehbar, Maus und Touch, 0,5 dB, Exit bleibt ≥ 0,5 dB unter Enter, gespeichert beim Loslassen; Werte als HTML-Beschriftung, weil SVG-Text mit `preserveAspectRatio="none"` verzerrt), Regler (0,5 dB, Speichern verzögert) und „Aus Spitze“ (Enter = Spitze − 4 dB, Exit = − 9 dB). Ein automatisches Gate zeigt seine gelernten Linien |
+| `components/ThresholdPanel.jsx` | Erkennung eines Kanals in der Rennleitung (wie RotorHazards Node-Anzeige): Slot-Karte antippen, darunter Gate-Wahl, Automatisch/Manuell für diesen Kanal, Pegelverlauf der letzten 30 s mit Enter/Exit-Linien (im manuellen Modus ziehbar, Maus und Touch, 0,5 dB, Exit bleibt ≥ 0,5 dB unter Enter, gespeichert beim Loslassen; Werte als HTML-Beschriftung, weil SVG-Text mit `preserveAspectRatio="none"` verzerrt), Regler (0,5 dB, Speichern verzögert) und „Aus Spitze“ (Enter = Spitze − 4 dB, Exit = − 9 dB). Ein automatisches Gate zeigt seine gelernten Linien und den Mindestausschlag des Kanals (zurück auf den Standard). Am Ziel-Gate `PresetRow`: Preset des Piloten im Slot, „geändert“ + „In … speichern“, „Neues Preset“ |
 | `pages/Watch.jsx` | **Zuschauer**: laufende oder letzte Session, Karten ohne Bedienung und ohne Signalverlauf, Rangliste, Countdown |
 | `pages/Best.jsx` | **Bestzeiten** heute / gesamt: Bestzeit, beste N in Folge, Rennen, Siege |
 | `components/PassEditor.jsx` | Korrektur wie RotorHazards Marshal-Seite: Kanal oben wählen, darunter großer Graph (340 px, Übersicht + Ausschnitt). Durchflug ziehen = verschieben, antippen = auswählen (Löschen/Wiederherstellen, am Gipfel einrasten), freie Stelle antippen = neu (per `/snap` am Gipfel), Fläche ziehen = Ausschnitt verschieben. Entwurf pro Kanal im Browser; Runden-Vorschau mit `computeLaps` (zu kurze Runden rot, dann kein Speichern); „Speichern“ schickt pro Kanal ein `POST /api/sessions/{id}/edit` |
-| `components/SlotDialog.jsx` | Pilot (Tausch mit dem Slot, der ihn hatte), Freitext, Kanal R1–R8 (Tausch; während einer Session gesperrt), Slot belegt an/aus. Speichert sofort |
+| `components/SlotDialog.jsx` | Pilot (Tausch mit dem Slot, der ihn hatte, samt Preset), Preset des Piloten (nur wenn er welche hat; „Keins“), Freitext, Kanal R1–R8 (Tausch; während einer Session gesperrt), Slot belegt an/aus. Speichert sofort |
 | `components/RaceDialog.jsx` | Start (Holeshot / Ab Startton / Fliegend), Ende nach Runden oder Zeit, Countdown aus/3/5/10 s |
 | `pages/Sessions.jsx` | Liste + Detail (`Ranking`); „Runden bearbeiten“ blendet die Liste aus und zeigt den `PassEditor` in voller Breite; Löschen; Export (⤓ im Detail, oder „Auswählen“ in der Liste für mehrere) |
 | `components/ExportDialog.jsx` | Format CSV/JSON, Inhalt Runden/Ergebnis, Kanäle (alle oder einzelne); lädt per `fetch` (Fehler im Dialog) und speichert unter dem Namen aus `Content-Disposition` |
-| `pages/Pilots.jsx` | Callsign + Name, PB, Rennen, Siege; Dialog zum Anlegen/Bearbeiten/Löschen |
+| `pages/Pilots.jsx` | Callsign + Name, PB, Rennen, Siege; Dialog zum Anlegen/Bearbeiten/Löschen, darin die Presets (umbenennen, löschen; angelegt werden sie in der Rennleitung) |
 | `pages/Api.jsx` | **API & Hooks** (am Handy nicht in der Tab-Leiste, sondern über einen Knopf in den Einstellungen): Reiter Schlüssel (anlegen, einmal anzeigen, löschen), Doku, Testen (Befehl per HTTP oder WebSocket, curl-Zeile, Event-Log; Schlüssel in `localStorage`), Hooks (anlegen/bearbeiten mit Event, Script aus dem Ordner, Argumente, Hintergrund; an/aus, einmal ausführen, letzte Läufe; alle 2 s neu geladen). Befehle und Events beschreibt `apiCatalog.js` |
 | `auth.js`, `components/LoginDialog.jsx` | Login-Zustand für die ganze Seite (`useAuth()` → `canEdit`); `api()` meldet ein 401 mit `login` (`loginNeeded`), dann öffnet `App.jsx` den Dialog. Ohne Login: Kopf „Anmelden“, Rennleitung ohne Start/Stopp/Zahnräder/Schwellen/Nachbearbeitung, Sessions ohne Löschen/Bearbeiten, Piloten nur ansehen, Boards/Einstellungen/API gesperrt (`Locked`) |
 | `pages/Settings.jsx` | Kanäle (hinzufügen/entfernen, R1–R8 oder freie MHz), Auswertung (Mindestrunde, beste N in Folge, Gain mit 0,8 s Verzögerung, weil er die Boards neu startet), Ansagen (Ausgabe, Ereignisse, „Probe“), Daten (Backup erstellen, Liste zum Herunterladen/Löschen, „Alle Sessions löschen“ mit Rückfrage, gesperrt während einer Session), Zugang (Abmelden, alle Geräte abmelden, Version) |
@@ -228,7 +242,7 @@ keine Verluste, Uhr ±0,1 ms (der Uhrabgleich vor dem Scan-Start ist schneller a
 Betrieb), Drift +4 und +8 ppm. In den ersten ~0,2 s nach dem Start fehlen bei einem frisch
 gestarteten Board Werte: die Firmware kalibriert jeden LO beim ersten Besuch (~40 ms).
 
-Mindestausschlag (`DetectionSettings.min_rise_db`, Standard `MIN_RISE_DB`, immer, nicht nur im Anlauf): Ein Durchflug muss mindestens
+Mindestausschlag (`DetectionSettings.min_rise_db`, Standard `MIN_RISE_DB`, pro Kanal überschreibbar, immer, nicht nur im Anlauf): Ein Durchflug muss mindestens
 12 dB über dem Kurspegel liegen. Session 4 (2026-10-23, Pi): Pilot flog meist 1–2 m über
 dem Gate; diese Überflüge lagen ~14 dB über dem Kurs und zählten bei niedrigen Gipfeln
 (Eintritt 35 %: 8 Treffer); mit 12 dB bleiben 3, mit 15 dB geht auch der echte bei −26 dBFS

@@ -14,6 +14,7 @@
  * @property {number | null} pilot_id
  * @property {string} label  free text; empty: the pilot's callsign or the channel name
  * @property {boolean} enabled  off: nobody flies on this slot
+ * @property {number | null} [preset_id]  the pilot's preset last copied into this channel's detection
  *
  * @typedef {object} Settings
  * @property {ChannelSetting[]} channels
@@ -38,18 +39,28 @@
  *
  * @typedef {'finish' | 'arming' | 'off'} BoardRole
  * @typedef {'auto' | 'classic'} DetectMode
- * @typedef {{enter_db: number, exit_db: number, mode?: DetectMode | null}} Thresholds   mode: none = the gate's
+ * @typedef {{enter_db: number, exit_db: number, mode?: DetectMode | null, min_rise_db?: number | null}} Thresholds   mode / min_rise_db: none = the gate's / the common one
  * @typedef {object} DetectionSettings
  * @property {DetectMode} finish_mode   for channels without their own mode
  * @property {DetectMode} arming_mode
  * @property {Thresholds[]} finish   classic: per channel
  * @property {Thresholds[]} arming
- * @property {number} min_rise_db   automatic mode: minimum swing above the course, dB
+ * @property {number} min_rise_db   automatic mode: minimum swing above the course, dB (channels without their own)
  *
  * @typedef {object} Pilot
  * @property {number} id
  * @property {string} name       the callsign
  * @property {string} full_name  may be empty
+ *
+ * @typedef {object} Preset   a pilot's finish-gate detection for one quad
+ * @property {number} id
+ * @property {number} pilot_id
+ * @property {string} name
+ * @property {DetectMode} mode
+ * @property {number} enter_db
+ * @property {number} exit_db
+ * @property {number} min_rise_db
+ * @property {number} gain   the boards' gain when it was saved
  *
  * @typedef {object} SessionConfig
  * @property {boolean} race
@@ -126,6 +137,7 @@
  * @property {string} version   the server's version (release tag, or `git describe`)
  * @property {Settings} settings
  * @property {Pilot[]} pilots
+ * @property {Preset[]} presets
  * @property {Board[]} boards
  * @property {(SessionDetail & {passes: Pass[]}) | null} active
  * @property {number | null} unconfirmed   the ended race whose result still needs confirming (blocks starting)

@@ -2,12 +2,14 @@
 // The detection of one slot, on race control (as RotorHazard's node panel):
 // pick the gate, choose automatic or manual for this channel there, watch
 // the signal of the last 30 s with the Enter and Exit lines, and in manual
-// mode move them. In automatic mode the lines are the learned ones.
+// mode move them. In automatic mode the lines are the learned ones, and the
+// minimum swing can be set for this channel. At the finish gate, what is set
+// here can be kept as a preset of the pilot in this slot.
 
 import { useEffect, useRef, useState } from 'react'
-import { GaugeIcon, XIcon } from '@phosphor-icons/react'
-import { saveSettings } from '../api.js'
-import { channelMode } from '../model.js'
+import { FloppyDiskIcon, GaugeIcon, PlusIcon, XIcon } from '@phosphor-icons/react'
+import { api, saveSettings } from '../api.js'
+import { channelMinRise, channelMode, presetChanged } from '../model.js'
 import Stepper from './Stepper.jsx'
 
 const W = 600
@@ -37,11 +39,12 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
   const [t, setT] = useState(saved)
   /** The line being dragged in the graph, if any. */
   const drag = useRef(/** @type {'enter' | 'exit' | null} */ (null))
-  useEffect(() => setT(saved), [saved.enter_db, saved.exit_db, gate]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => setT(saved), [saved.enter_db, saved.exit_db, saved.mode, saved.min_rise_db, gate]) // eslint-disable-line react-hooks/exhaustive-deps
 
   /** @param {Partial<import('../types').Thresholds>} part */
   function save(part) {
-    const next = { ...t, ...part }
+    // The rest as the server has it (a preset may have changed it meanwhile).
+    const next = { ...saved, enter_db: t.enter_db, exit_db: t.exit_db, ...part }
     setT(next)
     const list = s.channels.map((_, j) => d[gate][j] ?? DEFAULT)
     list[index] = next
@@ -183,11 +186,103 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
           </button>
         </div>
       ) : (
-        <span className="muted small">
-          Automatisch: die Schwellen werden aus dem Flug gelernt (gestrichelt: die aktuellen). Für feste Schwellen auf Manuell stellen.
-        </span>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
+          <Stepper
+            label="Mindestausschlag"
+            value={channelMinRise(d, gate, index)}
+            unit="dB"
+            step={1}
+            min={3}
+            max={30}
+            delayed
+            onSet={(v) => save({ min_rise_db: v })}
+          />
+          {saved.min_rise_db != null && saved.min_rise_db !== d.min_rise_db && (
+            <button className="btn btn-ghost" onClick={() => save({ min_rise_db: null })}>
+              Standard ({d.min_rise_db} dB)
+            </button>
+          )}
+          <span className="muted small" style={{ flex: '1 1 220px' }}>
+            Die Schwellen werden aus dem Flug gelernt (gestrichelt: die aktuellen). Mindestausschlag höher, wenn Überflüge zählen; niedriger, wenn echte fehlen.
+          </span>
+        </div>
       )}
       {manual && t.exit_db >= t.enter_db && <span className="error small">Exit muss unter Enter liegen.</span>}
+      {gate === 'finish' && <PresetRow state={state} index={index} />}
+    </div>
+  )
+}
+
+/**
+ * The preset of the pilot in this slot: which one is applied, whether the
+ * channel was tuned since (then save it into the preset), or save as a new
+ * one. Nothing for free text or an empty slot (guests keep the channel's values).
+ * @param {{state: import('../types').State, index: number}} props
+ */
+function PresetRow({ state, index }) {
+  const s = state.settings
+  const seat = s.seats[index]
+  const pilotId = seat && !seat.label.trim() ? seat.pilot_id : null
+  const [name, setName] = useState(/** @type {string | null} */ (null))
+  const [error, setError] = useState('')
+  if (pilotId == null) return null
+  const preset = state.presets.find((p) => p.id === seat?.preset_id && p.pilot_id === pilotId)
+  const changed = preset != null && presetChanged(s, index, preset)
+  const pilot = state.pilots.find((p) => p.id === pilotId)?.name ?? ''
+
+  /** @param {() => Promise<unknown>} f */
+  async function run(f) {
+    setError('')
+    try {
+      await f()
+      setName(null)
+    } catch (e) {
+      setError(/** @type {Error} */ (e).message)
+    }
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, borderTop: '1px solid var(--n900)', paddingTop: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span className="muted small">Preset</span>
+        {preset ? <span className="tag tag-accent">{preset.name}</span> : <span className="muted small">keins</span>}
+        {changed && <span className="small" style={{ color: 'var(--accent)' }}>geändert</span>}
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          {changed && preset && (
+            <button className="btn btn-secondary" style={{ whiteSpace: 'nowrap' }} onClick={() => run(() => api(`/presets/${preset.id}`, { method: 'PUT', body: { slot: index } }))}>
+              <FloppyDiskIcon size={16} /> In „{preset.name}“ speichern
+            </button>
+          )}
+          {name == null && (
+            <button className="btn btn-ghost" style={{ whiteSpace: 'nowrap' }} onClick={() => setName('')}>
+              <PlusIcon size={16} /> Neues Preset
+            </button>
+          )}
+        </span>
+      </div>
+      {name != null && (
+        <form
+          style={{ display: 'flex', gap: 8 }}
+          onSubmit={(e) => {
+            e.preventDefault()
+            run(() => api('/presets', { body: { pilot_id: pilotId, name, slot: index } }))
+          }}
+        >
+          <input className="input" autoFocus value={name} placeholder={`Name für ${pilot}, z. B. die Drohne`} onChange={(e) => setName(e.target.value)} />
+          <button type="submit" className="btn btn-primary" disabled={!name.trim()}>
+            Speichern
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={() => setName(null)}>
+            Abbrechen
+          </button>
+        </form>
+      )}
+      {preset && preset.gain !== s.gain && channelMode(s.detection, 'finish', index) === 'classic' && (
+        <span className="muted small">
+          Gespeichert bei Gain {preset.gain}, jetzt {s.gain}: die festen Schwellen passen evtl. nicht mehr.
+        </span>
+      )}
+      {error && <span className="error small">{error}</span>}
     </div>
   )
 }

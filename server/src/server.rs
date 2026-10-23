@@ -156,6 +156,8 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .route("/settings", get(get_settings).put(put_settings))
         .route("/pilots", post(add_pilot))
         .route("/pilots/{id}", axum::routing::put(update_pilot).delete(delete_pilot))
+        .route("/presets", post(add_preset))
+        .route("/presets/{id}", axum::routing::put(update_preset).delete(delete_preset))
         .route("/stats", get(get_stats))
         .route("/boards/rescan", post(rescan_boards))
         .route("/firmware", get(get_firmware))
@@ -313,31 +315,24 @@ async fn delete_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> Api
 /// to hundreds of MB: call it off the async threads (`spawn_blocking`); it
 /// doesn't hold the core lock while it reads.
 pub fn session_trace(app: &App, id: i64) -> Result<Arc<SessionTrace>> {
-    let (path, config, fixed) = {
+    let (path, config, fixed, min_rise) = {
         let mut core = app.core.lock().unwrap();
         let s = core.db.session(id)?.context("Diese Session gibt es nicht.")?;
         core.flush_levels(id)?;
         let path = s
             .levels_file
             .context("Für diese Session sind keine Pegel aufgezeichnet.")?;
-        // Fixed thresholds for every possible channel (8); unused ones don't matter.
-        let fixed = s
-            .config
-            .detection
-            .as_ref()
-            .map(|d| d.fixed(false, 8))
-            .unwrap_or_default();
+        // Per channel for every possible channel (8); unused ones don't matter.
+        // Sessions from before `detection` was saved: the defaults.
+        let detection = s.config.detection.clone().unwrap_or_default();
         (
             PathBuf::from(path),
             DetectConfig {
                 min_lap_us: (s.config.min_lap_s * 1e6) as i64,
-                min_rise_db: s
-                    .config
-                    .detection
-                    .as_ref()
-                    .map_or(crate::detect::MIN_RISE_DB, |d| d.min_rise_db),
+                min_rise_db: detection.min_rise_db,
             },
-            fixed,
+            detection.fixed(false, 8),
+            detection.min_rise(false, 8),
         )
     };
     let size = std::fs::metadata(&path)
@@ -348,7 +343,7 @@ pub fn session_trace(app: &App, id: i64) -> Result<Arc<SessionTrace>> {
     {
         return Ok(Arc::clone(t));
     }
-    let t = Arc::new(trace::load(&path, config, fixed)?);
+    let t = Arc::new(trace::load(&path, config, fixed, min_rise)?);
     let mut traces = app.traces.lock().unwrap();
     if traces.len() >= 4 {
         traces.clear(); // keep the memory small; the next request reads again
@@ -563,6 +558,39 @@ async fn update_pilot(State(app): State<Arc<App>>, Path(id): Path<i64>, Json(req
 
 async fn delete_pilot(State(app): State<Arc<App>>, Path(id): Path<i64>) -> ApiResult {
     app.core.lock().unwrap().delete_pilot(id)?;
+    Ok(Json(json!({})))
+}
+
+/// `POST /api/presets`: a new preset from a slot's detection.
+#[derive(Deserialize)]
+struct NewPreset {
+    pilot_id: i64,
+    name: String,
+    slot: usize,
+}
+
+async fn add_preset(State(app): State<Arc<App>>, Json(req): Json<NewPreset>) -> ApiResult {
+    let id = app.core.lock().unwrap().add_preset(req.pilot_id, &req.name, req.slot)?;
+    Ok(Json(json!({ "id": id })))
+}
+
+/// `PUT /api/presets/{id}`: rename, and/or take the values from a slot.
+#[derive(Deserialize)]
+struct PresetChange {
+    name: Option<String>,
+    slot: Option<usize>,
+}
+
+async fn update_preset(State(app): State<Arc<App>>, Path(id): Path<i64>, Json(req): Json<PresetChange>) -> ApiResult {
+    app.core
+        .lock()
+        .unwrap()
+        .update_preset(id, req.name.as_deref(), req.slot)?;
+    Ok(Json(json!({})))
+}
+
+async fn delete_preset(State(app): State<Arc<App>>, Path(id): Path<i64>) -> ApiResult {
+    app.core.lock().unwrap().delete_preset(id)?;
     Ok(Json(json!({})))
 }
 

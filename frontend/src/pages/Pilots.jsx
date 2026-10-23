@@ -1,12 +1,15 @@
 // @ts-check
-// The pilot list: callsign and name, personal best, races and wins.
-// Who flies in which slot is set at the slot's gear on the live page.
+// The pilot list: callsign and name, personal best, races and wins; in a
+// pilot's dialog their presets (renamed or deleted here; made in race control
+// at a slot's detection). Who flies in which slot is set at the slot's gear
+// on the live page.
 
 import { useState } from 'react'
-import { UserPlusIcon } from '@phosphor-icons/react'
+import { TrashIcon, UserPlusIcon } from '@phosphor-icons/react'
 import { api } from '../api.js'
 import { useAuth } from '../auth.js'
 import { initials, secs, slotColor } from '../format.js'
+import { presetSummary } from '../model.js'
 import Dialog from '../components/Dialog.jsx'
 
 /** @param {{state: import('../types').State, stats: import('../types').Stats | null}} props */
@@ -29,6 +32,7 @@ export default function Pilots({ state, stats }) {
           const st = stats?.all.find((x) => x.pilot_id === p.id)
           const slot = state.settings.seats.findIndex((s) => s.pilot_id === p.id && s.enabled !== false && !s.label.trim())
           const color = slot >= 0 ? slotColor(slot) : undefined
+          const presets = state.presets.filter((x) => x.pilot_id === p.id).length
           return (
             <button key={p.id} className="pilot" style={color ? { boxShadow: `0 0 0 1px ${color}55` } : undefined} disabled={!canEdit} onClick={() => setEdit(p)}>
               <span style={{ display: 'flex', alignItems: 'center', gap: 12, width: '100%' }}>
@@ -46,6 +50,7 @@ export default function Pilots({ state, stats }) {
               <span className="muted small tnum" style={{ display: 'flex', justifyContent: 'space-between', width: '100%' }}>
                 <span>
                   {st?.races ?? 0} Rennen · {st?.wins ?? 0} {st?.wins === 1 ? 'Sieg' : 'Siege'}
+                  {presets ? ` · ${presets} ${presets === 1 ? 'Preset' : 'Presets'}` : ''}
                 </span>
                 <span>
                   PB <span className="best-color">{secs(st?.best_lap_us)}</span>
@@ -55,13 +60,14 @@ export default function Pilots({ state, stats }) {
           )
         })}
       </div>
-      {edit && <PilotDialog pilot={edit === 'new' ? null : edit} onClose={() => setEdit(null)} />}
+      {edit && <PilotDialog pilot={edit === 'new' ? null : edit} presets={edit === 'new' ? [] : state.presets.filter((x) => x.pilot_id === edit.id)} onClose={() => setEdit(null)} />}
     </>
   )
 }
 
-/** Add or edit a pilot. @param {{pilot: import('../types').Pilot | null, onClose: () => void}} props */
-function PilotDialog({ pilot, onClose }) {
+/** Add or edit a pilot.
+ * @param {{pilot: import('../types').Pilot | null, presets: import('../types').Preset[], onClose: () => void}} props */
+function PilotDialog({ pilot, presets, onClose }) {
   const [name, setName] = useState(pilot?.name ?? '')
   const [fullName, setFullName] = useState(pilot?.full_name ?? '')
   const [confirm, setConfirm] = useState(false)
@@ -94,6 +100,17 @@ function PilotDialog({ pilot, onClose }) {
           <span>Name (optional)</span>
           <input className="input" value={fullName} onChange={(e) => setFullName(e.target.value)} />
         </label>
+        {pilot && (
+          <div className="field">
+            <span>Presets · Erkennung</span>
+            {presets.map((p) => (
+              <PresetItem key={p.id} preset={p} onError={setError} />
+            ))}
+            <span className="muted small">
+              {presets.length ? 'Mit nur einem Preset wird es beim Zuweisen zum Slot gleich übernommen.' : 'Noch keine.'} Neue legst du in der Rennleitung an: Slot antippen, Erkennung einstellen, „Neues Preset“.
+            </span>
+          </div>
+        )}
         {error && <p className="error">{error}</p>}
         <div style={{ display: 'flex', gap: 8 }}>
           {pilot &&
@@ -113,5 +130,48 @@ function PilotDialog({ pilot, onClose }) {
         {pilot && confirm && <span className="muted small">Alte Sessions behalten den Namen.</span>}
       </form>
     </Dialog>
+  )
+}
+
+/** One preset in the pilot dialog: rename (saved on leaving the field), delete.
+ * @param {{preset: import('../types').Preset, onError: (msg: string) => void}} props */
+function PresetItem({ preset, onError }) {
+  const [name, setName] = useState(preset.name)
+  const [confirm, setConfirm] = useState(false)
+  /** @param {() => Promise<unknown>} f */
+  const run = (f) => f().catch((e) => onError(/** @type {Error} */ (e).message))
+  function rename() {
+    if (!name.trim() || name.trim() === preset.name) return setName(preset.name)
+    onError('')
+    run(() => api(`/presets/${preset.id}`, { method: 'PUT', body: { name } }))
+  }
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+      <input
+        className="input"
+        style={{ flex: '1 1 0', minWidth: 0 }}
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        onBlur={rename}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault() // not the pilot form
+            e.currentTarget.blur()
+          }
+        }}
+      />
+      <span className="muted small" style={{ whiteSpace: 'nowrap' }}>
+        {presetSummary(preset)}
+      </span>
+      {confirm ? (
+        <button type="button" className="btn btn-danger" onClick={() => run(() => api(`/presets/${preset.id}`, { method: 'DELETE' }))}>
+          Löschen
+        </button>
+      ) : (
+        <button type="button" className="btn btn-ghost btn-icon" title="Preset löschen" onClick={() => setConfirm(true)}>
+          <TrashIcon size={18} />
+        </button>
+      )}
+    </div>
   )
 }
