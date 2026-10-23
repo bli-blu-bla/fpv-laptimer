@@ -4,8 +4,9 @@
 // thresholds). The manual thresholds themselves are set on race control,
 // slot by slot, as on RotorHazard.
 
-import { Cpu, FlagCheckered, ShieldCheck } from '@phosphor-icons/react'
-import { saveSettings } from '../api.js'
+import { ArrowsClockwiseIcon, CpuIcon, FlagCheckeredIcon, ShieldCheckIcon } from '@phosphor-icons/react'
+import { useState } from 'react'
+import { api, saveSettings } from '../api.js'
 import FirmwarePanel from '../components/FirmwarePanel.jsx'
 import { channelMode } from '../model.js'
 
@@ -26,15 +27,34 @@ export default function Boards({ state, live, flash }) {
   /** @param {string} id @param {import('../types').BoardRole} role */
   const setRole = (id, role) => save({ board_roles: { ...s.board_roles, [id]: role } })
   const count = (/** @type {import('../types').BoardRole} */ role) => boards.filter((b) => b.role === role && !b.failed).length
+  const [scanning, setScanning] = useState(false)
+  const [scanError, setScanError] = useState('')
+
+  /** Looks for boards plugged in since the server started (restarts all boards). */
+  async function rescan() {
+    setScanning(true)
+    setScanError('')
+    try {
+      await api('/boards/rescan', { body: {} })
+    } catch (e) {
+      setScanError(/** @type {Error} */ (e).message)
+    } finally {
+      setScanning(false)
+    }
+  }
 
   return (
     <>
       <div className="panel">
         <div className="panel-head">
-          <Cpu size={18} /> Boards
+          <CpuIcon size={18} /> Boards
           <span className="end muted small">Mit dem Quad (Sender an) davor wedeln: der Balken zeigt, welches Board welches ist.</span>
+          <button className="btn btn-secondary" disabled={scanning || state.active != null} onClick={rescan}>
+            <ArrowsClockwiseIcon size={16} /> {scanning ? 'Suche …' : 'Boards neu suchen'}
+          </button>
         </div>
-        {!boards.length && <div className="empty">Keine Boards gefunden – ESPs anstecken und den Server neu starten.</div>}
+        {scanError && <div className="error small" style={{ padding: '0 16px 12px' }}>{scanError}</div>}
+        {!boards.length && <div className="empty">Keine Boards gefunden – ESPs anstecken und „Boards neu suchen“ tippen.</div>}
         {boards.map((b) => (
           <div key={b.id} className="thresh-row" style={{ padding: '12px 16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
@@ -76,7 +96,7 @@ export default function Boards({ state, live, flash }) {
 
       <div className="two-col">
         <Gate
-          icon={<FlagCheckered size={18} />}
+          icon={<FlagCheckeredIcon size={18} />}
           title="Zielgate"
           gate="finish"
           state={state}
@@ -90,7 +110,7 @@ export default function Boards({ state, live, flash }) {
           }
         />
         <Gate
-          icon={<ShieldCheck size={18} />}
+          icon={<ShieldCheckIcon size={18} />}
           title="Freigabe-Gate"
           gate="arming"
           state={state}

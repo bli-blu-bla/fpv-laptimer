@@ -150,6 +150,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .route("/pilots", post(add_pilot))
         .route("/pilots/{id}", axum::routing::put(update_pilot).delete(delete_pilot))
         .route("/stats", get(get_stats))
+        .route("/boards/rescan", post(rescan_boards))
         .route("/firmware", get(get_firmware))
         .route("/firmware/flash", post(flash_board))
         .route("/announce/test", post(announce_test))
@@ -608,6 +609,21 @@ struct FlashRequest {
 /// Writes the firmware to the board at `port`, in a thread of its own:
 /// the boards stop for that time and start again afterwards. Progress goes
 /// out as `flash` messages over the WebSocket.
+/// Looks for boards again (e.g. plugged in after the server started) and
+/// starts them all anew. Not during a session or a flash.
+async fn rescan_boards(State(app): State<Arc<App>>) -> ApiResult {
+    if app.core.lock().unwrap().session_running() {
+        return Err(anyhow::anyhow!("Erst die laufende Session beenden.").into());
+    }
+    if app.flash.lock().unwrap().as_ref().is_some_and(|s| !s.done) {
+        return Err(anyhow::anyhow!("Es wird gerade ein Board geflasht.").into());
+    }
+    // Talking to the boards blocks: off the async threads.
+    let app2 = Arc::clone(&app);
+    tokio::task::spawn_blocking(move || restart_source(&app2)).await??;
+    Ok(Json(json!({})))
+}
+
 async fn flash_board(State(app): State<Arc<App>>, Json(req): Json<FlashRequest>) -> ApiResult {
     if app.replay.is_some() {
         return Err(anyhow::anyhow!("Im Wiedergabe-Modus gibt es keine Boards.").into());
