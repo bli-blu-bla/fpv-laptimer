@@ -213,7 +213,7 @@ Bisher: Aufzeichnen mit Live-Erkennung (`laptimer record`), Erkennung auf einer 
 | `src/esp/frame.rs` | Byte-Strom → Frames und Textzeilen (`Parser`), `LevelBatch` |
 | `src/esp/board.rs` | `Board::start`: Port öffnen, einstellen (Befehle oben), Uhrabgleich, dann ein Thread pro Board, der `Event`s über einen `mpsc`-Kanal schickt |
 | `src/clock.rs` | `ClockSync`: Board-Zeit → Host-Zeit (µs seit Programmstart). Je 10 `TIME?`-Antworten zählt die schnellste; durch diese Schätzungen der letzten 5 min eine Ausgleichsgerade (Drift erst ab 20 s Spanne) |
-| `src/detect.rs` | Durchflug-Erkennung ohne I/O (Schritte im Kopfkommentar): 10-ms-Slots, Hüllkurve (Max 20 ms, Median 100 ms) pro Board, Maximum über die Boards, Schwellen aus dem Flug (Kurs = Median bei Sender an, > −46 dBFS; Gipfel = Median der letzten 5 Durchflug-Gipfel, vorher 99,5-%-Perzentil; Eintritt 60 %, Austritt 20 %), Durchflug 1 s nach Austritt gemeldet, Mindestrunde 3 s. Nach dem 3. Durchflug werden frühe Fehltreffer zurückgenommen (`Event::Retract`) |
+| `src/detect.rs` | Durchflug-Erkennung ohne I/O (Schritte im Kopfkommentar): 10-ms-Slots, Hüllkurve (Max 20 ms, Median 100 ms) pro Board, Maximum über die Boards, Schwellen aus dem Flug (Kurs = Median bei Sender an, > −46 dBFS; Gipfel = Median der letzten 5 Durchflug-Gipfel, vorher 99,5-%-Perzentil; Eintritt 60 %, mindestens `min_rise_db` (Standard 12 dB, Einstellungen → Auswertung → Mindestausschlag; `replay --min-rise`) über dem Kurs, Austritt 20 %), Durchflug 1 s nach Austritt gemeldet, Mindestrunde 3 s. Nach dem 3. Durchflug werden frühe Fehltreffer zurückgenommen (`Event::Retract`) |
 | `src/record.rs` | CSV schreiben, Erkennung, Live-Anzeige (Pegel, Schwellen, Runden); Durchflüge nach `<aufnahme>_passes.csv` (`event,channel,time_us,peak_db`, `event` = `pass` oder `retract`) |
 | `src/replay.rs` | Aufnahme durch `detect.rs` schicken |
 
@@ -228,8 +228,12 @@ keine Verluste, Uhr ±0,1 ms (der Uhrabgleich vor dem Scan-Start ist schneller a
 Betrieb), Drift +4 und +8 ppm. In den ersten ~0,2 s nach dem Start fehlen bei einem frisch
 gestarteten Board Werte: die Firmware kalibriert jeden LO beim ersten Besuch (~40 ms).
 
-Anlauf: Bevor ein Pilot 3 echte Gipfel hat, muss ein Durchflug mindestens 8 dB über dem
-Kurspegel liegen (`BOOT_MIN_RISE`). Mit 3 dB zählten in der ersten echten Session des
+Mindestausschlag (`DetectionSettings.min_rise_db`, Standard `MIN_RISE_DB`, immer, nicht nur im Anlauf): Ein Durchflug muss mindestens
+12 dB über dem Kurspegel liegen. Session 4 (2026-10-23, Pi): Pilot flog meist 1–2 m über
+dem Gate; diese Überflüge lagen ~14 dB über dem Kurs und zählten bei niedrigen Gipfeln
+(Eintritt 35 %: 8 Treffer); mit 12 dB bleiben 3, mit 15 dB geht auch der echte bei −26 dBFS
+verloren (Trennung nur über den Pegel ist knapp). Vorher galten 8 dB nur vor dem 3. Gipfel
+(`BOOT_MIN_RISE`). Mit 3 dB zählten in der ersten echten Session des
 Nutzers (Session 1, 2026-10-22, 2 Durchflüge, Server kurz vorher gestartet) Wellen 4–5 dB
 über dem Kurs: 7 Treffer statt 2, und das Zurücknehmen griff nicht, weil die ersten drei
 Gipfel alle falsch waren. Echte Durchflüge stiegen in allen Aufnahmen 13–26 dB. Mit 8 dB:

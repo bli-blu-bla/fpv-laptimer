@@ -1232,6 +1232,7 @@ fn detectors(s: &Settings) -> (Detector, Detector) {
 fn detect_config(s: &Settings) -> DetectConfig {
     DetectConfig {
         min_lap_us: (s.min_lap_s * 1e6) as i64,
+        min_rise_db: s.detection.min_rise_db,
     }
 }
 

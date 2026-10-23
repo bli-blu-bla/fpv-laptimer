@@ -94,6 +94,16 @@ export default function SettingsPage({ state, onOpenApi }) {
           </div>
           <div className="panel-body" style={{ display: 'flex', flexWrap: 'wrap', gap: 20 }}>
             <Stepper label="Mindest-Rundenzeit" value={s.min_lap_s} unit="s" step={0.5} min={1} max={60} onSet={(v) => save({ min_lap_s: v })} />
+            <Stepper
+              label="Mindestausschlag"
+              value={s.detection.min_rise_db}
+              unit="dB"
+              step={1}
+              min={3}
+              max={30}
+              hint="Automatisch: so weit muss ein Durchflug über dem Normalpegel liegen. Höher, wenn Überflüge zählen; niedriger, wenn echte fehlen"
+              onSet={(v) => save({ detection: { ...s.detection, min_rise_db: v } })}
+            />
             <Stepper label="Beste Runden in Folge" value={s.consecutive} step={1} min={2} max={20} onSet={(v) => save({ consecutive: v })} />
             <Stepper
               label="Verstärkung (Gain)"

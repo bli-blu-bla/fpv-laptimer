@@ -44,6 +44,7 @@
  * @property {DetectMode} arming_mode
  * @property {Thresholds[]} finish   classic: per channel
  * @property {Thresholds[]} arming
+ * @property {number} min_rise_db   automatic mode: minimum swing above the course, dB
  *
  * @typedef {object} Pilot
  * @property {number} id

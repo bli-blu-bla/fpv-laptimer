@@ -68,6 +68,9 @@ enum Command {
         /// Minimum lap, seconds.
         #[arg(long, default_value_t = 3.0)]
         min_lap: f64,
+        /// Minimum swing of a pass above the course level, dB.
+        #[arg(long, default_value_t = detect::MIN_RISE_DB)]
+        min_rise: f32,
     },
     /// Run the lap timer: web page, database, announcements.
     ///
@@ -105,6 +108,9 @@ enum Command {
         /// Minimum lap, seconds.
         #[arg(long, default_value_t = 3.0)]
         min_lap: f64,
+        /// Minimum swing of a pass above the course level, dB.
+        #[arg(long, default_value_t = detect::MIN_RISE_DB)]
+        min_rise: f32,
     },
 }
 
@@ -125,6 +131,7 @@ fn main() -> Result<()> {
             out,
             seconds,
             min_lap,
+            min_rise,
         } => {
             if !(1..=100).contains(&batch_ms) {
                 bail!("--batch-ms must be 1–100");
@@ -141,6 +148,7 @@ fn main() -> Result<()> {
                 seconds,
                 detect: detect::DetectConfig {
                     min_lap_us: (min_lap * 1e6) as i64,
+                    min_rise_db: min_rise,
                 },
             })
         }
@@ -173,9 +181,10 @@ fn main() -> Result<()> {
                 auth: cfg.auth,
             })
         }
-        Command::Replay { csv, board, min_lap } => {
+        Command::Replay { csv, board, min_lap, min_rise } => {
             let config = detect::DetectConfig {
                 min_lap_us: (min_lap * 1e6) as i64,
+                min_rise_db: min_rise,
             };
             replay::run(&csv, board, config)
         }

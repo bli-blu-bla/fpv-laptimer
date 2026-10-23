@@ -331,6 +331,11 @@ fn session_trace(app: &App, id: i64) -> Result<Arc<SessionTrace>> {
             PathBuf::from(path),
             DetectConfig {
                 min_lap_us: (s.config.min_lap_s * 1e6) as i64,
+                min_rise_db: s
+                    .config
+                    .detection
+                    .as_ref()
+                    .map_or(crate::detect::MIN_RISE_DB, |d| d.min_rise_db),
             },
             fixed,
         )

@@ -57,11 +57,14 @@ const TOP_CODES: u8 = 4; // 1 dB
 /// No thresholds while the peak is less than this above the course (codes):
 /// the levels only wander, nobody has flown through the gate yet.
 const MIN_CONTRAST: f32 = 3.0 * 4.0;
-/// Before a pilot's pass peaks are known (start-up), a pass must rise at least
-/// this far above the course level (codes). With 3 dB, wiggles 4-5 dB above
-/// the course counted (session 1 of 2026-10-22: 5 false passes before the
-/// first real one); real passes rose 13-26 dB in every recording so far.
-const BOOT_MIN_RISE: f32 = 8.0 * 4.0;
+/// A pass must rise at least this far above the course level, whatever the
+/// learned peaks say (default of `DetectionSettings::min_rise_db`). With 3 dB, wiggles 4-5 dB above the course
+/// counted (session 1 of 2026-10-22: 5 false passes before the first real
+/// one); real passes rose 13-26 dB in every recording so far. In session 4
+/// (2026-10-23, Pi) the pilot mostly flew 1-2 m above the gate: those flybys
+/// rose 14 dB over the course and counted at 35 % of the peak (8 passes), but
+/// not with 12 dB.
+pub const MIN_RISE_DB: f32 = 12.0;
 /// A pass is reported this long after its crossing ended.
 const HOLD_US: i64 = 1_000_000;
 /// A board that sent nothing for this long no longer holds the others back.
@@ -101,7 +104,7 @@ impl Default for Thresholds {
 /// The detection settings of the finish and the arming gate: per gate a
 /// mode for its channels, and per channel its own mode (if set) and its
 /// fixed thresholds.
-#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DetectionSettings {
     /// `alias`: settings saved when there was one mode for both gates.
     #[serde(default, alias = "mode")]
@@ -112,6 +115,27 @@ pub struct DetectionSettings {
     pub finish: Vec<Thresholds>,
     #[serde(default)]
     pub arming: Vec<Thresholds>,
+    /// Minimum swing (dB above the course) for a pass in automatic mode:
+    /// keeps flybys above the gate from counting. A stronger transmitter or
+    /// another quad may need another value.
+    #[serde(default = "default_min_rise_db")]
+    pub min_rise_db: f32,
+}
+
+fn default_min_rise_db() -> f32 {
+    MIN_RISE_DB
+}
+
+impl Default for DetectionSettings {
+    fn default() -> Self {
+        DetectionSettings {
+            finish_mode: DetectMode::default(),
+            arming_mode: DetectMode::default(),
+            finish: Vec::new(),
+            arming: Vec::new(),
+            min_rise_db: MIN_RISE_DB,
+        }
+    }
 }
 
 impl DetectionSettings {
@@ -137,11 +161,16 @@ impl DetectionSettings {
 pub struct DetectConfig {
     /// Crossings closer than this to the previous pass count as the same pass.
     pub min_lap_us: i64,
+    /// A pass must rise at least this many dB above the course level.
+    pub min_rise_db: f32,
 }
 
 impl Default for DetectConfig {
     fn default() -> Self {
-        DetectConfig { min_lap_us: 3_000_000 }
+        DetectConfig {
+            min_lap_us: 3_000_000,
+            min_rise_db: MIN_RISE_DB,
+        }
     }
 }
 
@@ -228,7 +257,7 @@ impl Detector {
             config,
             n_channels,
             boards: Vec::new(),
-            channels: (0..n_channels).map(|c| ChannelDetector::new(c as u8)).collect(),
+            channels: (0..n_channels).map(|c| ChannelDetector::new(c as u8, config.min_rise_db)).collect(),
             next_slot: None,
             trace: None,
         }
@@ -396,6 +425,8 @@ impl BoardChannel {
 /// The pass state machine of one channel.
 struct ChannelDetector {
     channel: u8,
+    /// `DetectConfig::min_rise_db`.
+    min_rise_db: f32,
     stats: LevelStats,
     /// The last pass peaks (codes).
     peaks: VecDeque<u8>,
@@ -415,9 +446,10 @@ struct ChannelDetector {
 }
 
 impl ChannelDetector {
-    fn new(channel: u8) -> ChannelDetector {
+    fn new(channel: u8, min_rise_db: f32) -> ChannelDetector {
         ChannelDetector {
             channel,
+            min_rise_db,
             stats: LevelStats::new(),
             peaks: VecDeque::new(),
             enter: None,
@@ -574,11 +606,10 @@ impl ChannelDetector {
             return;
         }
         let mut enter = course + ENTER_FRACTION * (peak - course);
-        if !known {
-            // Before real pass peaks are known, the estimate can sit in the
-            // course's own wiggles: demand a clear rise.
-            enter = enter.max(course + BOOT_MIN_RISE);
-        }
+        // The estimate can sit in the course's own wiggles (start-up), or low
+        // peaks (flybys 1-2 m above the gate) can pull the median down: always
+        // demand a clear rise above the course.
+        enter = enter.max(course + self.min_rise_db * 4.0);
         self.enter = Some(enter);
         self.exit = Some((course + EXIT_FRACTION * (peak - course)).min(enter - 4.0));
     }
@@ -725,7 +756,7 @@ mod tests {
     fn finds_passes_despite_dropouts() {
         let passes = [20.0, 27.5, 34.0, 41.2, 48.9];
         // Course level wandering between -35 and -25 dBFS: its high moments
-        // must not count (start-up demands a rise of BOOT_MIN_RISE).
+        // must not count (the detector demands a rise of MIN_RISE_DB).
         let events = simulate_events(&passes, 55.0, |t| -30.0 + 5.0 * (t * 0.7).sin());
         assert!(!events.iter().any(|e| matches!(e, Event::Retract(_))), "{events:?}");
         let found = final_passes(&events);
