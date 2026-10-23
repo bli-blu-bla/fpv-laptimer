@@ -1,0 +1,45 @@
+# Tests on every push: server (cargo test) and web page (JSDoc types, build).
+# The release (firmware, Pi build, signature) is release.yml.
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # Node for the actions and the web page; Rust is installed below.
+    container:
+      image: node:22-bookworm
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # git describe (version)
+
+      - name: Rust
+        run: |
+          curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          git config --global --add safe.directory '*'
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            server/target
+          key: ci-cargo-${{ hashFiles('server/Cargo.lock') }}
+          restore-keys: ci-cargo-
+
+      - name: Server
+        working-directory: server
+        run: cargo test --release
+
+      - name: Web page
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run check
+          npm run build

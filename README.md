@@ -22,7 +22,12 @@ Status: im Aufbau.
 | `server/` | Rust: der Server (`laptimer serve`), dazu `record`/`replay` für Testflüge |
 | `frontend/` | Oberfläche in React mit JavaScript + JSDoc |
 | `sounds/` | Fertige Ansage-Bausteine als MP3 (Platzhalter von `tools/make_sounds.sh`, gern durch eigene mit gleichem Namen ersetzen; fehlt einer, wird sein Text gesprochen). Namen und Rundenzeiten spricht die Sprachausgabe: auf dem Pi `sudo apt install libttspico-utils` (oder `espeak-ng`). Einstellungen → Ansagen: welche Ereignisse angesagt werden, und ob der Server oder ein Browser (z. B. Laptop mit Bluetooth-Box) sie abspielt |
-| `tools/` | Flash-Script, Mess- und Auswerte-Scripts |
+| `tools/` | Flash-Script, Release-Build, Mess- und Auswerte-Scripts |
+
+## Raspberry Pi
+
+Releases für den Pi baut die CI in Forgejo bei einem Tag `v*`; Installation, Signatur und
+lokaler Build: [docs/RASPBERRY.md](docs/RASPBERRY.md).
 
 ## Firmware flashen
 

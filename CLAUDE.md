@@ -16,7 +16,19 @@ Ownership-/async-Stellen kommentieren), Frontend in JavaScript mit JSDoc (`// @t
 | `firmware/` | widscan58 (ESP32-C5 als SDR, 5,8 GHz), per `git subtree` von [CapnBry/widscan58](https://github.com/CapnBry/widscan58), plus `LEVELBATCH`/`TIME?` (unten). GPL-3.0-or-later |
 | `server/` | Rust (Crate `laptimer`, Server `laptimer serve`) auf einem Raspberry Pi 3 (für den Pi auf dem Mac cross-kompilieren, der Pi 3 schafft keinen Rust-Build): ESPs per USB lesen, Durchflüge erkennen, SQLite (Sessions, Durchflüge, Rohpegel), MP3-Ansagen (`mpg123`), Web/WebSocket |
 | `frontend/` | React, JavaScript + JSDoc |
-| `tools/` | Flash-Script, `stage_firmware.py` (Firmware für die Seite), Python-Scripts zum Messen und Auswerten |
+| `tools/` | Flash-Script, `stage_firmware.py` (Firmware für die Seite), `build_release.sh` (Release für den Pi), Python-Scripts zum Messen und Auswerten |
+| `.forgejo/workflows/` | CI auf der privaten Forgejo-Instanz (`git.homeserver.local`, Runner `ubuntu-latest`, Container `node:22-bookworm`, Rust per rustup): `ci.yml` testet jeden Push, `release.yml` baut bei Tag `v*` (Doku: `docs/RASPBERRY.md`) |
+
+**Raspberry Pi** (`docs/RASPBERRY.md`): 64-bit Pi OS Lite, Dienst als systemd-User-Unit,
+alles in `~/.laptimer`. `tools/build_release.sh [VERSION] [--no-firmware]` baut Firmware,
+Seite und Server (`cargo zigbuild --target aarch64-unknown-linux-gnu.2.36`, also glibc ≥ 2.36)
+und packt `dist/laptimer-<ver>-aarch64.tar.gz` (`bin/`, `web/` mit Firmware, `sounds/`,
+`hooks-examples/`, `deploy/*`, `VERSION`, `minisign.pub`) + `.sha256`. Die CI signiert mit
+minisign (Secrets `RELEASE_SIGNING_KEY`, `RELEASE_SIGNING_PASSWORD`; das Passwort liest
+minisign ohne Terminal aus stdin) und lädt per Forgejo-API (`secrets.GITHUB_TOKEN`) ins
+Release. Gemessen 2026-10-23 lokal im selben Container: ganzer Build ~3 min ohne Cache
+(Firmware 2:17), Paket 4,8 MB, die Binary braucht höchstens `GLIBC_2.34`. Der Plan mit den
+weiteren Phasen steht in `todo.md`.
 
 Netz: Pi per LAN am Mini-Router des Nutzers, Handys per WLAN; kein Pi-Hotspot. Bluetooth von
 den ESPs geht nicht (das Funkmodul ist durch das Scannen belegt).

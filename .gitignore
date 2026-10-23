@@ -26,3 +26,10 @@ server/data/
 
 # Staged firmware (tools/stage_firmware.py)
 frontend/public/firmware/
+
+# Releases (tools/build_release.sh)
+dist/
+
+# Signing key (minisign): only the public key belongs in git
+minisign.key
+*.key
