@@ -232,6 +232,7 @@ mod tests {
         SessionTrace {
             offset_us: 1_000_000,
             channels: vec![pts],
+            events: Vec::new(),
         }
     }
 
