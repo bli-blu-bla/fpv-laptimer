@@ -4,7 +4,7 @@
 // several picked in the list ("Auswählen").
 
 import { useEffect, useState } from 'react'
-import { CheckSquare, DownloadSimple, FlagCheckered, Infinity as InfinityIcon, PencilSimple, Square, Trash } from '@phosphor-icons/react'
+import { CheckSquareIcon, DownloadSimpleIcon, FlagCheckeredIcon, InfinityIcon, PencilSimpleIcon, SquareIcon, TrashIcon } from '@phosphor-icons/react'
 import { api } from '../api.js'
 import { dateTime, secs, sessionKind, time } from '../format.js'
 import { standings } from '../model.js'
@@ -67,12 +67,12 @@ export default function Sessions({ changed, state }) {
                 disabled={!picked.length}
                 onClick={() => setExporting(list.filter((d) => picked.includes(d.session.id)).map((d) => d.session))}
               >
-                <DownloadSimple size={16} /> Exportieren
+                <DownloadSimpleIcon size={16} /> Exportieren
               </button>
             </>
           ) : (
             <button className="btn btn-ghost" style={{ marginLeft: 'auto' }} onClick={() => setPicked([])} title="Mehrere Sessions für einen Export wählen">
-              <CheckSquare size={16} /> Auswählen
+              <CheckSquareIcon size={16} /> Auswählen
             </button>
           )}
         </div>
@@ -90,12 +90,12 @@ export default function Sessions({ changed, state }) {
             >
               {picked ? (
                 picked.includes(s.id) ? (
-                  <CheckSquare size={22} weight="fill" color="var(--accent)" />
+                  <CheckSquareIcon size={22} weight="fill" color="var(--accent)" />
                 ) : (
-                  <Square size={22} color="var(--n400)" />
+                  <SquareIcon size={22} color="var(--n400)" />
                 )
               ) : s.config.race ? (
-                <FlagCheckered size={22} color="var(--accent)" />
+                <FlagCheckeredIcon size={22} color="var(--accent)" />
               ) : (
                 <InfinityIcon size={22} color="var(--n400)" />
               )}
@@ -155,11 +155,11 @@ function SessionView({ id, changed, editing, onEditing, onExport }) {
         </div>
         <span style={{ display: 'flex', marginLeft: 'auto' }}>
           <button className="btn btn-ghost btn-icon" title="Exportieren (CSV, JSON)" onClick={() => onExport([s])}>
-            <DownloadSimple size={18} />
+            <DownloadSimpleIcon size={18} />
           </button>
           {s.ended_us != null && (
             <button className="btn btn-ghost btn-icon" title="Session löschen" onClick={() => setConfirm(true)}>
-              <Trash size={18} />
+              <TrashIcon size={18} />
             </button>
           )}
         </span>
@@ -175,7 +175,7 @@ function SessionView({ id, changed, editing, onEditing, onExport }) {
         </>
       ) : (
         <button className="btn btn-secondary" style={{ alignSelf: 'flex-start' }} onClick={() => onEditing(true)}>
-          <PencilSimple size={16} /> Runden bearbeiten
+          <PencilSimpleIcon size={16} /> Runden bearbeiten
         </button>
       )}
       {confirm && (

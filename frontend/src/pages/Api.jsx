@@ -4,7 +4,7 @@
 // the live events), and the hooks (scripts run on events, server/src/hooks.rs).
 
 import { useEffect, useRef, useState } from 'react'
-import { BookOpen, Copy, Key, Lightning, PaperPlaneTilt, PencilSimple, Play, Plug, PlugsConnected, Plus, Trash } from '@phosphor-icons/react'
+import { BookOpenIcon, CopyIcon, KeyIcon, LightningIcon, PaperPlaneTiltIcon, PencilSimpleIcon, PlayIcon, PlugIcon, PlugsConnectedIcon, PlusIcon, TrashIcon } from '@phosphor-icons/react'
 import { api } from '../api.js'
 import { COMMANDS, EVENTS, restCall } from '../apiCatalog.js'
 import { dateTime } from '../format.js'
@@ -12,10 +12,10 @@ import { dateTime } from '../format.js'
 /** The key the tester uses, kept in this browser. */
 const KEY_STORE = 'laptimer.apiKey'
 const TABS = /** @type {const} */ ([
-  ['keys', 'Schlüssel', Key],
-  ['docs', 'Doku', BookOpen],
-  ['test', 'Testen', PaperPlaneTilt],
-  ['hooks', 'Hooks', Lightning],
+  ['keys', 'Schlüssel', KeyIcon],
+  ['docs', 'Doku', BookOpenIcon],
+  ['test', 'Testen', PaperPlaneTiltIcon],
+  ['hooks', 'Hooks', LightningIcon],
 ])
 
 const base = `${location.protocol}//${location.host}/api/v1`
@@ -123,7 +123,7 @@ function Keys({ onKey }) {
     <div className="two-col" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))' }}>
       <div className="panel">
         <div className="panel-head">
-          <Key size={18} /> API-Schlüssel
+          <KeyIcon size={18} /> API-Schlüssel
           <span className="end muted small">{keys?.length ?? 0}</span>
         </div>
         <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -143,7 +143,7 @@ function Keys({ onKey }) {
                   {fresh.key}
                 </code>
                 <button className="btn btn-secondary btn-icon" title="Kopieren" onClick={() => copy(fresh.key)}>
-                  <Copy size={18} />
+                  <CopyIcon size={18} />
                 </button>
               </div>
               <span className="muted small">Der Tester (Reiter „Testen“) verwendet ihn schon.</span>
@@ -166,7 +166,7 @@ function Keys({ onKey }) {
               </button>
             ) : (
               <button className="btn btn-ghost btn-icon" title="Löschen (Programme mit diesem Schlüssel verlieren den Zugang)" onClick={() => setConfirm(k.id)}>
-                <Trash size={18} />
+                <TrashIcon size={18} />
               </button>
             )}
           </div>
@@ -175,7 +175,7 @@ function Keys({ onKey }) {
 
       <div className="panel">
         <div className="panel-head">
-          <Plug size={18} /> So verbindet sich ein Programm
+          <PlugIcon size={18} /> So verbindet sich ein Programm
         </div>
         <div className="panel-body doc" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <span className="small">HTTP: jeder Befehl als Anfrage, mit dem Schlüssel im Header.</span>
@@ -209,7 +209,7 @@ function Docs() {
     <div className="two-col" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 460px), 1fr))' }}>
       <div className="panel">
         <div className="panel-head">
-          <BookOpen size={18} /> Befehle
+          <BookOpenIcon size={18} /> Befehle
           <span className="end muted small">REST unter /api/v1 · WebSocket: cmd</span>
         </div>
         <div className="panel-body doc">
@@ -248,7 +248,7 @@ function Docs() {
       </div>
       <div className="panel">
         <div className="panel-head">
-          <Lightning size={18} /> Events
+          <LightningIcon size={18} /> Events
           <span className="end muted small">WebSocket und Hooks</span>
         </div>
         <div className="panel-body doc">
@@ -343,7 +343,7 @@ function Tester({ apiKey, setKey }) {
     <div className="two-col" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 440px), 1fr))' }}>
       <div className="panel">
         <div className="panel-head">
-          <PaperPlaneTilt size={18} /> Anfrage
+          <PaperPlaneTiltIcon size={18} /> Anfrage
         </div>
         <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <label className="field">
@@ -391,7 +391,7 @@ function Tester({ apiKey, setKey }) {
               </button>
             </div>
             <button className="btn btn-primary" style={{ marginLeft: 'auto' }} disabled={!args || !apiKey || (via === 'ws' && !ws.connected)} onClick={send}>
-              <Play size={16} /> Senden
+              <PlayIcon size={16} /> Senden
             </button>
           </div>
           {via === 'ws' && !ws.connected && <span className="muted small">Erst rechts den WebSocket verbinden.</span>}
@@ -410,7 +410,7 @@ function Tester({ apiKey, setKey }) {
 
       <div className="panel">
         <div className="panel-head">
-          <PlugsConnected size={18} /> WebSocket · Events
+          <PlugsConnectedIcon size={18} /> WebSocket · Events
           <span className="end" style={{ display: 'flex', gap: 8 }}>
             {ws.log.length > 0 && (
               <button className="btn btn-ghost" onClick={ws.clear}>
@@ -551,10 +551,10 @@ function Hooks() {
     <div className="two-col" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 440px), 1fr))' }}>
       <div className="panel">
         <div className="panel-head">
-          <Lightning size={18} /> Hooks
+          <LightningIcon size={18} /> Hooks
           {!draft && (
             <button className="btn btn-ghost end" onClick={fresh}>
-              <Plus size={16} /> Hinzufügen
+              <PlusIcon size={16} /> Hinzufügen
             </button>
           )}
         </div>
@@ -595,13 +595,13 @@ function Hooks() {
                   title="Jetzt einmal ausführen (LAPTIMER_TEST=1)"
                   onClick={() => send(`/hooks/${h.id}/test`, { method: 'POST' })}
                 >
-                  <Play size={18} />
+                  <PlayIcon size={18} />
                 </button>
                 <button className="btn btn-ghost btn-icon" title="Bearbeiten" onClick={() => setDraft({ ...h })}>
-                  <PencilSimple size={18} />
+                  <PencilSimpleIcon size={18} />
                 </button>
                 <button className="btn btn-ghost btn-icon" title="Löschen" onClick={() => setConfirm(h.id)}>
-                  <Trash size={18} />
+                  <TrashIcon size={18} />
                 </button>
               </span>
             )}
@@ -611,7 +611,7 @@ function Hooks() {
           <span className="muted small">
             Umgebung: <code>LAPTIMER_EVENT</code>, <code>LAPTIMER_SEQ</code>, <code>LAPTIMER_TIME_US</code>, <code>LAPTIMER_JSON</code> (alles) und jedes
             einfache Feld der Daten als <code>LAPTIMER_&lt;FELD&gt;</code> (z. B. <code>LAPTIMER_PILOT</code>, <code>LAPTIMER_LAP</code>,{' '}
-            <code>LAPTIMER_LAP_TIME_S</code>; true/false als 1/0). <Play size={12} /> startet einen Hook mit den Daten des letzten echten Events und{' '}
+            <code>LAPTIMER_LAP_TIME_S</code>; true/false als 1/0). <PlayIcon size={12} /> startet einen Hook mit den Daten des letzten echten Events und{' '}
             <code>LAPTIMER_TEST=1</code>. Ein Hook darf 10 s laufen; Längeres (Blinken) im Hintergrund.
           </span>
         </div>

@@ -2,7 +2,7 @@
 // One slot on the live page: who flies, position, last and best lap, gap,
 // and the signal of the last seconds. The gear opens the slot settings.
 
-import { FlagCheckered, GearSix } from '@phosphor-icons/react'
+import { FlagCheckeredIcon, GearSixIcon } from '@phosphor-icons/react'
 import { secs } from '../format.js'
 import Sparkline from './Sparkline.jsx'
 
@@ -50,7 +50,7 @@ export default function Lane({ color, callsign, fullName, channel, mhz, off, res
           }}
           title="Slot einstellen"
         >
-          <GearSix size={18} />
+          <GearSixIcon size={18} />
         </button>
       )}
     </div>
@@ -99,7 +99,7 @@ export default function Lane({ color, callsign, fullName, channel, mhz, off, res
         </div>
         {result?.finished_us != null && (
           <span className="tag tag-accent">
-            <FlagCheckered /> Im Ziel
+            <FlagCheckeredIcon /> Im Ziel
           </span>
         )}
       </div>

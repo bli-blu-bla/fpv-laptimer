@@ -5,7 +5,7 @@
 // mode move them. In automatic mode the lines are the learned ones.
 
 import { useEffect, useRef, useState } from 'react'
-import { Gauge, X } from '@phosphor-icons/react'
+import { GaugeIcon, XIcon } from '@phosphor-icons/react'
 import { saveSettings } from '../api.js'
 import { channelMode } from '../model.js'
 import Stepper from './Stepper.jsx'
@@ -118,7 +118,7 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
           </div>
         )}
         <button className="btn btn-ghost btn-icon" style={hasArming ? undefined : { marginLeft: 'auto' }} onClick={onClose} title="Schließen">
-          <X size={18} />
+          <XIcon size={18} />
         </button>
       </div>
 
@@ -179,7 +179,7 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
             title="Enter 4 dB unter die Spitze der letzten 30 s, Exit 9 dB darunter: einmal durchs Gate fliegen, dann tippen"
             onClick={() => peak != null && save({ enter_db: Math.round((peak - 4) * 2) / 2, exit_db: Math.round((peak - 9) * 2) / 2 })}
           >
-            <Gauge size={16} /> Aus Spitze
+            <GaugeIcon size={16} /> Aus Spitze
           </button>
         </div>
       ) : (

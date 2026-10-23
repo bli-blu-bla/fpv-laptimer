@@ -5,7 +5,7 @@
 // control; exporting sessions: the sessions page.)
 
 import { useEffect, useState } from 'react'
-import { Plus, Play, SpeakerHigh, Sliders, Trash, Broadcast, Code, Database, DownloadSimple, Archive } from '@phosphor-icons/react'
+import { PlusIcon, PlayIcon, SpeakerHighIcon, SlidersIcon, TrashIcon, BroadcastIcon, CodeIcon, DatabaseIcon, DownloadSimpleIcon, ArchiveIcon } from '@phosphor-icons/react'
 import { api, saveSettings } from '../api.js'
 import { isSpeaker, setSpeaker } from '../announcer.js'
 import { RACEBAND, dateTime, slotColor } from '../format.js'
@@ -44,7 +44,7 @@ export default function SettingsPage({ state, onOpenApi }) {
     <div className="two-col" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 420px), 1fr))' }}>
       <div className="panel">
         <div className="panel-head">
-          <Broadcast size={18} /> Kanäle
+          <BroadcastIcon size={18} /> Kanäle
           <span className="end muted small">{s.channels.length} von 8</span>
         </div>
         <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -73,13 +73,13 @@ export default function SettingsPage({ state, onOpenApi }) {
               </select>
               <MhzInput value={c.mhz} disabled={running} onSet={(v) => setChannel(i, String(v))} />
               <button className="btn btn-ghost btn-icon" disabled={running || s.channels.length <= 1} onClick={() => removeChannel(i)} title="Kanal entfernen">
-                <Trash size={16} />
+                <TrashIcon size={16} />
               </button>
             </div>
           ))}
           {s.channels.length < 8 && (
             <button className="btn btn-secondary" disabled={running} onClick={addChannel}>
-              <Plus size={16} /> Kanal hinzufügen
+              <PlusIcon size={16} /> Kanal hinzufügen
             </button>
           )}
         </div>
@@ -88,7 +88,7 @@ export default function SettingsPage({ state, onOpenApi }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
         <div className="panel">
           <div className="panel-head">
-            <Sliders size={18} /> Auswertung
+            <SlidersIcon size={18} /> Auswertung
           </div>
           <div className="panel-body" style={{ display: 'flex', flexWrap: 'wrap', gap: 20 }}>
             <Stepper label="Mindest-Rundenzeit" value={s.min_lap_s} unit="s" step={0.5} min={1} max={60} onSet={(v) => save({ min_lap_s: v })} />
@@ -110,7 +110,7 @@ export default function SettingsPage({ state, onOpenApi }) {
         <DataPanel running={running} />
         {/* On phones the API page has no tab of its own. */}
         <button className="btn btn-secondary narrow-only" onClick={onOpenApi}>
-          <Code size={16} /> API & Hooks
+          <CodeIcon size={16} /> API & Hooks
         </button>
       </div>
     </div>
@@ -156,9 +156,9 @@ function AnnouncePanel({ settings: s, save }) {
   return (
     <div className="panel">
       <div className="panel-head">
-        <SpeakerHigh size={18} /> Ansagen
+        <SpeakerHighIcon size={18} /> Ansagen
         <button className="btn btn-ghost end" disabled={!s.sound} onClick={() => api('/announce/test', { method: 'POST' })} title="Beispiel-Ansage abspielen">
-          <Play size={16} /> Probe
+          <PlayIcon size={16} /> Probe
         </button>
       </div>
       <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -292,7 +292,7 @@ function DataPanel({ running }) {
   return (
     <div className="panel">
       <div className="panel-head">
-        <Database size={18} /> Daten
+        <DatabaseIcon size={18} /> Daten
       </div>
       <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <span className="muted small">
@@ -301,10 +301,10 @@ function DataPanel({ running }) {
         </span>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button className="btn btn-secondary" disabled={busy} onClick={backup}>
-            <Archive size={16} /> Backup erstellen
+            <ArchiveIcon size={16} /> Backup erstellen
           </button>
           <button className="btn btn-danger" disabled={busy || running} onClick={() => setConfirmReset(true)} title={running ? 'Erst die Session stoppen' : ''}>
-            <Trash size={16} /> Alle Sessions löschen
+            <TrashIcon size={16} /> Alle Sessions löschen
           </button>
         </div>
         {msg && <span className="small">{msg}</span>}
@@ -329,10 +329,10 @@ function DataPanel({ running }) {
             ) : (
               <>
                 <a className="btn btn-ghost btn-icon" href={`/api/backups/${encodeURIComponent(b.name)}`} download title="Herunterladen">
-                  <DownloadSimple size={18} />
+                  <DownloadSimpleIcon size={18} />
                 </a>
                 <button className="btn btn-ghost btn-icon" title="Backup löschen" onClick={() => setDeleting(b.name)}>
-                  <Trash size={18} />
+                  <TrashIcon size={18} />
                 </button>
               </>
             )}

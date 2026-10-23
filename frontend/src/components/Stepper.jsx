@@ -3,7 +3,7 @@
 // settings whose change is costly, or many taps in a row).
 
 import { useEffect, useRef, useState } from 'react'
-import { Minus, Plus } from '@phosphor-icons/react'
+import { MinusIcon, PlusIcon } from '@phosphor-icons/react'
 
 /**
  * − value + ; `delayed`: saves 0.8 s after the last tap (gain restarts the boards).
@@ -26,14 +26,14 @@ export default function Stepper({ label, value, unit, step, min, max, hint, dela
       <span>{label}</span>
       <div className="stepper">
         <button className="btn btn-secondary btn-icon" onClick={() => change(-step)}>
-          <Minus />
+          <MinusIcon />
         </button>
         <span className="value">
           {v}
           {unit ? ` ${unit}` : ''}
         </span>
         <button className="btn btn-secondary btn-icon" onClick={() => change(step)}>
-          <Plus />
+          <PlusIcon />
         </button>
       </div>
       {hint && <span className="muted small" style={{ maxWidth: 260 }}>{hint}</span>}

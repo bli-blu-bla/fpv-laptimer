@@ -5,18 +5,18 @@
 
 import { useEffect, useState } from 'react'
 import {
-  ArrowSquareOut,
-  ClockCounterClockwise,
-  Code,
-  Cpu,
-  FlagCheckered,
-  MonitorPlay,
-  SlidersHorizontal,
-  SpeakerHigh,
-  SpeakerSlash,
-  Timer,
-  Trophy,
-  UsersThree,
+  ArrowSquareOutIcon,
+  ClockCounterClockwiseIcon,
+  CodeIcon,
+  CpuIcon,
+  FlagCheckeredIcon,
+  MonitorPlayIcon,
+  SlidersHorizontalIcon,
+  SpeakerHighIcon,
+  SpeakerSlashIcon,
+  TimerIcon,
+  TrophyIcon,
+  UsersThreeIcon,
 } from '@phosphor-icons/react'
 import { api, saveSettings, useServer } from './api.js'
 import { onBlocked, unblock } from './announcer.js'
@@ -31,14 +31,14 @@ import Watch from './pages/Watch.jsx'
 
 /** [id, title, short label for the phone's tab bar, icon] */
 const PAGES = /** @type {const} */ ([
-  ['control', 'Rennleitung', 'Leitung', FlagCheckered],
-  ['watch', 'Zuschauer', 'Zuschauer', MonitorPlay],
-  ['best', 'Bestzeiten', 'Bestzeiten', Trophy],
-  ['sessions', 'Sessions', 'Sessions', ClockCounterClockwise],
-  ['pilots', 'Piloten', 'Piloten', UsersThree],
-  ['boards', 'Boards', 'Boards', Cpu],
-  ['settings', 'Einstellungen', 'Setup', SlidersHorizontal],
-  ['api', 'API & Hooks', 'API', Code],
+  ['control', 'Rennleitung', 'Leitung', FlagCheckeredIcon],
+  ['watch', 'Zuschauer', 'Zuschauer', MonitorPlayIcon],
+  ['best', 'Bestzeiten', 'Bestzeiten', TrophyIcon],
+  ['sessions', 'Sessions', 'Sessions', ClockCounterClockwiseIcon],
+  ['pilots', 'Piloten', 'Piloten', UsersThreeIcon],
+  ['boards', 'Boards', 'Boards', CpuIcon],
+  ['settings', 'Einstellungen', 'Setup', SlidersHorizontalIcon],
+  ['api', 'API & Hooks', 'API', CodeIcon],
 ])
 /** Not in the phone's tab bar (no room; reached from the settings). */
 const DESKTOP_ONLY = ['api']
@@ -66,7 +66,7 @@ export default function App() {
         <header className="topbar">
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             <div className="brand-icon">
-              <Timer size={18} />
+              <TimerIcon size={18} />
             </div>
             <span className="kicker">{raceCount}</span>
           </div>
@@ -91,7 +91,7 @@ export default function App() {
       <aside className="sidebar">
         <div className="brand">
           <div className="brand-icon">
-            <Timer size={18} />
+            <TimerIcon size={18} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.15 }}>
             <span style={{ fontWeight: 600 }}>Laptimer</span>
@@ -123,7 +123,7 @@ export default function App() {
             </span>
             {page === 'watch' && (
               <a className="btn btn-ghost btn-icon" href="?view=zuschauer" target="_blank" title="Als Vollbild in neuem Fenster (für Fernseher/Tablet)">
-                <ArrowSquareOut size={20} />
+                <ArrowSquareOutIcon size={20} />
               </a>
             )}
             {soundBlocked && (
@@ -137,7 +137,7 @@ export default function App() {
                 title={state.settings.sound ? 'Ansagen aus' : 'Ansagen an'}
                 onClick={() => saveSettings(state.settings, { sound: !state.settings.sound })}
               >
-                {state.settings.sound ? <SpeakerHigh size={20} /> : <SpeakerSlash size={20} />}
+                {state.settings.sound ? <SpeakerHighIcon size={20} /> : <SpeakerSlashIcon size={20} />}
               </button>
             )}
           </div>

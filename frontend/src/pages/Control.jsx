@@ -4,7 +4,7 @@
 // each slot's gear, the race format behind the gear next to "Rennen starten".
 
 import { useEffect, useRef, useState } from 'react'
-import { ArrowCounterClockwise, Check, FlagCheckered, GearSix, Infinity as InfinityIcon, Stop, X } from '@phosphor-icons/react'
+import { ArrowCounterClockwiseIcon, CheckIcon, FlagCheckeredIcon, GearSixIcon, InfinityIcon, StopIcon, XIcon } from '@phosphor-icons/react'
 import { api, useNow } from '../api.js'
 import { clock, endRule, sessionKind, START_MODES } from '../format.js'
 import { channelMode, slotsOf, standings } from '../model.js'
@@ -114,14 +114,14 @@ export default function Control({ server, state, stats }) {
       </button>
       <span className="split">
         <button className="btn btn-primary btn-big btn-glow" disabled={unconfirmed != null} onClick={() => start(true)}>
-          <FlagCheckered size={20} />
+          <FlagCheckeredIcon size={20} />
           <span className="btn-stack">
             <span>Rennen starten</span>
             <span className="sub">{formatShort}</span>
           </span>
         </button>
         <button className="btn btn-primary btn-big btn-icon" style={{ width: 52 }} onClick={() => setRaceDialog(true)} title="Rennformat">
-          <GearSix size={20} />
+          <GearSixIcon size={20} />
         </button>
       </span>
     </>
@@ -145,10 +145,10 @@ export default function Control({ server, state, stats }) {
           {(phase === 'running' || phase === 'countdown') && (
             <>
               <button className="btn btn-ghost btn-big" onClick={() => setConfirmDiscard(true)}>
-                <X size={18} /> Abbrechen
+                <XIcon size={18} /> Abbrechen
               </button>
               <button className="btn btn-primary btn-big" onClick={() => run(() => api('/session/stop', { body: {} }))}>
-                <Stop size={20} /> Stopp
+                <StopIcon size={20} /> Stopp
               </button>
             </>
           )}
@@ -164,15 +164,15 @@ export default function Control({ server, state, stats }) {
           )}
           <div className="card-actions">
             <button className="btn btn-ghost btn-big" onClick={() => setConfirmDiscard(true)}>
-              <ArrowCounterClockwise size={18} /> Verwerfen
+              <ArrowCounterClockwiseIcon size={18} /> Verwerfen
             </button>
             {session.id === unconfirmed ? (
               <button className="btn btn-primary btn-big" onClick={() => run(() => api(`/sessions/${session.id}/confirm`, { body: {} }))}>
-                <Check size={18} /> Ergebnis bestätigen
+                <CheckIcon size={18} /> Ergebnis bestätigen
               </button>
             ) : (
               <button className="btn btn-secondary btn-big" onClick={() => setDoneId(null)}>
-                <X size={18} /> Schließen
+                <XIcon size={18} /> Schließen
               </button>
             )}
           </div>

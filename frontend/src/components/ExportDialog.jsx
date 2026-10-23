@@ -4,7 +4,7 @@
 // or JSON.
 
 import { useState } from 'react'
-import { DownloadSimple } from '@phosphor-icons/react'
+import { DownloadSimpleIcon } from '@phosphor-icons/react'
 import { slotColor } from '../format.js'
 import Dialog from './Dialog.jsx'
 
@@ -114,7 +114,7 @@ export default function ExportDialog({ sessions, onClose }) {
           Abbrechen
         </button>
         <button className="btn btn-primary" disabled={busy} onClick={save}>
-          <DownloadSimple size={16} /> Herunterladen
+          <DownloadSimpleIcon size={16} /> Herunterladen
         </button>
       </div>
     </Dialog>

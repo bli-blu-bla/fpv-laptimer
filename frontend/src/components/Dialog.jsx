@@ -3,7 +3,7 @@
 // on the dimmed background closes it too.
 
 import { useRef } from 'react'
-import { X } from '@phosphor-icons/react'
+import { XIcon } from '@phosphor-icons/react'
 
 /**
  * @param {object} props
@@ -26,7 +26,7 @@ export default function Dialog({ title, onClose, wide, children }) {
         <div className="dialog-head">
           {title}
           <button className="btn btn-ghost btn-icon" onClick={onClose} title="Schließen">
-            <X size={18} />
+            <XIcon size={18} />
           </button>
         </div>
         {children}

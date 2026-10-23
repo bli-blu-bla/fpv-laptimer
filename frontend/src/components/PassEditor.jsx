@@ -6,7 +6,7 @@
 // until "Speichern"; the laps under the graph already show the result.
 
 import { useEffect, useRef, useState } from 'react'
-import { ArrowCounterClockwise, CaretLeft, CaretRight, Crosshair, FloppyDisk, MagnifyingGlassMinus, MagnifyingGlassPlus, Trash } from '@phosphor-icons/react'
+import { ArrowCounterClockwiseIcon, CaretLeftIcon, CaretRightIcon, CrosshairIcon, FloppyDiskIcon, MagnifyingGlassMinusIcon, MagnifyingGlassPlusIcon, TrashIcon } from '@phosphor-icons/react'
 import { api } from '../api.js'
 import { secs, slotColor } from '../format.js'
 import { computeLaps } from '../model.js'
@@ -208,17 +208,17 @@ export default function PassEditor({ detail, onSaved }) {
           </span>
           {selected.kind !== 'deleted' && (
             <button className="btn btn-secondary" onClick={async () => move(selected.key, await snap(selected.t))}>
-              <Crosshair size={16} /> Am Gipfel einrasten
+              <CrosshairIcon size={16} /> Am Gipfel einrasten
             </button>
           )}
           <button className={selected.kind === 'deleted' ? 'btn btn-primary' : 'btn btn-danger'} onClick={() => toggleDelete(selected)}>
             {selected.kind === 'deleted' ? (
               <>
-                <ArrowCounterClockwise size={16} /> Wiederherstellen
+                <ArrowCounterClockwiseIcon size={16} /> Wiederherstellen
               </>
             ) : (
               <>
-                <Trash size={16} /> Löschen
+                <TrashIcon size={16} /> Löschen
               </>
             )}
           </button>
@@ -263,7 +263,7 @@ export default function PassEditor({ detail, onSaved }) {
           Verwerfen
         </button>
         <button className="btn btn-primary" disabled={!total || busy || tooShort > 0} onClick={save}>
-          <FloppyDisk size={18} /> Speichern
+          <FloppyDiskIcon size={18} /> Speichern
         </button>
       </div>
     </div>
@@ -455,16 +455,16 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
       </svg>
       <div className="graph-tools">
         <button className="btn btn-secondary btn-icon" onClick={() => pan(-0.5)} title="Zurück">
-          <CaretLeft />
+          <CaretLeftIcon />
         </button>
         <button className="btn btn-secondary btn-icon" onClick={() => zoom(2)} title="Weniger Zoom">
-          <MagnifyingGlassMinus />
+          <MagnifyingGlassMinusIcon />
         </button>
         <button className="btn btn-secondary btn-icon" onClick={() => zoom(0.5)} title="Mehr Zoom">
-          <MagnifyingGlassPlus />
+          <MagnifyingGlassPlusIcon />
         </button>
         <button className="btn btn-secondary btn-icon" onClick={() => pan(0.5)} title="Weiter">
-          <CaretRight />
+          <CaretRightIcon />
         </button>
         <button className="btn btn-secondary" onClick={() => setRange([start, end])}>
           Alles

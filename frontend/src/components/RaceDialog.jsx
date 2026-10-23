@@ -5,7 +5,7 @@
 import { saveSettings } from '../api.js'
 import { START_MODES } from '../format.js'
 import Dialog from './Dialog.jsx'
-import { Minus, Plus } from '@phosphor-icons/react'
+import { MinusIcon, PlusIcon } from '@phosphor-icons/react'
 
 const START_HINTS = {
   holeshot: 'Erster Durchflug nach dem Startton ist der Holeshot, danach zählen die Runden.',
@@ -50,11 +50,11 @@ export default function RaceDialog({ state, onClose }) {
         </div>
         <div className="stepper">
           <button className="btn btn-secondary btn-icon" onClick={() => setValue(value - (byTime ? 30 : 1))}>
-            <Minus />
+            <MinusIcon />
           </button>
           <span className="value">{byTime ? `${Math.floor(value / 60)}:${String(value % 60).padStart(2, '0')}` : value}</span>
           <button className="btn btn-secondary btn-icon" onClick={() => setValue(value + (byTime ? 30 : 1))}>
-            <Plus />
+            <PlusIcon />
           </button>
           <span className="muted small">{byTime ? 'Minuten – danach zählt die laufende Runde noch' : 'Runden'}</span>
         </div>

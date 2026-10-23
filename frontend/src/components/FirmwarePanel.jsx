@@ -6,7 +6,7 @@
 //   that only on localhost or HTTPS, so not on the Pi's http://… page.
 
 import { useEffect, useState } from 'react'
-import { Lightning, UploadSimple } from '@phosphor-icons/react'
+import { LightningIcon, UploadSimpleIcon } from '@phosphor-icons/react'
 import { api } from '../api.js'
 import { flashFirmware, loadManifest, requestPort, webSerialAvailable } from '../flasher.js'
 
@@ -48,7 +48,7 @@ export default function FirmwarePanel({ state, flash }) {
   return (
     <div className="panel">
       <div className="panel-head">
-        <UploadSimple size={18} /> Firmware
+        <UploadSimpleIcon size={18} /> Firmware
         <span className="end muted small">{offered ? `Bereitgestellt: ${offered}` : ''}</span>
       </div>
       <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -75,7 +75,7 @@ export default function FirmwarePanel({ state, flash }) {
                   disabled={!offered || busy || sessionRunning}
                   onClick={() => flashOnServer(p.port)}
                 >
-                  <Lightning size={16} /> Aufspielen
+                  <LightningIcon size={16} /> Aufspielen
                 </button>
               </div>
               {mine && <Progress status={status} />}
@@ -169,7 +169,7 @@ function LocalFlash({ offered }) {
           Board an diesem Gerät (USB)
         </span>
         <button className="btn btn-secondary" disabled={!offered || busy} onClick={start}>
-          <Lightning size={16} /> Board wählen …
+          <LightningIcon size={16} /> Board wählen …
         </button>
       </div>
       {status && <Progress status={status} />}

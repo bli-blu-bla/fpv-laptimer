@@ -1,7 +1,7 @@
 // @ts-check
 // The passes of a session, newest first; a wrong one is deleted with a tap.
 
-import { ListNumbers, Trash } from '@phosphor-icons/react'
+import { ListNumbersIcon, TrashIcon } from '@phosphor-icons/react'
 import { api } from '../api.js'
 import { passLog } from '../model.js'
 
@@ -16,7 +16,7 @@ export default function PassLog({ detail, limit = 8, onChanged }) {
   return (
     <div className="panel">
       <div className="panel-head">
-        <ListNumbers size={18} />
+        <ListNumbersIcon size={18} />
         Durchflüge
         <span className="end muted small">Falsch erkannt? Einfach löschen.</span>
       </div>
@@ -40,7 +40,7 @@ export default function PassLog({ detail, limit = 8, onChanged }) {
               onChanged?.()
             }}
           >
-            <Trash size={16} />
+            <TrashIcon size={16} />
           </button>
         </div>
       ))}

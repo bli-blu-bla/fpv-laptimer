@@ -3,7 +3,7 @@
 // Who flies in which slot is set at the slot's gear on the live page.
 
 import { useState } from 'react'
-import { UserPlus } from '@phosphor-icons/react'
+import { UserPlusIcon } from '@phosphor-icons/react'
 import { api } from '../api.js'
 import { initials, secs, slotColor } from '../format.js'
 import Dialog from '../components/Dialog.jsx'
@@ -16,7 +16,7 @@ export default function Pilots({ state, stats }) {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
         <span className="muted small">Wer in welchem Slot fliegt, stellst du in der Live-Ansicht am Zahnrad des Slots ein.</span>
         <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setEdit('new')}>
-          <UserPlus size={18} /> Pilot hinzufügen
+          <UserPlusIcon size={18} /> Pilot hinzufügen
         </button>
       </div>
       {!state.pilots.length && <p className="muted">Noch keine Piloten.</p>}
