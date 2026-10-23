@@ -1,13 +1,15 @@
 // @ts-check
 // Settings that rarely change: which channels are scanned, minimum lap,
-// gain, the sound. (Boards and gates: their own page; slots, race format and
-// manual thresholds: race control.)
+// gain, the sound, the data (backups, deleting all sessions). (Boards and
+// gates: their own page; slots, race format and manual thresholds: race
+// control; exporting sessions: the sessions page.)
 
 import { useEffect, useState } from 'react'
-import { Plus, Play, SpeakerHigh, Sliders, Trash, Broadcast, Code } from '@phosphor-icons/react'
+import { Plus, Play, SpeakerHigh, Sliders, Trash, Broadcast, Code, Database, DownloadSimple, Archive } from '@phosphor-icons/react'
 import { api, saveSettings } from '../api.js'
 import { isSpeaker, setSpeaker } from '../announcer.js'
-import { RACEBAND, slotColor } from '../format.js'
+import { RACEBAND, dateTime, slotColor } from '../format.js'
+import Dialog from '../components/Dialog.jsx'
 import Stepper from '../components/Stepper.jsx'
 
 /** @param {{state: import('../types').State, onOpenApi: () => void}} props */
@@ -105,6 +107,7 @@ export default function SettingsPage({ state, onOpenApi }) {
         </div>
         <AnnouncePanel settings={s} save={save} />
         {error && <p className="error">{error}</p>}
+        <DataPanel running={running} />
         {/* On phones the API page has no tab of its own. */}
         <button className="btn btn-secondary narrow-only" onClick={onOpenApi}>
           <Code size={16} /> API & Hooks
@@ -228,5 +231,131 @@ function MhzInput({ value, disabled, onSet }) {
       onBlur={() => Number(v) !== value && onSet(Number(v))}
       title="Frequenz in MHz"
     />
+  )
+}
+
+/** @typedef {{name: string, size: number, created_us: number}} Backup */
+
+/** @param {number} n */
+const size = (n) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1).replace('.', ',')} MB`)
+
+/** Backups of the database and deleting all sessions (server/src/data.rs).
+ * @param {{running: boolean}} props */
+function DataPanel({ running }) {
+  const [info, setInfo] = useState(/** @type {{dir: string, backups: Backup[]} | null} */ (null))
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState('')
+  const [error, setError] = useState('')
+  const [confirmReset, setConfirmReset] = useState(false)
+  const [deleting, setDeleting] = useState(/** @type {string | null} */ (null))
+  const load = () =>
+    api('/backups')
+      .then(setInfo)
+      .catch((e) => setError(e.message))
+  useEffect(() => {
+    load()
+  }, [])
+
+  /** Runs a request; shows its error or `done(result)`. Returns whether it worked. @param {() => Promise<any>} req @param {(r: any) => string} done */
+  async function run(req, done) {
+    setBusy(true)
+    setError('')
+    setMsg('')
+    try {
+      setMsg(done(await req()))
+      return true
+    } catch (e) {
+      setError(/** @type {Error} */ (e).message)
+      return false
+    } finally {
+      setBusy(false)
+      load()
+    }
+  }
+  const backup = () =>
+    run(
+      () => api('/backups', { method: 'POST' }),
+      (r) => `Gespeichert: ${r.name}`,
+    )
+  const reset = () =>
+    run(
+      () => api('/reset', { method: 'POST' }),
+      (r) => `${r.deleted} ${r.deleted === 1 ? 'Session' : 'Sessions'} gelöscht. Vorher gesichert: ${r.backup}`,
+    ).then((ok) => ok && setConfirmReset(false))
+  /** @param {string} name */
+  const remove = (name) =>
+    run(
+      () => api(`/backups/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+      () => '',
+    ).then(() => setDeleting(null))
+
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <Database size={18} /> Daten
+      </div>
+      <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <span className="muted small">
+          Ein Backup ist eine gepackte Kopie der Datenbank (Sessions, Piloten, Einstellungen, API-Schlüssel, Hooks; ohne die Pegel-Dateien) im Ordner{' '}
+          <code>{info?.dir ?? 'backups'}</code>. Sessions einzeln oder mehrere exportieren: auf der Seite Sessions.
+        </span>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn btn-secondary" disabled={busy} onClick={backup}>
+            <Archive size={16} /> Backup erstellen
+          </button>
+          <button className="btn btn-danger" disabled={busy || running} onClick={() => setConfirmReset(true)} title={running ? 'Erst die Session stoppen' : ''}>
+            <Trash size={16} /> Alle Sessions löschen
+          </button>
+        </div>
+        {msg && <span className="small">{msg}</span>}
+        {error && <p className="error">{error}</p>}
+      </div>
+      {info && !info.backups.length && <div className="empty">Noch keine Backups.</div>}
+      <div style={{ maxHeight: 300, overflowY: 'auto' }}>
+        {info?.backups.map((b) => (
+          <div key={b.name} className="list-row">
+            <span style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1, padding: '6px 0' }}>
+              <span className="small" style={{ overflowWrap: 'anywhere' }}>
+                {b.name}
+              </span>
+              <span className="muted small">
+                {dateTime(b.created_us)} · {size(b.size)}
+              </span>
+            </span>
+            {deleting === b.name ? (
+              <button className="btn btn-danger" disabled={busy} onClick={() => remove(b.name)}>
+                Wirklich löschen
+              </button>
+            ) : (
+              <>
+                <a className="btn btn-ghost btn-icon" href={`/api/backups/${encodeURIComponent(b.name)}`} download title="Herunterladen">
+                  <DownloadSimple size={18} />
+                </a>
+                <button className="btn btn-ghost btn-icon" title="Backup löschen" onClick={() => setDeleting(b.name)}>
+                  <Trash size={18} />
+                </button>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+      {confirmReset && (
+        <Dialog title="Alle Sessions löschen?" onClose={() => setConfirmReset(false)}>
+          <p className="muted" style={{ margin: 0 }}>
+            Alle Trainings und Rennen werden mit ihren Runden und Pegel-Dateien gelöscht, damit auch Bestzeiten und Siege. Piloten, Einstellungen, API-Schlüssel
+            und Hooks bleiben. Vorher wird automatisch ein Backup erstellt.
+          </p>
+          {error && <p className="error">{error}</p>}
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button className="btn btn-secondary" onClick={() => setConfirmReset(false)}>
+              Behalten
+            </button>
+            <button className="btn btn-danger" disabled={busy} onClick={reset}>
+              Alle löschen
+            </button>
+          </div>
+        </Dialog>
+      )}
+    </div>
   )
 }

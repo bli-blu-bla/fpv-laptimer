@@ -3,6 +3,7 @@
 mod api;
 mod clock;
 mod core;
+mod data;
 mod db;
 mod detect;
 mod esp;

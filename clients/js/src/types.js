@@ -228,6 +228,7 @@
  * @property {SessionStoppedData} session_stopped
  * @property {RaceConfirmedData} race_confirmed
  * @property {{session_id: number, race: boolean}} session_deleted
+ * @property {{deleted: number}} sessions_reset
  * @property {{session_id: number}} passes_changed
  * @property {{channels: Channel[]}} channels_changed
  * @property {PilotEventData} pilot_added

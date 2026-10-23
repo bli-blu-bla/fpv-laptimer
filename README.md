@@ -70,6 +70,16 @@ Signalverlauf jedes Piloten: dort Durchflüge antippen zum Löschen oder neben e
 tippen zum Einfügen. Die Datenbank
 liegt in `server/data/` (dort auch die Pegel jeder Session).
 
+**Export:** unter „Sessions“ eine Session über ⤓ exportieren, oder mit „Auswählen“ mehrere auf
+einmal: als CSV (Runden oder Ergebnis, für Excel/LibreOffice) oder JSON, alle Kanäle oder nur
+einzelne. **Backup und Neuanfang:** unter „Einstellungen“ → „Daten“. „Backup erstellen“ legt
+eine gepackte Kopie der Datenbank nach `server/data/backups/` (dort auch herunterladen).
+„Alle Sessions löschen“ löscht alle Trainings und Rennen mit Runden und Pegeln; Piloten,
+Einstellungen, API-Schlüssel und Hooks bleiben, vorher wird automatisch ein Backup gemacht.
+Ein Backup zurückspielen: Server stoppen, dann
+`gunzip -c server/data/backups/<datei>.db.gz > server/data/laptimer.db` (vorher die
+`laptimer.db-wal` und `laptimer.db-shm` daneben löschen).
+
 Ohne Boards, zum Ausprobieren: `cargo run --release -- serve --replay recordings/<aufnahme>.csv`
 spielt eine Aufnahme in Endlosschleife ab.
 

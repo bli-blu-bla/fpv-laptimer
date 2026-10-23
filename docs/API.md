@@ -142,6 +142,7 @@ Kanalname).
 | `session_stopped` | Session beendet | `session_id`, `race`, `reason` (`stopped` von Hand, `finished` alle im Ziel, `cancelled` wird gleich gelöscht), `ended_us`, `needs_confirmation`, `winner`, `results` |
 | `race_confirmed` | Ergebnis eines Rennens bestätigt | `session_id`, `race`, `confirmed_us`, `winner`, `results` |
 | `session_deleted` | Session gelöscht (verworfen, abgebrochen) | `session_id`, `race` |
+| `sessions_reset` | Alle Sessions gelöscht (Einstellungen → Daten; Piloten bleiben) | `deleted` (Anzahl) |
 | `passes_changed` | Durchflüge korrigiert (Editor, Löschen, die Erkennung nimmt einen Fehltreffer zurück) | `session_id` – Ergebnisse per `sessions.get` neu holen |
 | `channels_changed` | Kanäle oder ihre Piloten geändert | `channels` (Liste der [Kanäle](#kanal)) |
 | `pilot_added`, `pilot_updated` | Pilot angelegt / geändert | `pilot_id`, `name`, `full_name` |

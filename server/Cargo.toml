@@ -23,3 +23,5 @@ tower-http = { version = "0.6", features = ["fs"] }
 # Writes the firmware from the web page (Boards → Firmware); without the CLI.
 espflash = { version = "4.6", default-features = false, features = ["serialport"] }
 sha2 = "0.10"
+# Backups of the database (gzip).
+flate2 = "1"

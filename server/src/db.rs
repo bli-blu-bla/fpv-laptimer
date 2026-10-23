@@ -366,11 +366,18 @@ impl Db {
         seats: &[Seat],
         levels_file: Option<&str>,
     ) -> Result<i64> {
+        // A new id is never one a deleted session had (SQLite would reuse
+        // the highest after a delete): drafts in the browser and exported
+        // files are kept by session id. The highest id so far is a setting.
+        let max: i64 = self
+            .conn
+            .query_row("SELECT COALESCE(MAX(id), 0) FROM sessions", [], |r| r.get(0))?;
+        let id = max.max(self.get_setting::<i64>("last_session_id")?.unwrap_or(0)) + 1;
         self.conn.execute(
-            "INSERT INTO sessions (config, created_us, start_us, levels_file) VALUES (?1, ?2, ?3, ?4)",
-            params![serde_json::to_string(config)?, created_us, start_us, levels_file],
+            "INSERT INTO sessions (id, config, created_us, start_us, levels_file) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, serde_json::to_string(config)?, created_us, start_us, levels_file],
         )?;
-        let id = self.conn.last_insert_rowid();
+        self.set_setting("last_session_id", &id)?;
         for s in seats {
             self.conn.execute(
                 "INSERT INTO seats (session_id, channel, channel_name, mhz, pilot_id, label)
@@ -424,6 +431,20 @@ impl Db {
                 |r| r.get(0),
             )
             .optional()?)
+    }
+
+    /// Deletes every session (seats and passes go with them: cascade).
+    /// Returns how many there were.
+    pub fn delete_all_sessions(&self) -> Result<usize> {
+        Ok(self.conn.execute("DELETE FROM sessions", [])?)
+    }
+
+    /// A consistent copy of the whole database into a new file (also while
+    /// the server writes; `VACUUM INTO` also leaves out free pages).
+    pub fn copy_to(&self, path: &std::path::Path) -> Result<()> {
+        self.conn
+            .execute("VACUUM INTO ?1", [path.to_string_lossy().to_string()])?;
+        Ok(())
     }
 
     pub fn delete_session(&self, id: i64) -> Result<()> {
@@ -669,6 +690,13 @@ mod tests {
         assert_eq!(db.get_setting::<Vec<i32>>("x").unwrap(), Some(vec![1, 2]));
         db.delete_session(id).unwrap();
         assert!(db.passes(id).unwrap().is_empty());
+        // Ids are not used again, also not after deleting all.
+        let seats = vec![Seat { pilot_id: None, ..seats[0].clone() }];
+        let id2 = db.create_session(&config, 100, 100, &seats, None).unwrap();
+        assert_eq!(id2, id + 1);
+        db.create_session(&config, 200, 200, &seats, None).unwrap();
+        assert_eq!(db.delete_all_sessions().unwrap(), 2);
+        assert_eq!(db.create_session(&config, 300, 300, &seats, None).unwrap(), id + 3);
     }
 
     #[test]

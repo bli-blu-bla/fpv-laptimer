@@ -132,7 +132,7 @@ lt.close()
 ```
 
 Events des Servers: `session_started`, `countdown`, `start_signal`, `pilot_pass`,
-`pilot_finished`, `session_stopped`, `race_confirmed`, `session_deleted`, `passes_changed`,
+`pilot_finished`, `session_stopped`, `race_confirmed`, `session_deleted`, `sessions_reset`, `passes_changed`,
 `channels_changed`, `pilot_added`, `pilot_updated`, `pilot_deleted`.
 
 Dazu drei vom Client selbst:

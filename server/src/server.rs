@@ -65,7 +65,7 @@ pub struct App {
     replay: Option<PathBuf>,
     /// Level graphs of sessions: (size of the level file, graph). A file
     /// that grew (the running session) is read again.
-    traces: Mutex<HashMap<i64, (u64, Arc<SessionTrace>)>>,
+    pub traces: Mutex<HashMap<i64, (u64, Arc<SessionTrace>)>>,
     /// The firmware the page offers (`<web>/firmware`, `tools/stage_firmware.py`).
     firmware_dir: PathBuf,
     /// The flash in progress or the last one (`/api/firmware`).
@@ -154,6 +154,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .route("/firmware/flash", post(flash_board))
         .route("/announce/test", post(announce_test))
         .merge(api::page_routes())
+        .merge(crate::data::routes())
         .nest("/v1", api::router(Arc::clone(&app)))
         // Announcements played by the browsers: the clips and the spoken texts.
         .nest_service("/audio/clips", ServeDir::new(&opts.sounds_dir))

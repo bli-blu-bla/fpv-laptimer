@@ -784,6 +784,34 @@ impl Core {
         Ok(())
     }
 
+    /// Deletes every session with its passes and level files (pilots,
+    /// settings, keys and hooks stay). Refused while a session runs.
+    /// Returns how many were deleted.
+    pub fn reset_sessions(&mut self) -> Result<usize> {
+        if self.active.is_some() {
+            bail!("Es läuft eine Session – erst stoppen.");
+        }
+        let files: Vec<String> = self
+            .db
+            .sessions(u32::MAX)?
+            .into_iter()
+            .filter_map(|s| s.levels_file)
+            .collect();
+        let n = self.db.delete_all_sessions()?;
+        for f in files {
+            let _ = fs::remove_file(f);
+        }
+        let _ = self.tx.send(json!({ "type": "session_changed" }).to_string());
+        self.events.emit("sessions_reset", json!({ "deleted": n }));
+        self.broadcast_state();
+        Ok(n)
+    }
+
+    /// The folder of the database and the level files.
+    pub fn data_dir(&self) -> &std::path::Path {
+        &self.data_dir
+    }
+
     /// The id of the session in progress.
     pub fn active_id(&self) -> Option<i64> {
         self.active.as_ref().map(|a| a.row.id)

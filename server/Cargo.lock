@@ -917,6 +917,7 @@ dependencies = [
  "crc32fast",
  "ctrlc",
  "espflash",
+ "flate2",
  "rusqlite",
  "serde",
  "serde_json",

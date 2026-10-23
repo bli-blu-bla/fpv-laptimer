@@ -246,6 +246,7 @@ export const EVENTS = [
   },
   { name: 'race_confirmed', desc: 'Ergebnis eines Rennens bestätigt.', fields: 'session_id, race, confirmed_us, winner, results[]' },
   { name: 'session_deleted', desc: 'Session gelöscht (verworfen, abgebrochen).', fields: 'session_id, race' },
+  { name: 'sessions_reset', desc: 'Alle Sessions gelöscht (Einstellungen → Daten); Piloten und Einstellungen bleiben.', fields: 'deleted' },
   { name: 'passes_changed', desc: 'Durchflüge korrigiert (Editor, Löschen, Erkennung nimmt einen zurück): Ergebnisse neu holen.', fields: 'session_id' },
   { name: 'channels_changed', desc: 'Kanäle oder ihre Piloten geändert.', fields: 'channels[]' },
   { name: 'pilot_added', desc: 'Pilot angelegt.', fields: 'pilot_id, name, full_name' },

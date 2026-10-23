@@ -27,6 +27,7 @@ pub const EVENT_NAMES: &[&str] = &[
     "session_stopped",
     "race_confirmed",
     "session_deleted",
+    "sessions_reset",
     "passes_changed",
     "channels_changed",
     "pilot_added",
