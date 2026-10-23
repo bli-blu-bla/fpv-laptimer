@@ -12,7 +12,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use serde::Serialize;
 
-use crate::detect::{DetectConfig, Detector, TRACE_BOARDS, TracePoint};
+use crate::detect::{DetectConfig, Detector, Event, TRACE_BOARDS, TracePoint};
 use crate::esp::board::Level;
 use crate::esp::frame::rssi_dbfs;
 
@@ -20,6 +20,8 @@ pub struct SessionTrace {
     /// host_us + offset_us = wall clock µs.
     offset_us: i64,
     channels: Vec<Vec<TracePoint>>,
+    /// What the detector reported (passes and retractions), host time.
+    events: Vec<Event>,
 }
 
 /// A time range of one channel, ready to draw. Times are wall clock µs,
@@ -45,6 +47,7 @@ pub fn load(path: &Path, config: DetectConfig, fixed: Vec<Option<(f32, f32)>>) -
     let mut n_channels = 0;
     // Boards that are not on the finish gate ("1=arming", "2=off").
     let mut skip: Vec<usize> = Vec::new();
+    let mut events: Vec<Event> = Vec::new();
     for (n, line) in BufReader::new(file).lines().enumerate() {
         let line = line?;
         if let Some(rest) = line.strip_prefix("# channels:") {
@@ -88,17 +91,17 @@ pub fn load(path: &Path, config: DetectConfig, fixed: Vec<Option<(f32, f32)>>) -
         };
         d.push(f[0] as usize, &[level]);
         if n % 16 == 0 {
-            d.advance();
+            events.extend(d.advance());
         }
     }
     let channels = match det {
         Some(mut d) => {
-            d.flush();
+            events.extend(d.flush());
             d.take_trace()
         }
         None => Vec::new(),
     };
-    Ok(SessionTrace { offset_us, channels })
+    Ok(SessionTrace { offset_us, channels, events })
 }
 
 fn db(code: u8) -> Option<f32> {
@@ -108,6 +111,21 @@ fn db(code: u8) -> Option<f32> {
 impl SessionTrace {
     fn points(&self, channel: usize) -> &[TracePoint] {
         self.channels.get(channel).map(|v| v.as_slice()).unwrap_or(&[])
+    }
+
+    /// host_us + this = wall clock µs.
+    pub fn offset_us(&self) -> i64 {
+        self.offset_us
+    }
+
+    /// Every slot of a channel (host time).
+    pub fn slots(&self, channel: usize) -> &[TracePoint] {
+        self.points(channel)
+    }
+
+    /// The detector's passes and retractions, in the order it reported them.
+    pub fn events(&self) -> &[Event] {
+        &self.events
     }
 
     /// First and last time of a channel, wall clock µs.

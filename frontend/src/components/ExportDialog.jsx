@@ -1,7 +1,7 @@
 // @ts-check
 // Export of one or several sessions as a file (server/src/data.rs,
 // GET /api/export): laps or result, all channels or some, CSV (spreadsheet)
-// or JSON.
+// or JSON; one session also as a debug package (.tar.gz with the raw levels).
 
 import { useState } from 'react'
 import { DownloadSimpleIcon } from '@phosphor-icons/react'
@@ -30,7 +30,7 @@ async function download(url) {
 /** @param {{sessions: import('../types').Session[], onClose: () => void}} props */
 export default function ExportDialog({ sessions, onClose }) {
   const [content, setContent] = useState(/** @type {'laps' | 'results'} */ ('laps'))
-  const [format, setFormat] = useState(/** @type {'csv' | 'json'} */ ('csv'))
+  const [format, setFormat] = useState(/** @type {'csv' | 'json' | 'debug'} */ ('csv'))
   /** Chosen channel indexes; empty: all. */
   const [channels, setChannels] = useState(/** @type {number[]} */ ([]))
   const [error, setError] = useState('')
@@ -51,9 +51,10 @@ export default function ExportDialog({ sessions, onClose }) {
   async function save() {
     setError('')
     setBusy(true)
-    const q = new URLSearchParams({ sessions: sessions.map((s) => s.id).join(','), channels: channels.join(','), content, format })
+    const ids = sessions.map((s) => s.id).join(',')
+    const q = new URLSearchParams(format === 'debug' ? { session: ids, channels: channels.join(',') } : { sessions: ids, channels: channels.join(','), content, format })
     try {
-      await download(`/api/export?${q}`)
+      await download(format === 'debug' ? `/api/export/debug?${q}` : `/api/export?${q}`)
       onClose()
     } catch (e) {
       setError(/** @type {Error} */ (e).message)
@@ -74,6 +75,11 @@ export default function ExportDialog({ sessions, onClose }) {
           <button className={format === 'json' ? 'on' : ''} onClick={() => setFormat('json')}>
             JSON
           </button>
+          {sessions.length === 1 && (
+            <button className={format === 'debug' ? 'on' : ''} onClick={() => setFormat('debug')}>
+              Debug
+            </button>
+          )}
         </div>
       </div>
       {format === 'csv' && (
@@ -107,6 +113,12 @@ export default function ExportDialog({ sessions, onClose }) {
           ))}
         </div>
       </div>
+      {format === 'debug' && (
+        <span className="muted small">
+          Alles zum Fehlersuchen in einer .tar.gz: Rohpegel (neu auswertbar mit <code>laptimer replay</code>), Pegelverlauf mit Schwellen je 10 ms, was der Detektor
+          meldete (auch Zurückgenommenes), alle Durchflüge, Einstellungen, Version.
+        </span>
+      )}
       {format === 'csv' && <span className="muted small">Für Excel und LibreOffice: Semikolon als Trenner, Dezimalkomma.</span>}
       {error && <p className="error">{error}</p>}
       <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>

@@ -6,6 +6,9 @@
 //!   index). CSV is meant for a spreadsheet: `;` between the fields, decimal
 //!   comma, UTF-8 with BOM (so Excel reads the umlauts). JSON has the
 //!   sessions with their standings and lap times (`content` doesn't matter).
+//! - Debug package: `GET /api/export/debug?session=3&channels=0,2` is a
+//!   `.tar.gz` with everything needed to find out why the detection did what
+//!   it did (`debug_package`).
 //! - Backup: `POST /api/backups` copies the database (`VACUUM INTO`, a
 //!   consistent copy while the server runs) and gzips it into
 //!   `<data>/backups/laptimer_<date>_<time>.db.gz`. `GET /api/backups`
@@ -16,7 +19,7 @@
 //!   is made first (`…_vor-reset.db.gz`).
 
 use std::fs::{self, File};
-use std::io::{BufReader, BufWriter};
+use std::io::{BufRead, BufReader, BufWriter};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -39,6 +42,7 @@ use crate::server::App;
 pub fn routes() -> Router<Arc<App>> {
     Router::new()
         .route("/export", get(export))
+        .route("/export/debug", get(export_debug))
         .route("/backups", get(list_backups).post(create_backup))
         .route("/backups/{name}", get(download_backup).delete(delete_backup))
         .route("/reset", post(reset))
@@ -515,4 +519,152 @@ mod tests {
         assert_eq!(secs(Some(13_712_400)), "13,712");
         assert_eq!(field("a\"b"), "\"a\"\"b\"");
     }
+}
+
+// --- debug package ---
+
+#[derive(Deserialize)]
+struct DebugQuery {
+    session: i64,
+    /// Channel indexes, comma separated; missing or empty: all.
+    #[serde(default)]
+    channels: String,
+}
+
+async fn export_debug(State(app): St, Query(q): Query<DebugQuery>) -> Response {
+    // Reads the level file (and runs the detector over it): not on the async threads.
+    let result = tokio::task::spawn_blocking(move || debug_package(&app, &q)).await;
+    match result {
+        Ok(Ok((name, body))) => file_response(&name, "application/gzip", body),
+        Ok(Err(e)) => bad(e),
+        Err(e) => bad(e.into()),
+    }
+}
+
+const DEBUG_README: &str = "\
+Debug-Paket des Laptimers
+
+session.json         Session (Config, Sitze, Zeiten), aktuelle Einstellungen, alle
+                     gespeicherten Durchflüge (auch gelöschte, von Hand eingefügte und
+                     Freigabe-Gate), Ergebnis, Version
+levels.csv           die Rohpegel der Session (Format wie `laptimer record`), nur die
+                     gewählten Kanäle; mit `laptimer replay levels.csv` neu auswertbar
+trace.csv            was der Detektor je 10-ms-Slot sah: Hüllkurve (kombiniert und je Board),
+                     Eintritts- und Austrittsschwelle (dBFS, leer = keine)
+detector_events.csv  was der Detektor meldete, auch Zurückgenommenes (retract). Neu
+                     gerechnet mit den Einstellungen der Session, also nicht unbedingt
+                     das, was die Session live gespeichert hat (siehe passes in session.json)
+
+Zeiten: *_us sind Wanduhr-Mikrosekunden (µs seit 1970); in levels.csv ist host_us
+die Host-Uhr, Wanduhr = host_us + clock_offset_us (session.json). Pegel in dBFS.
+";
+
+/// "-45.25" or "" (no data).
+fn db_text(v: Option<f32>) -> String {
+    v.map_or(String::new(), |x| format!("{x:.2}"))
+}
+
+fn code_db(code: u8) -> Option<f32> {
+    (code > 0).then(|| crate::esp::frame::rssi_dbfs(code))
+}
+
+/// A `.tar.gz` of one session for debugging, all channels or only some:
+/// (file name, content). Everything is built in memory (a level file of an
+/// hour is some 100 MB).
+fn debug_package(app: &App, q: &DebugQuery) -> Result<(String, Vec<u8>)> {
+    let channels: Vec<usize> = id_list(&q.channels, "channels")?.iter().map(|&c| c as usize).collect();
+    let wanted = |c: usize| channels.is_empty() || channels.contains(&c);
+    let id = q.session;
+    let (row, passes, settings) = {
+        let mut core = app.core.lock().unwrap();
+        let row = core.db.session(id)?.with_context(|| format!("Session {id} gibt es nicht."))?;
+        core.flush_levels(id)?;
+        let passes = core.db.passes(id)?;
+        (row, passes, core.settings.clone())
+    };
+    let levels_path = row.levels_file.clone().context("Für diese Session sind keine Pegel aufgezeichnet.")?;
+    let trace = crate::server::session_trace(app, id)?;
+    let offset = trace.offset_us();
+
+    // levels.csv: the comment lines, and the rows of the wanted channels.
+    let mut levels = Vec::new();
+    for line in BufReader::new(File::open(&levels_path)?).lines() {
+        let line = line?;
+        let keep = if line.starts_with('#') || line.starts_with("board") {
+            true
+        } else {
+            // board,channel,host_us,...
+            line.split(',').nth(1).and_then(|c| c.parse().ok()).is_some_and(&wanted)
+        };
+        if keep {
+            levels.extend_from_slice(line.as_bytes());
+            levels.push(b'\n');
+        }
+    }
+
+    // trace.csv: one row per slot and channel.
+    let mut trace_csv = String::from("channel,time_us,level_db");
+    for b in 0..crate::detect::TRACE_BOARDS {
+        trace_csv += &format!(",board{b}_db");
+    }
+    trace_csv += ",enter_db,exit_db\n";
+    for c in (0..8).filter(|&c| wanted(c)) {
+        for p in trace.slots(c) {
+            trace_csv += &format!("{c},{},{}", p.time_us + offset, db_text(code_db(p.level)));
+            for b in p.boards {
+                trace_csv += &format!(",{}", db_text(code_db(b)));
+            }
+            trace_csv += &format!(",{},{}\n", db_text(code_db(p.enter)), db_text(code_db(p.exit)));
+        }
+    }
+
+    let mut events_csv = String::from("event,channel,time_us,peak_db\n");
+    for e in trace.events() {
+        let (name, p) = match e {
+            crate::detect::Event::Pass(p) => ("pass", p),
+            crate::detect::Event::Retract(p) => ("retract", p),
+        };
+        if wanted(p.channel as usize) {
+            events_csv += &format!("{name},{},{},{:.2}\n", p.channel, p.time_us + offset, p.peak_db);
+        }
+    }
+
+    let results = results(&row, &passes);
+    let session = json!({
+        "laptimer_version": crate::VERSION,
+        "exported_us": crate::core::unix_now_us(),
+        "channels_exported": if channels.is_empty() { Value::Null } else { json!(channels) },
+        "clock_offset_us": offset,
+        "levels_file": levels_path,
+        "session": row,
+        "settings_now": settings,
+        "standings": standings(&row, &results),
+        "passes": passes.iter().filter(|p| wanted(p.channel as usize)).collect::<Vec<_>>(),
+    });
+
+    let mut name = format!("laptimer_session_{id}_debug");
+    if channels.len() == 1
+        && let Some(seat) = row.seats.iter().find(|s| s.channel as usize == channels[0])
+    {
+        name += &format!("_{}", seat.channel_name);
+    }
+
+    let mut tar = tar::Builder::new(GzEncoder::new(Vec::new(), Compression::default()));
+    let now = (crate::core::unix_now_us() / 1_000_000) as u64;
+    let files: [(&str, Vec<u8>); 5] = [
+        ("README.txt", DEBUG_README.as_bytes().to_vec()),
+        ("session.json", serde_json::to_vec_pretty(&session)?),
+        ("levels.csv", levels),
+        ("trace.csv", trace_csv.into_bytes()),
+        ("detector_events.csv", events_csv.into_bytes()),
+    ];
+    for (file, data) in &files {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(data.len() as u64);
+        header.set_mode(0o644);
+        header.set_mtime(now);
+        tar.append_data(&mut header, format!("{name}/{file}"), data.as_slice())?;
+    }
+    let body = tar.into_inner()?.finish()?;
+    Ok((format!("{name}.tar.gz"), body))
 }

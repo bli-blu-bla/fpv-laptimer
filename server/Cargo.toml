@@ -27,3 +27,4 @@ sha2 = "0.10"
 flate2 = "1"
 # ~/.laptimer/config.toml
 toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
+tar = { version = "0.4", default-features = false }

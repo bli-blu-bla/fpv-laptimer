@@ -312,7 +312,7 @@ async fn delete_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> Api
 /// A session's level graph, from the cache or computed. Reads a file of up
 /// to hundreds of MB: call it off the async threads (`spawn_blocking`); it
 /// doesn't hold the core lock while it reads.
-fn session_trace(app: &App, id: i64) -> Result<Arc<SessionTrace>> {
+pub fn session_trace(app: &App, id: i64) -> Result<Arc<SessionTrace>> {
     let (path, config, fixed) = {
         let mut core = app.core.lock().unwrap();
         let s = core.db.session(id)?.context("Diese Session gibt es nicht.")?;
