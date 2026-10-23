@@ -31,7 +31,7 @@ use tower_http::services::{ServeDir, ServeFile};
 
 use crate::api;
 use crate::auth::{self, Auth};
-use crate::config::AuthConfig;
+use crate::config::{AuthConfig, UpdateConfig};
 use crate::core::{BoardView, Core, Settings, results};
 use crate::db::{Db, PassEdit};
 use crate::detect::DetectConfig;
@@ -43,6 +43,7 @@ use crate::sound::Sounds;
 use crate::source::{self, Source};
 use crate::stats;
 use crate::trace::{self, SessionTrace};
+use crate::update::Updater;
 
 pub struct ServeOptions {
     pub port: u16,
@@ -55,6 +56,8 @@ pub struct ServeOptions {
     pub hooks_dir: PathBuf,
     /// The password for changes (`auth.rs`).
     pub auth: AuthConfig,
+    /// Updates from Forgejo (`update.rs`).
+    pub update: UpdateConfig,
 }
 
 /// Shared by all request handlers (axum's "state").
@@ -76,6 +79,8 @@ pub struct App {
     firmware_dir: PathBuf,
     /// The flash in progress or the last one (`/api/firmware`).
     flash: Mutex<Option<FlashStatus>>,
+    /// Updates, rollback, restart (`update.rs`).
+    pub update: Updater,
 }
 
 /// What the page shows while a board is flashed; also sent as the
@@ -88,6 +93,13 @@ struct FlashStatus {
     progress: Option<f64>,
     done: bool,
     error: Option<String>,
+}
+
+impl App {
+    /// A board is being flashed (no restart now).
+    pub fn flashing(&self) -> bool {
+        self.flash.lock().unwrap().as_ref().is_some_and(|s| !s.done)
+    }
 }
 
 pub fn run(opts: ServeOptions) -> Result<()> {
@@ -118,6 +130,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         traces: Mutex::new(HashMap::new()),
         firmware_dir: opts.web_dir.join("firmware"),
         flash: Mutex::new(None),
+        update: Updater::new(opts.update.clone())?,
     });
     restart_source(&app)?;
 
@@ -166,6 +179,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .merge(auth::routes())
         .merge(api::page_routes())
         .merge(crate::data::routes())
+        .merge(crate::update::routes())
         .nest("/v1", api::router(Arc::clone(&app)))
         // Announcements played by the browsers: the clips and the spoken texts.
         .nest_service("/audio/clips", ServeDir::new(&opts.sounds_dir))

@@ -26,6 +26,21 @@ pub struct Config {
     /// The hooks' scripts.
     pub hooks: Option<PathBuf>,
     pub auth: AuthConfig,
+    pub update: UpdateConfig,
+}
+
+/// Updates from the web page (`update.rs`).
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct UpdateConfig {
+    /// The Forgejo repository with the releases, e.g.
+    /// `https://git.homeserver.local/bli-blu-bla/LapTimer`. Empty: only uploads.
+    pub url: String,
+    /// A Forgejo access token (scope read:repository) for a private repository.
+    pub token: String,
+    /// More public keys (the base64 line of a `minisign.pub`) besides the
+    /// built-in one, e.g. for a new signing key.
+    pub extra_keys: Vec<String>,
 }
 
 /// The password for everything that changes something (`auth.rs`).
@@ -105,7 +120,13 @@ fn write_default(path: &Path) -> Result<()> {
          # Passwort für alles, was etwas ändert (Rennleitung, Einstellungen, …).\n\
          # Abschalten nur ausdrücklich mit: enabled = false\n\
          enabled = true\n\
-         password = \"{password}\"\n"
+         password = \"{password}\"\n\
+         \n\
+         [update]\n\
+         # Updates von Forgejo (Einstellungen → System → Nach Updates suchen).\n\
+         # Ohne url: nur Hochladen. Token (read:repository) für ein privates Repo.\n\
+         # url = \"https://git.homeserver.local/bli-blu-bla/LapTimer\"\n\
+         # token = \"\"\n"
     );
     write_private(path, &text)?;
     eprintln!(

@@ -25,7 +25,8 @@ cd laptimer-0.2.0
 Als normaler Nutzer, nicht als root. Beim ersten Mal fragt das Script nach dem **Passwort für
 die Rennleitung** (leer = zufällig, wird angezeigt) und einmal per sudo nach dem, was fehlt:
 
-- Pakete `mpg123`, `alsa-utils`, `libttspico-utils` (Sprachausgabe; geht das nicht, `espeak-ng`)
+- Pakete `mpg123`, `alsa-utils`, `libttspico-utils` (Sprachausgabe; geht das nicht, `espeak-ng`),
+  `curl` (Updates von Forgejo)
 - Gruppen `dialout` (Boards an USB) und `audio`
 - `loginctl enable-linger`: der Dienst startet beim Booten ohne Anmeldung
 - `/etc/sudoers.d/laptimer`: nur `systemctl poweroff` und `reboot` ohne Passwort, damit die
@@ -41,6 +42,7 @@ Kamen neue Gruppen dazu, einmal `sudo reboot`. Danach läuft der Laptimer unter
 | `~/.laptimer/previous` | → die Version davor |
 | `~/.laptimer/releases/` | die drei neuesten Versionen (`current` und `previous` bleiben immer) |
 | `~/.laptimer/data/` | Datenbank, Pegel, Backups, `hooks/` (Beispiele in `releases/<ver>/hooks-examples/`) |
+| `~/.laptimer/update-pending`, `update-failed` | nur während bzw. nach einem missglückten Update über die Seite |
 | `~/.config/systemd/user/laptimer.service` | der Dienst |
 
 Bedienen:
@@ -56,6 +58,34 @@ journalctl --user -u laptimer -f     # Log (ohne persistentes Journal: journalct
 Eine neue Version installiert man genauso (entpacken, `./install.sh`): Config und Daten
 bleiben, die alte Version wird `previous`.
 
+## Update über die Seite
+
+**Einstellungen → System** (mit Login; nicht während einer Session):
+
+- **Paket hochladen:** aus dem Forgejo-Release `laptimer-<ver>-aarch64.tar.gz` und
+  `laptimer-<ver>-aarch64.tar.gz.minisig` herunterladen und beide zusammen wählen (geht auch
+  am Handy, ohne Internet am Platz).
+- **Nach Updates suchen:** fragt Forgejo direkt, wenn der Pi ins Internet kommt. Dafür in
+  `~/.laptimer/config.toml` (danach `systemctl --user restart laptimer`):
+  ```toml
+  [update]
+  url = "https://git.homeserver.local/bli-blu-bla/LapTimer"
+  token = "…"   # Forgejo: Einstellungen → Anwendungen → Token, Berechtigung read:repository
+  ```
+  Braucht `curl` (installiert `install.sh`).
+
+Der Server prüft die Signatur (nur Pakete, die die CI signiert hat), zeigt die Version und
+installiert erst nach „Installieren“: Backup `…_vor-update`, neue Version nach
+`releases/`, `current` umgesetzt, Neustart (die Seite lädt sich danach selbst neu). Eine
+ältere oder dieselbe Version nur nach Rückfrage.
+
+Kommt die neue Version nicht hoch (startet nicht oder stürzt in den ersten 15 s ab), geht
+systemd beim 4. Start automatisch auf die vorige zurück (`update-check.sh` in der Unit); die
+Seite zeigt das dann an. Von Hand: „Zurück auf …“ auf der Seite, oder
+`~/.laptimer/current/install.sh --rollback`.
+
+Dort auch: Laptimer neu starten, Pi neu starten, Pi herunterfahren (vor dem Strom-Abziehen).
+
 ## Release bauen (Forgejo)
 
 Ein Tag `v*` baut in der CI (`.forgejo/workflows/release.yml`) ein Release:
@@ -70,7 +100,7 @@ Die CI testet (Server, Seite), baut die Firmware, die Seite und den Server für 
 
 | Datei | Inhalt |
 |---|---|
-| `laptimer-<ver>-aarch64.tar.gz` | `bin/laptimer`, `web/` (mit Firmware), `sounds/`, `hooks-examples/`, `install.sh`, `VERSION`, `minisign.pub` |
+| `laptimer-<ver>-aarch64.tar.gz` | `bin/laptimer`, `web/` (mit Firmware), `sounds/`, `hooks-examples/`, `install.sh`, `laptimer.service`, `update-check.sh`, `VERSION`, `minisign.pub` |
 | `….tar.gz.minisig` | Signatur (minisign) |
 | `….tar.gz.sha256` | Prüfsumme |
 
@@ -80,7 +110,8 @@ Eine Version mit Bindestrich (`v0.2.0-rc1`) wird als Vorabversion markiert. Jede
 ### Einmalig: Signatur-Schlüssel
 
 Updates prüft der Server gegen den öffentlichen Schlüssel `minisign.pub` im Repo (fest in
-die Binary eingebaut). Den privaten Schlüssel kennt nur die CI:
+die Binary eingebaut; weitere Schlüssel, z. B. nach einem Schlüsselwechsel, mit
+`extra_keys = ["RW…"]` unter `[update]` in `config.toml`). Den privaten Schlüssel kennt nur die CI:
 
 1. Schlüsselpaar erzeugen (fragt nach einem Passwort):
    ```sh

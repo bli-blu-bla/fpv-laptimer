@@ -18,7 +18,7 @@ serde_json = "1"
 # bundled: SQLite is compiled in, nothing to install on the Pi.
 rusqlite = { version = "0.37", features = ["bundled"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "signal"] }
-axum = { version = "0.8", features = ["ws"] }
+axum = { version = "0.8", features = ["multipart", "ws"] }
 tower-http = { version = "0.6", features = ["fs"] }
 # Writes the firmware from the web page (Boards → Firmware); without the CLI.
 espflash = { version = "4.6", default-features = false, features = ["serialport"] }
@@ -28,3 +28,5 @@ flate2 = "1"
 # ~/.laptimer/config.toml
 toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
 tar = { version = "0.4", default-features = false }
+# Checks the signature of an update (minisign, pure Rust).
+minisign-verify = "0.3.0"

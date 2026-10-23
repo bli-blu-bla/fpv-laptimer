@@ -9,9 +9,15 @@
 [Unit]
 Description=FPV Laptimer
 After=sound.target
+# Keep trying: update-check.sh needs the starts to roll back a broken update,
+# and at the meetup nobody can reset a failed unit.
+StartLimitIntervalSec=0
 
 [Service]
 WorkingDirectory=%h/.laptimer
+# Rolls back an update from the web page that doesn't come up. Through sh and
+# with "-": an older release without the script doesn't stop the start.
+ExecStartPre=-/bin/sh %h/.laptimer/current/update-check.sh
 # current -> releases/<version> (install.sh, updates)
 ExecStart=%h/.laptimer/current/bin/laptimer serve
 # Also after an update: the server exits, systemd starts the new current.

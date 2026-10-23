@@ -1,7 +1,7 @@
 // @ts-check
 // Settings that rarely change: which channels are scanned, minimum lap,
-// gain, the sound, the data (backups, deleting all sessions), the login and
-// the version. (Boards and
+// gain, the sound, the data (backups, deleting all sessions), the login,
+// and the system (version, updates, restart: SystemPanel). (Boards and
 // gates: their own page; slots, race format and manual thresholds: race
 // control; exporting sessions: the sessions page.)
 
@@ -13,6 +13,7 @@ import { logout, useAuth } from '../auth.js'
 import { RACEBAND, dateTime, slotColor } from '../format.js'
 import Dialog from '../components/Dialog.jsx'
 import Stepper from '../components/Stepper.jsx'
+import SystemPanel from '../components/SystemPanel.jsx'
 
 /** @param {{state: import('../types').State, onOpenApi: () => void}} props */
 export default function SettingsPage({ state, onOpenApi }) {
@@ -120,7 +121,8 @@ export default function SettingsPage({ state, onOpenApi }) {
         <AnnouncePanel settings={s} save={save} />
         {error && <p className="error">{error}</p>}
         <DataPanel running={running} />
-        <AccessPanel version={state.version} />
+        <AccessPanel />
+        <SystemPanel version={state.version} running={running} />
         {/* On phones the API page has no tab of its own. */}
         <button className="btn btn-secondary narrow-only" onClick={onOpenApi}>
           <CodeIcon size={16} /> API & Hooks
@@ -252,9 +254,8 @@ function MhzInput({ value, disabled, onSet }) {
 /** @param {number} n */
 const size = (n) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1).replace('.', ',')} MB`)
 
-/** Logging out (this device or all), and the server's version.
- * @param {{version: string}} props */
-function AccessPanel({ version }) {
+/** Logging out (this device or all). */
+function AccessPanel() {
   const { enabled } = useAuth()
   const [error, setError] = useState('')
   /** @param {boolean} everywhere */
@@ -285,7 +286,6 @@ function AccessPanel({ version }) {
           </span>
         )}
         {error && <p className="error">{error}</p>}
-        <span className="muted small">Version {version}</span>
       </div>
     </div>
   )

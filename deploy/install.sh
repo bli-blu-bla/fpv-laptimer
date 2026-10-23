@@ -24,7 +24,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 home=$HOME/.laptimer
 unit_dir=$HOME/.config/systemd/user
 keep=3
-packages=(mpg123 alsa-utils libttspico-utils)
+packages=(mpg123 alsa-utils libttspico-utils curl)
 
 say() { printf '\033[1m%s\033[0m\n' "$*"; }
 die() { printf 'Fehler: %s\n' "$*" >&2; exit 1; }
@@ -63,6 +63,7 @@ if [ $mode = rollback ]; then
     prev=$(readlink "$home/previous" 2>/dev/null) || die "keine vorige Version ($home/previous fehlt)"
     [ -x "$home/$prev/bin/laptimer" ] || die "$home/$prev ist nicht mehr da"
     cur=$(readlink "$home/current")
+    rm -f "$home/update-pending" # a rollback by hand ends a pending update
     ln -sfn "$prev" "$home/current.new" && mv -Tf "$home/current.new" "$home/current"
     ln -sfn "$cur" "$home/previous.new" && mv -Tf "$home/previous.new" "$home/previous"
     restart_service
@@ -135,6 +136,8 @@ if [ -n "$old" ] && [ "$old" != "releases/$version" ]; then
     ln -sfn "$old" "$home/previous.new" && mv -Tf "$home/previous.new" "$home/previous"
 fi
 ln -sfn "releases/$version" "$home/current.new" && mv -Tf "$home/current.new" "$home/current"
+# Installed by hand: a pending update from the web page is over.
+rm -f "$home/update-pending" "$home/update-failed"
 
 # The config, on the first install.
 config=$home/config.toml
@@ -162,6 +165,12 @@ if [ ! -e "$config" ]; then
 # Abschalten nur ausdrücklich mit: enabled = false
 enabled = true
 password = "$password"
+
+[update]
+# Updates von Forgejo (Einstellungen → System → Nach Updates suchen).
+# Ohne url: nur Hochladen. Token (read:repository) für ein privates Repo.
+# url = "https://git.homeserver.local/bli-blu-bla/LapTimer"
+# token = ""
 EOF
     umask 022
 fi

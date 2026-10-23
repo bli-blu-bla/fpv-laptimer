@@ -20,6 +20,7 @@ mod sound;
 mod source;
 mod stats;
 mod trace;
+mod update;
 
 use std::path::PathBuf;
 
@@ -179,6 +180,7 @@ fn main() -> Result<()> {
                     .unwrap_or_else(|| installed("sounds", "../sounds")),
                 replay,
                 auth: cfg.auth,
+                update: cfg.update,
             })
         }
         Command::Replay { csv, board, min_lap, min_rise } => {

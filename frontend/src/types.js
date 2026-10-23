@@ -185,6 +185,27 @@
  * @property {string | null} error   why there is none
  * @property {FirmwarePort[]} ports
  * @property {FlashStatus | null} flash
+ *
+ * @typedef {'newer' | 'same' | 'older' | 'unclear'} VersionOrder   compared with the running version
+ *
+ * @typedef {object} UpdateStatus   /api/update (server/src/update.rs)
+ * @property {string} version
+ * @property {boolean} installed   runs from an installed release (only then updates)
+ * @property {string | null} previous   the version "back" goes to
+ * @property {boolean} online   [update] url is set: Forgejo can be asked
+ * @property {{version: string, order: VersionOrder, source: string} | null} staged   checked, waiting for "install"
+ * @property {{to: string, from: string, time_s: number | null} | null} failed   an update that didn't come up (rolled back)
+ * @property {boolean} pending   a new version still has to prove it runs
+ * @property {boolean} managed   runs under systemd (starts again after an exit)
+ * @property {boolean} power   may reboot / shut down the Pi
+ *
+ * @typedef {object} OnlineRelease   /api/update/releases
+ * @property {string} tag
+ * @property {string} version
+ * @property {boolean} prerelease
+ * @property {string} published_at
+ * @property {VersionOrder} order
+ * @property {boolean} available   has the package for this processor and its signature
  */
 
 export {}

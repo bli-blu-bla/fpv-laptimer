@@ -1269,3 +1269,28 @@ textarea.input {
 .ws-line.out .ws-head {
   color: var(--accent);
 }
+
+/* Settings → System (components/SystemPanel.jsx) */
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-sm);
+  font-size: 13px;
+}
+.notice.error-notice {
+  justify-content: space-between;
+  color: var(--bad);
+}
+.staged {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: var(--accent-900);
+  box-shadow: 0 0 0 1px var(--accent-800);
+}

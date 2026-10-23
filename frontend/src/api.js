@@ -8,14 +8,15 @@ import { loginNeeded } from './auth.js'
 
 /**
  * @param {string} path  e.g. "/session/start"
- * @param {{method?: string, body?: unknown}} [opts]
+ * @param {{method?: string, body?: unknown, form?: FormData}} [opts]  `form`: a file upload instead of JSON
  * @returns {Promise<any>}
  */
 export async function api(path, opts = {}) {
+  const json = opts.body !== undefined
   const res = await fetch('/api' + path, {
-    method: opts.method ?? (opts.body === undefined ? 'GET' : 'POST'),
-    headers: opts.body === undefined ? {} : { 'content-type': 'application/json' },
-    body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
+    method: opts.method ?? (json || opts.form ? 'POST' : 'GET'),
+    headers: json ? { 'content-type': 'application/json' } : {},
+    body: opts.form ?? (json ? JSON.stringify(opts.body) : undefined),
   })
   const data = await res.json().catch(() => ({}))
   // Changing needs the login (auth.js): ask for it.

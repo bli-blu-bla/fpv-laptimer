@@ -75,8 +75,8 @@ pub async fn require_login(State(app): State<Arc<App>>, req: Request, next: Next
     (StatusCode::UNAUTHORIZED, Json(json!({ "error": error, "login": true }))).into_response()
 }
 
-/// Reading is open, except API keys, hooks and backups (a backup holds
-/// everything). Changing needs a login; `/api/v1` has its own keys.
+/// Reading is open, except API keys, hooks, backups (a backup holds
+/// everything) and updates. Changing needs a login; `/api/v1` has its own keys.
 fn needs_login(method: &Method, path: &str) -> bool {
     // Nested routers see the path without "/api"; strip it either way.
     let path = path.strip_prefix("/api").unwrap_or(path);
@@ -85,7 +85,7 @@ fn needs_login(method: &Method, path: &str) -> bool {
         return false;
     }
     if method == Method::GET || method == Method::HEAD {
-        return under("/keys") || under("/hooks") || under("/backups");
+        return under("/keys") || under("/hooks") || under("/backups") || under("/update") || under("/system");
     }
     true
 }
