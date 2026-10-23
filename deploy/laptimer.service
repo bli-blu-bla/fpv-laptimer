@@ -1,0 +1,22 @@
+# The laptimer as a systemd user service (install.sh puts it into
+# ~/.config/systemd/user/). Runs as the user who installed it; with
+# "loginctl enable-linger" it starts at boot without a login.
+#
+#   systemctl --user status laptimer
+#   systemctl --user restart laptimer
+#   journalctl --user -u laptimer -f      (or: journalctl --user-unit laptimer -f)
+
+[Unit]
+Description=FPV Laptimer
+After=sound.target
+
+[Service]
+WorkingDirectory=%h/.laptimer
+# current -> releases/<version> (install.sh, updates)
+ExecStart=%h/.laptimer/current/bin/laptimer serve
+# Also after an update: the server exits, systemd starts the new current.
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=default.target

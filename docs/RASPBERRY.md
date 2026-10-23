@@ -3,6 +3,59 @@
 Ziel: Raspberry Pi 3 mit **64-bit Raspberry Pi OS Lite** (Bookworm oder neuer). Der Laptimer
 läuft als Dienst des Nutzers, der ihn installiert; alles liegt in `~/.laptimer`.
 
+## Pi vorbereiten
+
+1. Mit dem Raspberry Pi Imager **Raspberry Pi OS Lite (64-bit)** auf die SD-Karte schreiben;
+   in den Einstellungen des Imagers Hostname (z. B. `laptimer`), Nutzer mit Passwort, SSH
+   und ggf. WLAN setzen.
+2. Pi per LAN an den Router, einschalten, per `ssh <nutzer>@<hostname>.local` anmelden.
+3. ESP-Boards per USB anstecken, Lautsprecher an die Klinke oder per USB.
+
+## Installieren
+
+Das Release (`laptimer-<ver>-aarch64.tar.gz`) aus Forgejo herunterladen und auf den Pi
+kopieren, z. B. `scp laptimer-0.2.0-aarch64.tar.gz <nutzer>@<hostname>.local:`, dann auf dem Pi:
+
+```sh
+tar xzf laptimer-0.2.0-aarch64.tar.gz
+cd laptimer-0.2.0
+./install.sh
+```
+
+Als normaler Nutzer, nicht als root. Beim ersten Mal fragt das Script nach dem **Passwort für
+die Rennleitung** (leer = zufällig, wird angezeigt) und einmal per sudo nach dem, was fehlt:
+
+- Pakete `mpg123`, `alsa-utils`, `libttspico-utils` (Sprachausgabe; geht das nicht, `espeak-ng`)
+- Gruppen `dialout` (Boards an USB) und `audio`
+- `loginctl enable-linger`: der Dienst startet beim Booten ohne Anmeldung
+- `/etc/sudoers.d/laptimer`: nur `systemctl poweroff` und `reboot` ohne Passwort, damit die
+  Seite den Pi herunterfahren kann
+
+Kamen neue Gruppen dazu, einmal `sudo reboot`. Danach läuft der Laptimer unter
+`http://<hostname>.local:5800` (das Script zeigt auch die IP).
+
+| Pfad | Inhalt |
+|---|---|
+| `~/.laptimer/config.toml` | Port, Passwort (`[auth]`), Pfade; nach Änderungen `systemctl --user restart laptimer` |
+| `~/.laptimer/current` | → `releases/<ver>`, die laufende Version |
+| `~/.laptimer/previous` | → die Version davor |
+| `~/.laptimer/releases/` | die drei neuesten Versionen (`current` und `previous` bleiben immer) |
+| `~/.laptimer/data/` | Datenbank, Pegel, Backups, `hooks/` (Beispiele in `releases/<ver>/hooks-examples/`) |
+| `~/.config/systemd/user/laptimer.service` | der Dienst |
+
+Bedienen:
+
+```sh
+systemctl --user status laptimer
+systemctl --user restart laptimer
+journalctl --user -u laptimer -f     # Log (ohne persistentes Journal: journalctl --user-unit laptimer -f)
+~/.laptimer/current/install.sh --rollback    # zurück auf die vorige Version
+~/.laptimer/current/install.sh --uninstall   # Dienst entfernen (Daten bleiben)
+```
+
+Eine neue Version installiert man genauso (entpacken, `./install.sh`): Config und Daten
+bleiben, die alte Version wird `previous`.
+
 ## Release bauen (Forgejo)
 
 Ein Tag `v*` baut in der CI (`.forgejo/workflows/release.yml`) ein Release:

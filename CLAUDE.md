@@ -23,7 +23,15 @@ Ownership-/async-Stellen kommentieren), Frontend in JavaScript mit JSDoc (`// @t
 alles in `~/.laptimer`. `tools/build_release.sh [VERSION] [--no-firmware]` baut Firmware,
 Seite und Server (`cargo zigbuild --target aarch64-unknown-linux-gnu.2.36`, also glibc ≥ 2.36)
 und packt `dist/laptimer-<ver>-aarch64.tar.gz` (`bin/`, `web/` mit Firmware, `sounds/`,
-`hooks-examples/`, `deploy/*`, `VERSION`, `minisign.pub`) + `.sha256`. Die CI signiert mit
+`hooks-examples/`, `deploy/*`, `VERSION`, `minisign.pub`) + `.sha256`. `deploy/install.sh`
+(als Nutzer, nicht root): sudo nur für Fehlendes (Pakete, Gruppen `dialout`/`audio`, Linger,
+`/etc/sudoers.d/laptimer` nur für `systemctl poweroff/reboot`; geprüft mit `sudo -n -l`, weil
+`sudoers.d` nicht lesbar ist), Release nach `~/.laptimer/releases/<ver>`, Symlinks `current`
+und `previous` (atomar per `mv -T`), `config.toml` beim ersten Mal (Passwort fragen oder
+zufällig), drei Releases behalten, User-Unit `deploy/laptimer.service` (`Restart=always`:
+ein Update beendet den Server, systemd startet das neue `current`); `--rollback`,
+`--uninstall`. Getestet im Container mit Attrappen für sudo/systemctl/loginctl, nicht auf
+einem echten Pi. Die CI signiert mit
 minisign (Secrets `RELEASE_SIGNING_KEY`, `RELEASE_SIGNING_PASSWORD`; das Passwort liest
 minisign ohne Terminal aus stdin) und lädt per Forgejo-API (`secrets.GITHUB_TOKEN`) ins
 Release. Gemessen 2026-10-23 lokal im selben Container: ganzer Build ~3 min ohne Cache
