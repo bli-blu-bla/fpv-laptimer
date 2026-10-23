@@ -25,3 +25,5 @@ espflash = { version = "4.6", default-features = false, features = ["serialport"
 sha2 = "0.10"
 # Backups of the database (gzip).
 flate2 = "1"
+# ~/.laptimer/config.toml
+toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }

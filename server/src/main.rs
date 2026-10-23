@@ -1,7 +1,10 @@
-//! FPV lap timer. For now: `laptimer ports` and `laptimer record`.
+//! FPV lap timer: `laptimer serve` (the server), `record`/`replay` (test
+//! flights), `ports`.
 
 mod api;
+mod auth;
 mod clock;
+mod config;
 mod core;
 mod data;
 mod db;
@@ -25,11 +28,14 @@ use clap::{Parser, Subcommand};
 
 use esp::board::{ScanConfig, find_ports};
 
+/// The version: the release's (CI), else `git describe` (`build.rs`).
+pub const VERSION: &str = env!("LAPTIMER_VERSION");
+
 /// The usual channels at our meetup.
 const DEFAULT_CHANNELS: &str = "R1=5658,R3=5732,R6=5843,R8=5917";
 
 #[derive(Parser)]
-#[command(version, about = "FPV lap timer with ESP32-C5 boards")]
+#[command(version = VERSION, about = "FPV lap timer with ESP32-C5 boards")]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -64,19 +70,25 @@ enum Command {
         min_lap: f64,
     },
     /// Run the lap timer: web page, database, announcements.
+    ///
+    /// Without options, everything comes from ~/.laptimer/config.toml (made
+    /// with a random password if it is missing).
     Serve {
-        /// Web port.
-        #[arg(long, default_value_t = 5800)]
-        port: u16,
-        /// Database and session levels.
-        #[arg(long, default_value = "data")]
-        data: PathBuf,
-        /// The built web page.
-        #[arg(long, default_value = "../frontend/dist")]
-        web: PathBuf,
-        /// The announcement MP3s.
-        #[arg(long, default_value = "../sounds")]
-        sounds: PathBuf,
+        /// The installation's settings. Default: ~/.laptimer/config.toml
+        #[arg(long)]
+        config: Option<PathBuf>,
+        /// Web port (default 5800).
+        #[arg(long)]
+        port: Option<u16>,
+        /// Database and session levels. Default: ~/.laptimer/data
+        #[arg(long)]
+        data: Option<PathBuf>,
+        /// The built web page. Default: web/ next to bin/, else ../frontend/dist
+        #[arg(long)]
+        web: Option<PathBuf>,
+        /// The announcement MP3s. Default: sounds/ next to bin/, else ../sounds
+        #[arg(long)]
+        sounds: Option<PathBuf>,
         /// Play this recording (in a loop) instead of reading boards.
         #[arg(long)]
         replay: Option<PathBuf>,
@@ -133,26 +145,52 @@ fn main() -> Result<()> {
             })
         }
         Command::Serve {
+            config,
             port,
             data,
             web,
             sounds,
             replay,
             hooks,
-        } => server::run(server::ServeOptions {
-            port,
-            hooks_dir: hooks.unwrap_or_else(|| data.join("hooks")),
-            data_dir: data,
-            web_dir: web,
-            sounds_dir: sounds,
-            replay,
-        }),
+        } => {
+            let home = config::home_dir()?;
+            let cfg = match &config {
+                Some(path) => config::load(path, true)?,
+                None => config::load(&home.join("config.toml"), false)?,
+            };
+            // Command line, then config.toml, then the default.
+            let data = data.or(cfg.data).unwrap_or_else(|| home.join("data"));
+            let hooks_dir = hooks.or(cfg.hooks).unwrap_or_else(|| data.join("hooks"));
+            server::run(server::ServeOptions {
+                port: port.or(cfg.port).unwrap_or(5800),
+                hooks_dir,
+                data_dir: data,
+                web_dir: web.or(cfg.web).unwrap_or_else(|| installed("web", "../frontend/dist")),
+                sounds_dir: sounds
+                    .or(cfg.sounds)
+                    .unwrap_or_else(|| installed("sounds", "../sounds")),
+                replay,
+                auth: cfg.auth,
+            })
+        }
         Command::Replay { csv, board, min_lap } => {
             let config = detect::DetectConfig {
                 min_lap_us: (min_lap * 1e6) as i64,
             };
             replay::run(&csv, board, config)
         }
+    }
+}
+
+/// A folder of the installed release (`<release>/bin/laptimer` →
+/// `<release>/<name>`), or `dev` (relative to `server/`, for `cargo run`).
+fn installed(name: &str, dev: &str) -> PathBuf {
+    let release = std::env::current_exe()
+        .ok()
+        .and_then(|exe| Some(exe.parent()?.parent()?.join(name)));
+    match release {
+        Some(dir) if dir.is_dir() => dir,
+        _ => PathBuf::from(dev),
     }
 }
 

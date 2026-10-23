@@ -6,6 +6,7 @@
 import { useEffect, useState } from 'react'
 import { CheckSquareIcon, DownloadSimpleIcon, FlagCheckeredIcon, InfinityIcon, PencilSimpleIcon, SquareIcon, TrashIcon } from '@phosphor-icons/react'
 import { api } from '../api.js'
+import { useAuth } from '../auth.js'
 import { dateTime, secs, sessionKind, time } from '../format.js'
 import { standings } from '../model.js'
 import Dialog from '../components/Dialog.jsx'
@@ -129,6 +130,7 @@ export default function Sessions({ changed, state }) {
 /** One session: result, lap times, correcting, exporting, deleting.
  * @param {{id: number, changed: number, editing: boolean, onEditing: (on: boolean) => void, onExport: (s: import('../types').Session[]) => void}} props */
 function SessionView({ id, changed, editing, onEditing, onExport }) {
+  const { canEdit } = useAuth()
   const [d, setD] = useState(/** @type {import('../types').SessionDetail | null} */ (null))
   const [confirm, setConfirm] = useState(false)
   const [error, setError] = useState('')
@@ -157,7 +159,7 @@ function SessionView({ id, changed, editing, onEditing, onExport }) {
           <button className="btn btn-ghost btn-icon" title="Exportieren (CSV, JSON)" onClick={() => onExport([s])}>
             <DownloadSimpleIcon size={18} />
           </button>
-          {s.ended_us != null && (
+          {canEdit && s.ended_us != null && (
             <button className="btn btn-ghost btn-icon" title="Session löschen" onClick={() => setConfirm(true)}>
               <TrashIcon size={18} />
             </button>
@@ -166,7 +168,7 @@ function SessionView({ id, changed, editing, onEditing, onExport }) {
       </div>
       {error && <p className="error">{error}</p>}
       <Ranking detail={d} />
-      {editing ? (
+      {editing && canEdit ? (
         <>
           <button className="btn btn-secondary" style={{ alignSelf: 'flex-start' }} onClick={() => onEditing(false)}>
             Bearbeiten schließen
@@ -174,7 +176,7 @@ function SessionView({ id, changed, editing, onEditing, onExport }) {
           <PassEditor detail={d} onSaved={reload} />
         </>
       ) : (
-        <button className="btn btn-secondary" style={{ alignSelf: 'flex-start' }} onClick={() => onEditing(true)}>
+        canEdit && <button className="btn btn-secondary" style={{ alignSelf: 'flex-start' }} onClick={() => onEditing(true)}>
           <PencilSimpleIcon size={16} /> Runden bearbeiten
         </button>
       )}

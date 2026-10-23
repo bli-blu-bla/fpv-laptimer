@@ -1,5 +1,5 @@
 #!/bin/sh
-# Hook-Script: in den Script-Ordner kopieren (Standard server/data/hooks/, ausführbar).
+# Hook-Script: in den Script-Ordner kopieren (Standard ~/.laptimer/data/hooks/, ausführbar).
 # LED an einem GPIO des Raspberry Pi: led.sh <gpio> on|off|blink
 # Braucht `pinctrl` (Raspberry Pi OS ab Bookworm; der Server-Nutzer muss in der
 # Gruppe gpio sein). Pin-Nummern sind BCM-Nummern (GPIO17 = Pin 11).

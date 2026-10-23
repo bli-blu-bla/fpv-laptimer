@@ -60,6 +60,10 @@ CREATE TABLE IF NOT EXISTS hooks (
     background INTEGER NOT NULL DEFAULT 0,
     enabled INTEGER NOT NULL DEFAULT 1
 );
+CREATE TABLE IF NOT EXISTS logins (
+    hash TEXT PRIMARY KEY,         -- sha256 of the login cookie (auth.rs)
+    created_us INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL            -- JSON
@@ -308,6 +312,38 @@ impl Db {
         self.conn.execute(
             "UPDATE api_keys SET last_used_us = ?2 WHERE id = ?1",
             params![id, used_us],
+        )?;
+        Ok(())
+    }
+
+    // --- logins (auth.rs) ---
+
+    pub fn add_login(&self, hash: &str, created_us: i64) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO logins (hash, created_us) VALUES (?1, ?2)",
+            params![hash, created_us],
+        )?;
+        Ok(())
+    }
+
+    /// Whether a login with this hash exists that was made after `since_us`.
+    pub fn login_valid(&self, hash: &str, since_us: i64) -> Result<bool> {
+        Ok(self
+            .conn
+            .prepare("SELECT 1 FROM logins WHERE hash = ?1 AND created_us > ?2")?
+            .exists(params![hash, since_us])?)
+    }
+
+    pub fn delete_login(&self, hash: &str) -> Result<()> {
+        self.conn.execute("DELETE FROM logins WHERE hash = ?1", [hash])?;
+        Ok(())
+    }
+
+    /// All logins, or those made before `before_us` (expired).
+    pub fn delete_logins(&self, before_us: Option<i64>) -> Result<()> {
+        self.conn.execute(
+            "DELETE FROM logins WHERE created_us < ?1",
+            [before_us.unwrap_or(i64::MAX)],
         )?;
         Ok(())
     }

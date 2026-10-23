@@ -1,13 +1,15 @@
 // @ts-check
 // Settings that rarely change: which channels are scanned, minimum lap,
-// gain, the sound, the data (backups, deleting all sessions). (Boards and
+// gain, the sound, the data (backups, deleting all sessions), the login and
+// the version. (Boards and
 // gates: their own page; slots, race format and manual thresholds: race
 // control; exporting sessions: the sessions page.)
 
 import { useEffect, useState } from 'react'
-import { PlusIcon, PlayIcon, SpeakerHighIcon, SlidersIcon, TrashIcon, BroadcastIcon, CodeIcon, DatabaseIcon, DownloadSimpleIcon, ArchiveIcon } from '@phosphor-icons/react'
+import { PlusIcon, PlayIcon, SpeakerHighIcon, SlidersIcon, TrashIcon, BroadcastIcon, CodeIcon, DatabaseIcon, DownloadSimpleIcon, ArchiveIcon, LockIcon } from '@phosphor-icons/react'
 import { api, saveSettings } from '../api.js'
 import { isSpeaker, setSpeaker } from '../announcer.js'
+import { logout, useAuth } from '../auth.js'
 import { RACEBAND, dateTime, slotColor } from '../format.js'
 import Dialog from '../components/Dialog.jsx'
 import Stepper from '../components/Stepper.jsx'
@@ -108,6 +110,7 @@ export default function SettingsPage({ state, onOpenApi }) {
         <AnnouncePanel settings={s} save={save} />
         {error && <p className="error">{error}</p>}
         <DataPanel running={running} />
+        <AccessPanel version={state.version} />
         {/* On phones the API page has no tab of its own. */}
         <button className="btn btn-secondary narrow-only" onClick={onOpenApi}>
           <CodeIcon size={16} /> API & Hooks
@@ -238,6 +241,45 @@ function MhzInput({ value, disabled, onSet }) {
 
 /** @param {number} n */
 const size = (n) => (n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1).replace('.', ',')} MB`)
+
+/** Logging out (this device or all), and the server's version.
+ * @param {{version: string}} props */
+function AccessPanel({ version }) {
+  const { enabled } = useAuth()
+  const [error, setError] = useState('')
+  /** @param {boolean} everywhere */
+  const out = (everywhere) => logout(everywhere).catch((e) => setError(e.message))
+  return (
+    <div className="panel">
+      <div className="panel-head">
+        <LockIcon size={18} /> Zugang
+      </div>
+      <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {enabled ? (
+          <>
+            <span className="muted small">
+              Das Passwort steht in <code>~/.laptimer/config.toml</code> auf dem Server. Nach einer Änderung dort: „Alle Geräte abmelden“.
+            </span>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button className="btn btn-secondary" onClick={() => out(false)}>
+                Abmelden
+              </button>
+              <button className="btn btn-ghost" onClick={() => out(true)}>
+                Alle Geräte abmelden
+              </button>
+            </div>
+          </>
+        ) : (
+          <span className="small">
+            Ohne Passwort: jeder im Netz kann alles ändern (<code>[auth] enabled = false</code> in <code>~/.laptimer/config.toml</code>).
+          </span>
+        )}
+        {error && <p className="error">{error}</p>}
+        <span className="muted small">Version {version}</span>
+      </div>
+    </div>
+  )
+}
 
 /** Backups of the database and deleting all sessions (server/src/data.rs).
  * @param {{running: boolean}} props */

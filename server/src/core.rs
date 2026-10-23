@@ -1066,6 +1066,7 @@ impl Core {
         json!({
             "type": "state",
             "now_us": unix_now_us(),
+            "version": crate::VERSION,
             "settings": self.settings,
             "pilots": pilots,
             "boards": self.boards,

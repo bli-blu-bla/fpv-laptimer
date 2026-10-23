@@ -10,6 +10,8 @@ import {
   CodeIcon,
   CpuIcon,
   FlagCheckeredIcon,
+  LockIcon,
+  LockOpenIcon,
   MonitorPlayIcon,
   SlidersHorizontalIcon,
   SpeakerHighIcon,
@@ -20,6 +22,8 @@ import {
 } from '@phosphor-icons/react'
 import { api, saveSettings, useServer } from './api.js'
 import { onBlocked, unblock } from './announcer.js'
+import { checkAuth, logout, showLogin, useAuth } from './auth.js'
+import LoginDialog, { Locked } from './components/LoginDialog.jsx'
 import ApiPage from './pages/Api.jsx'
 import Best from './pages/Best.jsx'
 import Boards from './pages/Boards.jsx'
@@ -52,6 +56,10 @@ export default function App() {
   const stats = useStats(state, changed)
   const [soundBlocked, setSoundBlocked] = useState(false)
   useEffect(() => onBlocked(setSoundBlocked), [])
+  const auth = useAuth()
+  useEffect(() => {
+    checkAuth()
+  }, [])
 
   const boards = state?.boards ?? []
   const failed = boards.filter((b) => b.failed).length
@@ -131,7 +139,17 @@ export default function App() {
                 Ton freigeben
               </button>
             )}
-            {state && (
+            {auth.enabled &&
+              (auth.loggedIn ? (
+                <button className="btn btn-ghost btn-icon" title="Angemeldet (antippen zum Abmelden)" onClick={() => logout().catch(() => {})}>
+                  <LockOpenIcon size={20} />
+                </button>
+              ) : (
+                <button className="btn btn-secondary" onClick={() => showLogin(true)} title="Zum Ändern anmelden">
+                  <LockIcon size={18} /> Anmelden
+                </button>
+              ))}
+            {state && auth.canEdit && (
               <button
                 className="btn btn-ghost btn-icon"
                 title={state.settings.sound ? 'Ansagen aus' : 'Ansagen an'}
@@ -156,16 +174,19 @@ export default function App() {
           ) : page === 'pilots' ? (
             <Pilots state={state} stats={stats} />
           ) : page === 'boards' ? (
-            <Boards state={state} live={server.live} flash={server.flash} />
+            auth.canEdit ? <Boards state={state} live={server.live} flash={server.flash} /> : <Locked what="Boards, Rollen und Firmware" />
           ) : page === 'api' ? (
-            <ApiPage />
-          ) : (
+            auth.canEdit ? <ApiPage /> : <Locked what="API-Schlüssel und Hooks" />
+          ) : auth.canEdit ? (
             <SettingsPage state={state} onOpenApi={() => setPage('api')} />
+          ) : (
+            <Locked what="Die Einstellungen" />
           )}
         </main>
       </div>
 
       <nav className="bottom-nav">{nav(true)}</nav>
+      {auth.dialog && <LoginDialog />}
     </div>
   )
 }

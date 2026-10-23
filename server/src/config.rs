@@ -1,0 +1,175 @@
+//! `~/.laptimer/config.toml`: what an installation sets once (port, paths,
+//! password). Everything else (channels, pilots, …) is in the database and
+//! set on the web page.
+//!
+//! Order: command line, then this file, then the defaults. Paths in the file
+//! may start with `~/`; relative ones are relative to the file's folder.
+//!
+//! If the default file is missing, `laptimer serve` writes one with a
+//! random password and prints it. A file given with `--config` must exist.
+
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result, bail};
+use serde::Deserialize;
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Config {
+    pub port: Option<u16>,
+    /// Database, session levels, backups, hooks (`<data>/hooks`).
+    pub data: Option<PathBuf>,
+    /// The built web page.
+    pub web: Option<PathBuf>,
+    /// The announcement MP3s.
+    pub sounds: Option<PathBuf>,
+    /// The hooks' scripts.
+    pub hooks: Option<PathBuf>,
+    pub auth: AuthConfig,
+}
+
+/// The password for everything that changes something (`auth.rs`).
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AuthConfig {
+    /// On unless switched off with `enabled = false`.
+    pub enabled: bool,
+    pub password: String,
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        AuthConfig {
+            enabled: true,
+            password: String::new(),
+        }
+    }
+}
+
+/// `~/.laptimer`.
+pub fn home_dir() -> Result<PathBuf> {
+    let home = std::env::home_dir().context("Kein Home-Verzeichnis ($HOME) gefunden")?;
+    Ok(home.join(".laptimer"))
+}
+
+/// Reads the file. `explicit`: given with `--config` (then it must exist).
+pub fn load(path: &Path, explicit: bool) -> Result<Config> {
+    if !path.exists() {
+        if explicit {
+            bail!("{} gibt es nicht", path.display());
+        }
+        write_default(path)?;
+    }
+    let text = std::fs::read_to_string(path).with_context(|| format!("{}", path.display()))?;
+    let mut config: Config = toml::from_str(&text).with_context(|| format!("{}", path.display()))?;
+    if config.auth.enabled && config.auth.password.is_empty() {
+        bail!(
+            "{}: kein Passwort gesetzt. Unter [auth] `password = \"…\"` eintragen \
+             (oder den Schutz ausdrücklich mit `enabled = false` abschalten).",
+            path.display()
+        );
+    }
+    // Paths relative to the file's folder.
+    let base = path.parent().unwrap_or(Path::new("."));
+    for p in [&mut config.data, &mut config.web, &mut config.sounds, &mut config.hooks] {
+        if let Some(v) = p.take() {
+            *p = Some(resolve(base, &v)?);
+        }
+    }
+    Ok(config)
+}
+
+/// `~/x` → home/x, `x` → base/x, absolute stays.
+fn resolve(base: &Path, p: &Path) -> Result<PathBuf> {
+    if let Ok(rest) = p.strip_prefix("~") {
+        let home = std::env::home_dir().context("Kein Home-Verzeichnis ($HOME) gefunden")?;
+        return Ok(home.join(rest));
+    }
+    Ok(base.join(p))
+}
+
+/// A new file with a random password, readable only by the user.
+fn write_default(path: &Path) -> Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).with_context(|| format!("{}", dir.display()))?;
+    }
+    let password = random_password()?;
+    let text = format!(
+        "# Laptimer: Einstellungen der Installation (alles andere auf der Web-Seite).\n\
+         # Nach einer Änderung neu starten: systemctl --user restart laptimer\n\
+         \n\
+         # port = 5800\n\
+         # data = \"~/.laptimer/data\"      # Datenbank, Pegel, Backups, hooks/\n\
+         \n\
+         [auth]\n\
+         # Passwort für alles, was etwas ändert (Rennleitung, Einstellungen, …).\n\
+         # Abschalten nur ausdrücklich mit: enabled = false\n\
+         enabled = true\n\
+         password = \"{password}\"\n"
+    );
+    write_private(path, &text)?;
+    eprintln!(
+        "laptimer: {} angelegt, Passwort für die Rennleitung: {password}",
+        path.display()
+    );
+    Ok(())
+}
+
+#[cfg(unix)]
+fn write_private(path: &Path, text: &str) -> Result<()> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let mut f = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)
+        .with_context(|| format!("{}", path.display()))?;
+    f.write_all(text.as_bytes())?;
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn write_private(path: &Path, text: &str) -> Result<()> {
+    Ok(std::fs::write(path, text)?)
+}
+
+/// 12 letters and digits without look-alikes (l/1, o/0): easy to type on a phone.
+fn random_password() -> Result<String> {
+    const CHARS: &[u8] = b"abcdefghjkmnpqrstuvwxyz23456789";
+    let bytes = crate::auth::random_bytes::<12>()?;
+    Ok(bytes.iter().map(|b| CHARS[*b as usize % CHARS.len()] as char).collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reads_and_resolves() {
+        let dir = std::env::temp_dir().join(format!("laptimer_config_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("config.toml");
+        std::fs::write(&path, "port = 81\ndata = \"d\"\n[auth]\npassword = \"x\"\n").unwrap();
+        let c = load(&path, true).unwrap();
+        assert_eq!(c.port, Some(81));
+        assert_eq!(c.data, Some(dir.join("d")));
+        assert!(c.auth.enabled);
+
+        // On, but no password: refused.
+        std::fs::write(&path, "[auth]\n").unwrap();
+        assert!(load(&path, true).is_err());
+        // Off only on purpose.
+        std::fs::write(&path, "[auth]\nenabled = false\n").unwrap();
+        assert!(!load(&path, true).unwrap().auth.enabled);
+        // A typo is an error, not silently ignored.
+        std::fs::write(&path, "[auth]\nenable = false\n").unwrap();
+        assert!(load(&path, true).is_err());
+
+        // Missing default file: written with a password.
+        let fresh = dir.join("sub").join("config.toml");
+        let c = load(&fresh, false).unwrap();
+        assert_eq!(c.auth.password.len(), 12);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+}

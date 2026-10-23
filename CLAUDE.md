@@ -62,14 +62,23 @@ USB-Ports, an einem dritten 2,4 ms; also ±0,4 bis ±1,2 ms Unsicherheit.
 
 ## Server (`server/`)
 
-`laptimer serve` (Port 5800; 8080/8090 belegt Docker auf dem Mac des Nutzers): `--data`
-(SQLite `laptimer.db` + `levels/session_<id>.csv`), `--web ../frontend/dist`,
-`--sounds ../sounds`, `--replay <csv>` (Aufnahme in Schleife statt Boards; zum Testen
-`--sounds` auf einen leeren Ordner, sonst piept der Mac).
+`laptimer serve` (Port 5800; 8080/8090 belegt Docker auf dem Mac des Nutzers) liest
+`~/.laptimer/config.toml` (`config.rs`; fehlt sie, wird sie mit zufälligem Passwort angelegt;
+`--config` für eine andere, die dann existieren muss). Reihenfolge: Kommandozeile, Config,
+Standard. `--data` (Standard `~/.laptimer/data`: SQLite `laptimer.db` +
+`levels/session_<id>.csv`), `--web`/`--sounds` (Standard `web/`/`sounds/` neben `bin/` des
+installierten Release, sonst `../frontend/dist`/`../sounds` für `cargo run`), `--hooks`
+(Standard `<data>/hooks`), `--replay <csv>` (Aufnahme in Schleife statt Boards; zum Testen
+`--sounds` auf einen leeren Ordner, sonst piept der Mac). Zum Testen eine eigene Config mit
+`--config` und `--data` in einen Scratch-Ordner, sonst schreibt der Test in `~/.laptimer`.
+Version: `build.rs` setzt `LAPTIMER_VERSION` (aus der Umgebung, also der CI, sonst
+`git describe`), `main.rs::VERSION`, in `state.version`, im API-`hello` und in den
+Einstellungen.
 
 | Datei | Inhalt |
 |---|---|
 | `src/api.rs` | Öffentliche API `/api/v1` (Doku: `docs/API.md`): jede Aktion ist ein Befehl (`command(app, name, args)`, z. B. `session.start`), erreichbar als REST-Route, als `POST /api/v1/cmd/<name>` oder über den WebSocket `/api/v1/ws` (`{"id","cmd","args"}` → `reply`; vorher `hello` mit `state`, dann jedes Event). Schlüssel-Prüfung als Middleware (`Authorization: Bearer`, `X-API-Key` oder `?key=`; in der DB nur sha256, Tabelle `api_keys`). Befehle laufen in `spawn_blocking`. Für die Seite ohne Schlüssel: `/api/keys` (GET/POST/DELETE), `/api/hooks` (GET: Ordner, Scripts, Hooks, letzte Läufe; POST), `/api/hooks/{id}` (PUT/DELETE), `/api/hooks/{id}/test`. Die Weboberfläche selbst nutzt weiter `/api` ohne Schlüssel |
+| `src/auth.rs` | Passwort der Rennleitung (`[auth]` in `config.toml`: `enabled` Standard an, ohne `password` startet der Server nicht; abschalten nur mit `enabled = false`). Middleware `require_login` auf `/api`: Lesen frei, außer `/keys`, `/hooks`, `/backups`; alles andere als GET/HEAD braucht ein Login (nicht `/v1`, das hat API-Schlüssel; nicht `/login`, `/logout`, `/auth`). `POST /api/login {password}` → Cookie `laptimer_login` (HttpOnly, SameSite=Strict, 30 Tage; in der DB nur sha256, Tabelle `logins`), `POST /api/logout`, `/api/logout/all`, `GET /api/auth` (`{enabled, logged_in}`). Falsches Passwort: 1 s warten, nach 5 in Folge 1 min Sperre pro IP (`ConnectInfo`, daher `into_make_service_with_connect_info`). 401 mit `login: true` lässt die Seite den Login-Dialog öffnen |
 | `src/events.rs` | `Events::emit(name, data)`: Event `{"type":"event","event","seq","time_us","data"}` an den API-WebSocket (eigener `broadcast`) und an die Hooks. Erzeugt in `core.rs`: `session_started`, `countdown`/`start_signal` (in `tick`), `pilot_pass` (`report_passes`: neue, nicht gelöschte Durchflüge der laufenden Session mit `kind` lap/holeshot/start/ignored), `pilot_finished`, `session_stopped` (`end_session(reason)`), `race_confirmed`, `session_deleted`, `sessions_reset`, `passes_changed` (Korrekturen, Zurücknahme), `channels_changed`, `pilot_added/updated/deleted` (Piloten deshalb über `Core::add_pilot` usw.) |
 | `src/data.rs` | Export, Backup, Reset (ohne Schlüssel, für die Seite): `GET /api/export?sessions=1,2&channels=0,2&content=laps\|results&format=csv\|json` (eine Datei für eine oder mehrere Sessions, alle oder einzelne Kanäle; CSV mit `;`, Dezimalkomma und BOM für Excel; JSON mit `core::standings` je Session). `POST /api/backups` (`Db::copy_to` = `VACUUM INTO` unter der Core-Sperre, dann gzip ohne sie nach `<data>/backups/laptimer_<datum>_<zeit>.db.gz`), `GET /api/backups`, `GET`/`DELETE /api/backups/{name}`. `POST /api/reset`: erst Backup (`…_vor-reset`), dann `Core::reset_sessions` (alle Sessions mit Sitzen, Durchflügen, Pegel-Dateien; Event `sessions_reset`) und den Graph-Cache leeren; Piloten, Settings, Schlüssel, Hooks bleiben |
 | `src/hooks.rs` | Hooks: Scripts im Ordner `--hooks` (Standard `<data>/hooks`, nur ausführbare Dateien direkt darin, `check_script`), Zuordnung in der DB (Tabelle `hooks`: Event oder `*`, Script, Argumente an Leerzeichen getrennt ohne Shell, Hintergrund, an/aus), im Speicher gehalten (`set_list` nach jeder Änderung). Ein Thread führt sie nacheinander aus (im Script-Ordner, 10 s Limit; Hintergrund: eigener Thread wartet, ohne Limit), Umgebung `LAPTIMER_EVENT/SEQ/TIME_US/JSON` und `LAPTIMER_<FELD>` für jedes einfache Feld; die letzten 30 Läufe für die Seite. Beispiele in `tools/hooks/` |
@@ -158,7 +167,8 @@ braucht; nicht Zusammengehöriges auf getrennten Seiten.
 | `components/ExportDialog.jsx` | Format CSV/JSON, Inhalt Runden/Ergebnis, Kanäle (alle oder einzelne); lädt per `fetch` (Fehler im Dialog) und speichert unter dem Namen aus `Content-Disposition` |
 | `pages/Pilots.jsx` | Callsign + Name, PB, Rennen, Siege; Dialog zum Anlegen/Bearbeiten/Löschen |
 | `pages/Api.jsx` | **API & Hooks** (am Handy nicht in der Tab-Leiste, sondern über einen Knopf in den Einstellungen): Reiter Schlüssel (anlegen, einmal anzeigen, löschen), Doku, Testen (Befehl per HTTP oder WebSocket, curl-Zeile, Event-Log; Schlüssel in `localStorage`), Hooks (anlegen/bearbeiten mit Event, Script aus dem Ordner, Argumente, Hintergrund; an/aus, einmal ausführen, letzte Läufe; alle 2 s neu geladen). Befehle und Events beschreibt `apiCatalog.js` |
-| `pages/Settings.jsx` | Kanäle (hinzufügen/entfernen, R1–R8 oder freie MHz), Auswertung (Mindestrunde, beste N in Folge, Gain mit 0,8 s Verzögerung, weil er die Boards neu startet), Ansagen (Ausgabe, Ereignisse, „Probe“), Daten (Backup erstellen, Liste zum Herunterladen/Löschen, „Alle Sessions löschen“ mit Rückfrage, gesperrt während einer Session) |
+| `auth.js`, `components/LoginDialog.jsx` | Login-Zustand für die ganze Seite (`useAuth()` → `canEdit`); `api()` meldet ein 401 mit `login` (`loginNeeded`), dann öffnet `App.jsx` den Dialog. Ohne Login: Kopf „Anmelden“, Rennleitung ohne Start/Stopp/Zahnräder/Schwellen/Nachbearbeitung, Sessions ohne Löschen/Bearbeiten, Piloten nur ansehen, Boards/Einstellungen/API gesperrt (`Locked`) |
+| `pages/Settings.jsx` | Kanäle (hinzufügen/entfernen, R1–R8 oder freie MHz), Auswertung (Mindestrunde, beste N in Folge, Gain mit 0,8 s Verzögerung, weil er die Boards neu startet), Ansagen (Ausgabe, Ereignisse, „Probe“), Daten (Backup erstellen, Liste zum Herunterladen/Löschen, „Alle Sessions löschen“ mit Rückfrage, gesperrt während einer Session), Zugang (Abmelden, alle Geräte abmelden, Version) |
 | `announcer.js` | Ansagen im Browser: spielt `announce`-Nachrichten nur, wenn dieser Browser als Lautsprecher eingeschaltet ist (`localStorage`); blockiert der Browser den Ton (kein Tipp seit dem Laden), zeigt der Kopf „Ton freigeben“. Texte ohne Datei per `speechSynthesis` |
 | `model.js` | `slotsOf`, `standings` (Rennen: Runden, dann Gesamtzeit; Training: Bestzeit; Abstand), `passLog`, `computeLaps` (JS-Kopie von `laps.rs::compute`, für die Vorschau im Editor) |
 

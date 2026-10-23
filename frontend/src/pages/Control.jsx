@@ -6,6 +6,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ArrowCounterClockwiseIcon, CheckIcon, FlagCheckeredIcon, GearSixIcon, InfinityIcon, StopIcon, XIcon } from '@phosphor-icons/react'
 import { api, useNow } from '../api.js'
+import { showLogin, useAuth } from '../auth.js'
 import { clock, endRule, sessionKind, START_MODES } from '../format.js'
 import { channelMode, slotsOf, standings } from '../model.js'
 import Dialog from '../components/Dialog.jsx'
@@ -38,6 +39,7 @@ export default function Control({ server, state, stats }) {
   // The session that just ended stays on the page until the next start or "Schließen".
   const [doneId, setDoneId] = useState(/** @type {number | null} */ (null))
   const [done, setDone] = useState(/** @type {import('../types').SessionDetail | null} */ (null))
+  const { canEdit } = useAuth()
   const now = useNow(clockOffset, active != null)
   const spark = useSpark(live)
 
@@ -96,7 +98,7 @@ export default function Control({ server, state, stats }) {
   const st = detail ? standings(detail.session, detail.results) : []
   // A slot tapped shows its detection below the cards (mode and thresholds).
   const hasArming = (live?.boards ?? state.boards).some((b) => b.role === 'arming' && !b.failed)
-  const canTune = phase !== 'done'
+  const canTune = canEdit && phase !== 'done'
 
   const r = state.settings.race
   const formatShort = `${START_MODES[r.start_mode]} · ${endRule(r.end_rule)}${r.countdown_s ? ` · ${r.countdown_s} s Countdown` : ''}`
@@ -141,8 +143,13 @@ export default function Control({ server, state, stats }) {
           <div className="clock">{clock(elapsed)}</div>
         </div>
         <div className="actions">
-          {(phase === 'idle' || phase === 'done') && startButtons}
-          {(phase === 'running' || phase === 'countdown') && (
+          {!canEdit && (
+            <button className="btn btn-secondary btn-big" onClick={() => showLogin(true)}>
+              Zum Bedienen anmelden
+            </button>
+          )}
+          {canEdit && (phase === 'idle' || phase === 'done') && startButtons}
+          {canEdit && (phase === 'running' || phase === 'countdown') && (
             <>
               <button className="btn btn-ghost btn-big" onClick={() => setConfirmDiscard(true)}>
                 <XIcon size={18} /> Abbrechen
@@ -162,7 +169,7 @@ export default function Control({ server, state, stats }) {
           ) : (
             <span className="kicker">{session.config.race ? 'Ergebnis bestätigt' : 'Letzter Lauf'}</span>
           )}
-          <div className="card-actions">
+          <div className="card-actions" style={canEdit ? undefined : { display: 'none' }}>
             <button className="btn btn-ghost btn-big" onClick={() => setConfirmDiscard(true)}>
               <ArrowCounterClockwiseIcon size={18} /> Verwerfen
             </button>
@@ -185,8 +192,12 @@ export default function Control({ server, state, stats }) {
           <div className="panel" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 12 }}>
             <Ranking detail={done} />
           </div>
-          <span className="kicker">Nachbearbeitung</span>
-          <PassEditor key={done.session.id} detail={done} onSaved={reloadDone} />
+          {canEdit && (
+            <>
+              <span className="kicker">Nachbearbeitung</span>
+              <PassEditor key={done.session.id} detail={done} onSaved={reloadDone} />
+            </>
+          )}
         </>
       )}
 
@@ -212,7 +223,7 @@ export default function Control({ server, state, stats }) {
               selected={tune === slot.index}
               manual={channelMode(state.settings.detection, 'finish', slot.index) === 'classic'}
               onSelect={canTune && !off ? () => setTune(tune === slot.index ? null : slot.index) : undefined}
-              onGear={() => setSlotDialog(slot.index)}
+              onGear={canEdit ? () => setSlotDialog(slot.index) : undefined}
             />
           )
         })}
@@ -242,9 +253,11 @@ export default function Control({ server, state, stats }) {
               Startbereit machen
             </span>
             <span className="n">{Math.max(1, Math.ceil((active.session.start_us - now) / 1e6))}</span>
-            <button className="btn btn-ghost btn-big" onClick={() => setConfirmDiscard(true)}>
-              Abbrechen
-            </button>
+            {canEdit && (
+              <button className="btn btn-ghost btn-big" onClick={() => setConfirmDiscard(true)}>
+                Abbrechen
+              </button>
+            )}
           </div>
         </div>
       )}

@@ -13,12 +13,11 @@
 //! Bearer <key>` or `X-API-Key: <key>`, or `?key=<key>` (for WebSockets
 //! from a browser, which can't set headers). Keys are made on the API page;
 //! only their sha256 is stored. (The web page itself uses `/api` without a
-//! key, as before.)
+//! key, with the login of `auth.rs` instead.)
 //!
 //! Commands run in `spawn_blocking`: they lock `Core` (a std mutex) and may
 //! talk to the boards (a new channel restarts them).
 
-use std::io::Read;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -34,6 +33,7 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio::sync::broadcast;
 
+use crate::auth::{hex, random_bytes};
 use crate::core::{ChannelSetting, Core, standings, unix_now_us};
 use crate::db::SessionRow;
 use crate::laps::{EndRule, StartMode};
@@ -112,7 +112,7 @@ pub fn router(app: Arc<App>) -> Router<Arc<App>> {
         .layer(middleware::from_fn_with_state(app, check_key))
 }
 
-/// For the web page (no key, like the rest of `/api`): API keys and hooks.
+/// For the web page (no key, but a login: `auth.rs`): API keys and hooks.
 pub fn page_routes() -> Router<Arc<App>> {
     Router::new()
         .route("/keys", get(list_keys).post(create_key))
@@ -225,17 +225,9 @@ fn hash_key(key: &str) -> String {
     hex(&Sha256::digest(key.as_bytes()))
 }
 
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
 /// A new random key: "lt_" and 40 hex digits (160 bits).
 fn new_key() -> Result<String> {
-    let mut bytes = [0u8; 20];
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(&mut bytes))
-        .context("Zufallszahlen (/dev/urandom)")?;
-    Ok(format!("lt_{}", hex(&bytes)))
+    Ok(format!("lt_{}", hex(&random_bytes::<20>()?)))
 }
 
 async fn list_keys(State(app): St) -> Response {
@@ -379,7 +371,8 @@ async fn ws_session(app: Arc<App>, mut socket: WebSocket) {
         .await
         .ok()
         .and_then(|r| r.ok());
-    let hello = json!({ "type": "hello", "api": API_VERSION, "state": state, "commands": COMMANDS });
+    let hello =
+        json!({ "type": "hello", "api": API_VERSION, "version": crate::VERSION, "state": state, "commands": COMMANDS });
     if socket.send(Message::Text(hello.to_string().into())).await.is_err() {
         return;
     }

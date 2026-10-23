@@ -122,6 +122,7 @@
  *
  * @typedef {object} State   the `state` message
  * @property {number} now_us
+ * @property {string} version   the server's version (release tag, or `git describe`)
  * @property {Settings} settings
  * @property {Pilot[]} pilots
  * @property {Board[]} boards

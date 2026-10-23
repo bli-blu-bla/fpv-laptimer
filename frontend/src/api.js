@@ -4,6 +4,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { announce } from './announcer.js'
+import { loginNeeded } from './auth.js'
 
 /**
  * @param {string} path  e.g. "/session/start"
@@ -17,6 +18,8 @@ export async function api(path, opts = {}) {
     body: opts.body === undefined ? undefined : JSON.stringify(opts.body),
   })
   const data = await res.json().catch(() => ({}))
+  // Changing needs the login (auth.js): ask for it.
+  if (res.status === 401 && data.login) loginNeeded()
   if (!res.ok) throw new Error(data.error ?? res.statusText)
   return data
 }

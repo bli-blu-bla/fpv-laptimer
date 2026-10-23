@@ -20,6 +20,7 @@ use anyhow::{Context, Result};
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
+use axum::middleware;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -29,6 +30,8 @@ use tokio::sync::broadcast;
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::api;
+use crate::auth::{self, Auth};
+use crate::config::AuthConfig;
 use crate::core::{BoardView, Core, Settings, results};
 use crate::db::{Db, PassEdit};
 use crate::detect::DetectConfig;
@@ -50,6 +53,8 @@ pub struct ServeOptions {
     pub replay: Option<PathBuf>,
     /// The hooks' scripts folder (`hooks.rs`).
     pub hooks_dir: PathBuf,
+    /// The password for changes (`auth.rs`).
+    pub auth: AuthConfig,
 }
 
 /// Shared by all request handlers (axum's "state").
@@ -59,6 +64,7 @@ pub struct App {
     /// The events for the API's WebSocket (`events.rs`, `api.rs`).
     pub api_tx: broadcast::Sender<String>,
     pub hooks: Arc<Hooks>,
+    pub auth: Auth,
     /// The boards (or the replay); replaced when channels or gain change.
     source: Mutex<Option<Source>>,
     events: Sender<Event>,
@@ -105,6 +111,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         tx,
         api_tx,
         hooks,
+        auth: Auth::new(&opts.auth),
         source: Mutex::new(None),
         events,
         replay: opts.replay.clone(),
@@ -154,12 +161,15 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .route("/firmware", get(get_firmware))
         .route("/firmware/flash", post(flash_board))
         .route("/announce/test", post(announce_test))
+        .merge(auth::routes())
         .merge(api::page_routes())
         .merge(crate::data::routes())
         .nest("/v1", api::router(Arc::clone(&app)))
         // Announcements played by the browsers: the clips and the spoken texts.
         .nest_service("/audio/clips", ServeDir::new(&opts.sounds_dir))
-        .nest_service("/audio/tts", ServeDir::new(opts.data_dir.join("tts")));
+        .nest_service("/audio/tts", ServeDir::new(opts.data_dir.join("tts")))
+        // Changes need the login (reading stays open).
+        .layer(middleware::from_fn_with_state(Arc::clone(&app), auth::require_login));
     let web = ServeDir::new(&opts.web_dir).fallback(ServeFile::new(opts.web_dir.join("index.html")));
     let router = Router::new()
         .nest("/api", api)
@@ -169,15 +179,20 @@ pub fn run(opts: ServeOptions) -> Result<()> {
 
     let addr = SocketAddr::from(([0, 0, 0, 0], opts.port));
     println!(
-        "laptimer: http://localhost:{} (and this machine's address in the network)",
+        "laptimer {}: http://localhost:{} (and this machine's address in the network)",
+        crate::VERSION,
         opts.port
     );
+    if !opts.auth.enabled {
+        println!("laptimer: ohne Passwort ([auth] enabled = false): jeder im Netz kann alles ändern");
+    }
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async move {
         let listener = tokio::net::TcpListener::bind(addr)
             .await
             .with_context(|| format!("port {}", opts.port))?;
-        axum::serve(listener, router).await?;
+        // With the client's address: the login slows down guessing per address.
+        axum::serve(listener, router.into_make_service_with_connect_info::<SocketAddr>()).await?;
         anyhow::Ok(())
     })
 }

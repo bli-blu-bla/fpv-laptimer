@@ -29,9 +29,11 @@ X-API-Key: lt_…
 
 Ohne gültigen Schlüssel: `401 {"error": "…"}`.
 
-Die Weboberfläche selbst nutzt weiter `/api` ohne Schlüssel. Wer im Netz die Seite öffnen
-kann, kann also auch Schlüssel anlegen; der Schlüssel trennt Programme von der Seite, er
-schützt nicht vor Leuten im WLAN.
+Die Weboberfläche selbst nutzt `/api` ohne Schlüssel, aber mit dem Passwort der Rennleitung
+(`[auth]` in `~/.laptimer/config.toml`): Lesen geht ohne, alles Ändernde (auch Schlüssel und
+Hooks anlegen) nur nach `POST /api/login {"password": "…"}`, das ein Cookie setzt. Nur wer
+das Passwort kennt, kann also Schlüssel anlegen. Mit `[auth] enabled = false` kann das jeder
+im Netz.
 
 Der Server spricht HTTP, nicht HTTPS (lokales Netz am Platz, ohne Internet). Wer HTTPS
 braucht, stellt einen Reverse-Proxy davor (z. B. Caddy).
@@ -215,7 +217,7 @@ Seite anzeigt.
 
 Der Server startet bei Events Scripts, z. B. um am Pi per GPIO eine LED zu schalten.
 
-**Scripts** liegen in einem Ordner, Standard `<data>/hooks` (also meist `server/data/hooks/`,
+**Scripts** liegen in einem Ordner, Standard `<data>/hooks` (also meist `~/.laptimer/data/hooks/`,
 legt der Server beim Start an), anders mit `laptimer serve --hooks <ordner>`. Wählbar sind nur
 ausführbare Dateien direkt in diesem Ordner (`chmod +x`, mit `#!/bin/sh`, `#!/usr/bin/env
 python3` o. ä. in der ersten Zeile). Ein neues Script erscheint ohne Neustart.

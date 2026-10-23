@@ -62,22 +62,41 @@ cd server
 cargo run --release -- serve                     # alle angesteckten Boards
 ```
 
+Der Server liest `~/.laptimer/config.toml`. Fehlt die Datei, legt er sie beim ersten Start an,
+mit einem zufälligen **Passwort für die Rennleitung**, das er einmal ausgibt (es steht dann in
+der Datei). Ohne Anmeldung kann man alles ansehen (Live, Sessions, Bestzeiten, Zuschauer,
+Export); Starten, Korrigieren, Piloten, Einstellungen, Boards, API und Hooks brauchen das
+Passwort („Anmelden“ oben rechts, das Gerät bleibt 30 Tage angemeldet).
+
+```toml
+# ~/.laptimer/config.toml
+# port = 5800
+# data = "~/.laptimer/data"     # Datenbank, Pegel, Backups, hooks/
+[auth]
+enabled = true                  # abschalten nur ausdrücklich: enabled = false
+password = "…"
+```
+
+Die Kommandozeile geht vor (`--port`, `--data`, `--web`, `--sounds`, `--hooks`, `--config`).
+Die Daten liegen standardmäßig in `~/.laptimer/data`; ältere Daten aus `server/data` mit
+`--data data` weiterverwenden (oder den Ordner verschieben).
+
 Dann im Browser `http://<Rechner>:5800` öffnen (auf dem Rechner selbst `http://localhost:5800`),
 auch vom Handy im selben WLAN. Training oder Rennen starten, Runden live, Korrekturen per
 × (Durchflug löschen) und „+ Durchflug eben verpasst“. Nach einem Rennen das Ergebnis prüfen
 und „Ergebnis bestätigen“ (oder verwerfen): erst dann lässt sich der nächste Lauf starten. Unter „Sessions“ → „Pegel“ der
 Signalverlauf jedes Piloten: dort Durchflüge antippen zum Löschen oder neben einem Gipfel
 tippen zum Einfügen. Die Datenbank
-liegt in `server/data/` (dort auch die Pegel jeder Session).
+liegt in `~/.laptimer/data/` (dort auch die Pegel jeder Session).
 
 **Export:** unter „Sessions“ eine Session über ⤓ exportieren, oder mit „Auswählen“ mehrere auf
 einmal: als CSV (Runden oder Ergebnis, für Excel/LibreOffice) oder JSON, alle Kanäle oder nur
 einzelne. **Backup und Neuanfang:** unter „Einstellungen“ → „Daten“. „Backup erstellen“ legt
-eine gepackte Kopie der Datenbank nach `server/data/backups/` (dort auch herunterladen).
+eine gepackte Kopie der Datenbank nach `~/.laptimer/data/backups/` (dort auch herunterladen).
 „Alle Sessions löschen“ löscht alle Trainings und Rennen mit Runden und Pegeln; Piloten,
 Einstellungen, API-Schlüssel und Hooks bleiben, vorher wird automatisch ein Backup gemacht.
 Ein Backup zurückspielen: Server stoppen, dann
-`gunzip -c server/data/backups/<datei>.db.gz > server/data/laptimer.db` (vorher die
+`gunzip -c ~/.laptimer/data/backups/<datei>.db.gz > ~/.laptimer/data/laptimer.db` (vorher die
 `laptimer.db-wal` und `laptimer.db-shm` daneben löschen).
 
 Ohne Boards, zum Ausprobieren: `cargo run --release -- serve --replay recordings/<aufnahme>.csv`
@@ -96,7 +115,7 @@ Ergebnis bestätigen, und jedes Ereignis live mitlesen (`pilot_pass`, `start_sig
 **API & Hooks**.
 
 Hooks starten bei Ereignissen eigene Scripts mit den Daten als Umgebungsvariablen, z. B. eine
-LED am GPIO des Pi beim Startsignal. Die Scripts kommen in den Ordner `server/data/hooks/`
+LED am GPIO des Pi beim Startsignal. Die Scripts kommen in den Ordner `~/.laptimer/data/hooks/`
 (ausführbar), welches Script bei welchem Ereignis läuft, stellst du auf der Seite ein.
 Beispiele in `tools/hooks/`.
 
