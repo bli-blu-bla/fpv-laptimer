@@ -106,7 +106,7 @@ export default function PilotDialog({ state, stats, index, onClose }) {
     >
       {running && <p className="muted small" style={{ margin: 0 }}>Es läuft eine Session: Änderungen gelten ab dem nächsten Start.</p>}
       {state.pilots.length >= SEARCH_FROM && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="pick-sticky top">
           <label className="search">
             <MagnifyingGlassIcon size={16} />
             <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Pilot suchen" aria-label="Pilot suchen" />
@@ -184,7 +184,7 @@ export default function PilotDialog({ state, stats, index, onClose }) {
         )}
       </div>
 
-      <div className="field" style={{ borderTop: '1px solid var(--n900)', paddingTop: 12 }}>
+      <div className="field pick-sticky bottom">
         <span>Gast ohne Profil</span>
         <div style={{ display: 'flex', gap: 8 }}>
           <input

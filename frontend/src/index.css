@@ -1797,17 +1797,37 @@ button.lane-pick:hover {
   font: inherit;
   font-size: 15px;
 }
+/* No scroll area of its own: the dialog scrolls (one scrollbar, at its edge;
+   Safari let rows run under an inner one), search and guest field stick. */
 .pick-list {
   display: flex;
   flex-direction: column;
-  flex: none;
-  max-height: min(50vh, 420px);
-  overflow-x: hidden; /* a vertical scrollbar (Safari with "always show") must not add a sideways one */
-  overflow-y: auto;
   margin: 0 -6px;
 }
-.pick-list > * {
-  flex: none;
+.pick-sticky {
+  position: sticky;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--surface);
+  /* Sticky offsets count from inside the dialog's 20 px padding: stick 20 px
+     further out and cover that strip with padding. */
+  margin-inline: -20px;
+  padding-inline: 20px;
+}
+.pick-sticky.top {
+  top: -20px;
+  margin-top: -18px; /* the dialog's gap */
+  padding-top: 18px;
+  padding-bottom: 4px;
+}
+.pick-sticky.bottom {
+  bottom: -20px;
+  margin-bottom: -20px;
+  padding-top: 12px;
+  padding-bottom: 20px;
+  border-top: 1px solid var(--n900);
 }
 .pick-item {
   border-radius: var(--r-md);
