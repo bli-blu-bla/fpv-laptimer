@@ -297,7 +297,7 @@ function ChannelsPanel({ settings: s, running, save }) {
           })}
         </div>
         <span className="muted small">
-          Alle Boards scannen alle Kanäle: weniger Kanäle messen öfter. Wer auf welchem Kanal fliegt, stellst du in der Rennleitung am Zahnrad ein.
+          Alle Boards scannen alle Kanäle: weniger Kanäle messen öfter. Wer auf welchem Kanal fliegt, stellst du in der Rennleitung ein: Namen in der Karte antippen.
         </span>
       </div>
       {picking && <ChannelPicker value={mhz} onSave={apply} onClose={() => setPicking(false)} />}

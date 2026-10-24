@@ -1,7 +1,8 @@
 // @ts-check
 // Race control: start a training or race, follow it, and afterwards correct
-// it (the result, and the pass editor below it). Slot settings sit behind
-// each slot's gear, the race format behind the gear next to "Rennen starten".
+// it (the result, and the pass editor below it). A tap on a slot's name
+// chooses its pilot, on its channel the channel; the race format sits behind
+// the gear next to "Rennen starten".
 
 import { useEffect, useRef, useState } from 'react'
 import { ArrowCounterClockwiseIcon, CheckIcon, FlagCheckeredIcon, GearSixIcon, InfinityIcon, StopIcon, XIcon } from '@phosphor-icons/react'
@@ -9,13 +10,14 @@ import { api, useNow } from '../api.js'
 import { showLogin, useAuth } from '../auth.js'
 import { clock, endRule, sessionKind, START_MODES } from '../format.js'
 import { channelMode, slotsOf, standings } from '../model.js'
+import ChannelDialog from '../components/ChannelDialog.jsx'
 import Dialog from '../components/Dialog.jsx'
 import Lane from '../components/Lane.jsx'
 import PassEditor from '../components/PassEditor.jsx'
 import PassLog from '../components/PassLog.jsx'
+import PilotDialog from '../components/PilotDialog.jsx'
 import RaceDialog from '../components/RaceDialog.jsx'
 import Ranking from '../components/Ranking.jsx'
-import SlotDialog from '../components/SlotDialog.jsx'
 import ThresholdPanel from '../components/ThresholdPanel.jsx'
 
 /** Seconds of signal history in the slot cards (10 points a second). */
@@ -31,7 +33,9 @@ export default function Control({ server, state, stats }) {
   const { live, clockOffset, changed } = server
   const active = state.active
   const [error, setError] = useState('')
-  const [slotDialog, setSlotDialog] = useState(/** @type {number | null} */ (null))
+  // The slot whose pilot or channel dialog is open.
+  const [pilotDialog, setPilotDialog] = useState(/** @type {number | null} */ (null))
+  const [channelDialog, setChannelDialog] = useState(/** @type {number | null} */ (null))
   const [raceDialog, setRaceDialog] = useState(false)
   const [confirmDiscard, setConfirmDiscard] = useState(false)
   // The slot whose thresholds are shown below the cards (manual mode).
@@ -223,7 +227,8 @@ export default function Control({ server, state, stats }) {
               selected={tune === slot.index}
               manual={channelMode(state.settings.detection, 'finish', slot.index) === 'classic'}
               onSelect={canTune && !off ? () => setTune(tune === slot.index ? null : slot.index) : undefined}
-              onGear={canEdit ? () => setSlotDialog(slot.index) : undefined}
+              onPilot={canEdit ? () => setPilotDialog(slot.index) : undefined}
+              onChannel={canEdit ? () => setChannelDialog(slot.index) : undefined}
             />
           )
         })}
@@ -262,7 +267,8 @@ export default function Control({ server, state, stats }) {
         </div>
       )}
 
-      {slotDialog != null && <SlotDialog state={state} stats={stats} index={slotDialog} color={slotsOf(state)[slotDialog].color} onClose={() => setSlotDialog(null)} />}
+      {pilotDialog != null && <PilotDialog state={state} stats={stats} index={pilotDialog} onClose={() => setPilotDialog(null)} />}
+      {channelDialog != null && <ChannelDialog state={state} index={channelDialog} onClose={() => setChannelDialog(null)} />}
       {raceDialog && <RaceDialog state={state} onClose={() => setRaceDialog(false)} />}
       {confirmDiscard && session && (
         <Dialog title={active ? 'Abbrechen?' : 'Verwerfen?'} onClose={() => setConfirmDiscard(false)}>

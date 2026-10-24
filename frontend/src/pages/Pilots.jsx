@@ -19,7 +19,7 @@ export default function Pilots({ state, stats }) {
   return (
     <>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, alignItems: 'center' }}>
-        <span className="muted small">Wer in welchem Slot fliegt, stellst du in der Live-Ansicht am Zahnrad des Slots ein.</span>
+        <span className="muted small">Wer in welchem Slot fliegt, stellst du in der Rennleitung ein: Namen in der Karte antippen.</span>
         {canEdit && (
           <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={() => setEdit('new')}>
             <UserPlusIcon size={18} /> Pilot hinzufügen

@@ -694,8 +694,11 @@ body {
   box-shadow: 0 0 0 1px var(--accent), 0 0 28px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 .lane.off {
-  opacity: 0.5;
   gap: 8px;
+}
+.lane.off .who,
+.lane.off .tag {
+  opacity: 0.55;
 }
 .lane-head {
   display: flex;
@@ -1714,4 +1717,233 @@ textarea.input {
 }
 .chpick-free .input {
   width: 90px;
+}
+
+/* — slot card: name and channel to tap (race control) — */
+.lane-pick {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: -6px 0 -6px -8px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.lane-pick.static {
+  cursor: default;
+}
+button.lane-pick:hover {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+}
+.lane-pick .who {
+  flex: 0 1 auto;
+}
+.lane-pick .caret {
+  flex: none;
+  color: var(--n500);
+}
+.lane-ch {
+  min-height: 36px;
+  gap: 6px;
+  padding: 0 10px;
+  border: 1px solid var(--n800);
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.lane-ch:hover {
+  border-color: var(--n600);
+}
+
+/* — pilot and channel dialogs — */
+.dialog-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dialog-title > span:last-child {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+.search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 0 12px;
+  border-radius: var(--r-md);
+  background: var(--bg);
+  border: 1px solid var(--divider);
+  color: var(--n500);
+}
+.search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 15px;
+}
+.pick-list {
+  display: flex;
+  flex-direction: column;
+  flex: none;
+  max-height: min(50vh, 420px);
+  overflow-x: hidden; /* a vertical scrollbar (Safari with "always show") must not add a sideways one */
+  overflow-y: auto;
+  margin: 0 -6px;
+}
+.pick-list > * {
+  flex: none;
+}
+.pick-item {
+  border-radius: var(--r-md);
+}
+.pick-item.on,
+.pick-row.on {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.pick-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.pick-row:hover {
+  background: color-mix(in srgb, var(--text) 5%, transparent);
+}
+.pick-row .text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.3;
+}
+.pick-row .pick-name {
+  font-size: 15px;
+  font-weight: 600;
+}
+.pick-row.on .pick-name,
+.pick-item.on .pick-name {
+  color: var(--accent);
+}
+.pick-row .hint,
+.pick-presets .hint {
+  font-size: 12px;
+  color: var(--n500);
+}
+.pick-row .check {
+  flex: none;
+  color: var(--accent);
+}
+.avatar-sm {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--n300);
+  font-size: 13px;
+  font-weight: 600;
+}
+.avatar-sm.none {
+  border: 1px dashed var(--n600);
+  color: var(--n500);
+  background: transparent;
+}
+.slot-pill {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+.pick-presets {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 10px 12px 58px;
+}
+.chip-btn {
+  min-height: 40px;
+  padding: 0 12px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--n800);
+  background: transparent;
+  color: var(--n300);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.chip-btn.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  color: var(--accent);
+}
+.ch-current {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.ch-current .big {
+  font-size: 30px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--accent);
+}
+.band-seg button {
+  position: relative;
+  font-size: 14px;
+  font-weight: 600;
+}
+.band-mark {
+  position: absolute;
+  top: 6px;
+  right: 7px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.ch-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+.ch-grid .option {
+  min-height: 62px;
+  padding: 4px;
+}
+.taken-by {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--n300);
 }

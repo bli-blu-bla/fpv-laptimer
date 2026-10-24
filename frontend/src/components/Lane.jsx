@@ -1,8 +1,9 @@
 // @ts-check
 // One slot on the live page: who flies, position, last and best lap, gap,
-// and the signal of the last seconds. The gear opens the slot settings.
+// and the signal of the last seconds. In race control a tap on the name
+// chooses the pilot, a tap on the channel the channel.
 
-import { FlagCheckeredIcon, GearSixIcon } from '@phosphor-icons/react'
+import { CaretDownIcon, FlagCheckeredIcon } from '@phosphor-icons/react'
 import { secs } from '../format.js'
 import Sparkline from './Sparkline.jsx'
 
@@ -22,36 +23,46 @@ const ON_DB = -46
  * @param {import('../types').EndRule} [props.endRule]
  * @param {import('../types').ChannelLive} [props.live]
  * @param {import('./Sparkline.jsx').SparkPoint[]} [props.spark]   none: no signal shown (spectator view)
- * @param {() => void} [props.onGear]                 none: no gear (spectator view)
+ * @param {() => void} [props.onPilot]   a tap on the name; none: just the name (spectator view, not logged in)
+ * @param {() => void} [props.onChannel]  a tap on the channel
  * @param {() => void} [props.onSelect]   a tap on the card (race control: its thresholds)
  * @param {boolean} [props.selected]
  * @param {boolean} [props.manual]   fixed thresholds at the finish gate
  */
-export default function Lane({ color, callsign, fullName, channel, mhz, off, result, standing, endRule, live, spark, onGear, onSelect, selected, manual }) {
+export default function Lane({ color, callsign, fullName, channel, mhz, off, result, standing, endRule, live, spark, onPilot, onChannel, onSelect, selected, manual }) {
   const style = /** @type {React.CSSProperties} */ ({ '--lane': color })
+  /** Runs `fn` without the tap also selecting the card. @param {() => void} fn */
+  const only = (fn) => (/** @type {React.MouseEvent} */ e) => {
+    e.stopPropagation()
+    fn()
+  }
+  const who = (
+    <>
+      <span className="who">
+        <span className="cs">{off ? 'Slot frei' : callsign}</span>
+        {off ? <span className="name">kein Pilot</span> : fullName && <span className="name">{fullName}</span>}
+      </span>
+      {onPilot && <CaretDownIcon size={14} className="caret" />}
+    </>
+  )
   const head = (
     <div className="lane-head">
       {!off && <div className={standing?.pos === 1 ? 'pos first' : 'pos'}>{standing?.pos ? 'P' + standing.pos : '–'}</div>}
-      <div className="who">
-        <span className="cs">{callsign}</span>
-        {fullName && <span className="name">{fullName}</span>}
-        {off && <span className="name">frei</span>}
-      </div>
-      <span className="tag tnum">
-        {channel} · {mhz}
-      </span>
-      {onGear && (
-        <button
-          className="btn btn-ghost btn-icon"
-          style={{ marginLeft: -6 }}
-          onClick={(e) => {
-            e.stopPropagation() // not a tap on the card
-            onGear()
-          }}
-          title="Slot einstellen"
-        >
-          <GearSixIcon size={18} />
+      {onPilot ? (
+        <button className="lane-pick" onClick={only(onPilot)} title="Pilot wählen">
+          {who}
         </button>
+      ) : (
+        <div className="lane-pick static">{who}</div>
+      )}
+      {onChannel ? (
+        <button className="tag tnum lane-ch" onClick={only(onChannel)} title="Kanal wählen">
+          <b>{channel}</b> {channel !== String(mhz) && mhz}
+        </button>
+      ) : (
+        <span className="tag tnum">
+          {channel} · {mhz}
+        </span>
       )}
     </div>
   )
