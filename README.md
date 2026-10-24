@@ -75,6 +75,7 @@ Passwort („Anmelden“ oben rechts, das Gerät bleibt 30 Tage angemeldet).
 
 ```toml
 # ~/.laptimer/config.toml
+host = "0.0.0.0"                # Standard "localhost": nur dieser Rechner, nicht die Handys
 # port = 5800
 # data = "~/.laptimer/data"     # Datenbank, Pegel, Backups, hooks/
 [auth]
@@ -82,7 +83,7 @@ enabled = true                  # abschalten nur ausdrücklich: enabled = false
 password = "…"
 ```
 
-Die Kommandozeile geht vor (`--port`, `--data`, `--web`, `--sounds`, `--hooks`, `--config`).
+Die Kommandozeile geht vor (`--host`, `--port`, `--data`, `--web`, `--sounds`, `--hooks`, `--config`).
 Die Daten liegen standardmäßig in `~/.laptimer/data`; ältere Daten aus `server/data` mit
 `--data data` weiterverwenden (oder den Ordner verschieben).
 

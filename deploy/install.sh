@@ -7,7 +7,7 @@
 #   ./install.sh --uninstall   stop and remove the service (data stays)
 #
 # Everything goes to ~/.laptimer:
-#   config.toml        port, password (asked for on the first install)
+#   config.toml        host, port, password (asked for on the first install)
 #   current            -> releases/<version>, the one running
 #   previous           -> releases/<version>, the one before (--rollback)
 #   releases/<version> bin/, web/, sounds/, … (the three newest are kept)
@@ -157,6 +157,8 @@ if [ ! -e "$config" ]; then
 # Laptimer: Einstellungen der Installation (alles andere auf der Web-Seite).
 # Nach einer Änderung neu starten: systemctl --user restart laptimer
 
+# Erreichbar von: "localhost" (nur dieser Rechner) oder "0.0.0.0" (alle Netze, Handys)
+host = "0.0.0.0"
 # port = 5800
 # data = "~/.laptimer/data"      # Datenbank, Pegel, Backups, hooks/
 
@@ -192,6 +194,11 @@ restart_service
 
 port=$(sed -n 's/^[[:space:]]*port[[:space:]]*=[[:space:]]*\([0-9]*\).*/\1/p' "$config" | head -1)
 port=${port:-5800}
+host=$(sed -n 's/^[[:space:]]*host[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$config" | head -1)
+case ${host:-localhost} in
+    0.0.0.0|::) ;;
+    *) say "Achtung: host = \"${host:-localhost}\" in $config, Handys erreichen den Server nicht (host = \"0.0.0.0\")" ;;
+esac
 say "Läuft: http://$(hostname).local:$port"
 ip=$(hostname -I 2>/dev/null | awk '{print $1}')
 [ -z "$ip" ] || echo "  oder http://$ip:$port"

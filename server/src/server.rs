@@ -46,6 +46,8 @@ use crate::trace::{self, SessionTrace};
 use crate::update::Updater;
 
 pub struct ServeOptions {
+    /// `localhost`, `0.0.0.0`, or an address of this machine.
+    pub host: String,
     pub port: u16,
     pub data_dir: PathBuf,
     pub web_dir: PathBuf,
@@ -193,20 +195,28 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .fallback_service(web)
         .with_state(app);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], opts.port));
+    let everywhere = opts.host == "0.0.0.0" || opts.host == "::";
     println!(
-        "laptimer {}: http://localhost:{} (and this machine's address in the network)",
+        "laptimer {}: http://{}:{}{}",
         crate::VERSION,
-        opts.port
+        if everywhere { "localhost" } else { opts.host.as_str() },
+        opts.port,
+        if everywhere { " (and this machine's address in the network)" } else { "" }
     );
+    if opts.host == "localhost" || opts.host.starts_with("127.") {
+        println!("laptimer: nur von diesem Rechner erreichbar (für Handys: host = \"0.0.0.0\" in config.toml)");
+    }
     if !opts.auth.enabled {
         println!("laptimer: ohne Passwort ([auth] enabled = false): jeder im Netz kann alles ändern");
     }
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async move {
-        let listener = tokio::net::TcpListener::bind(addr)
+        // `localhost` would resolve to ::1 only on some systems (then
+        // 127.0.0.1 does not answer); other names are looked up by `bind`.
+        let host = if opts.host == "localhost" { "127.0.0.1" } else { opts.host.as_str() };
+        let listener = tokio::net::TcpListener::bind((host, opts.port))
             .await
-            .with_context(|| format!("port {}", opts.port))?;
+            .with_context(|| format!("{}:{}", opts.host, opts.port))?;
         // With the client's address: the login slows down guessing per address.
         axum::serve(listener, router.into_make_service_with_connect_info::<SocketAddr>()).await?;
         anyhow::Ok(())

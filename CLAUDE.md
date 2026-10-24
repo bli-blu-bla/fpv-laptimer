@@ -86,7 +86,8 @@ USB-Ports, an einem dritten 2,4 ms; also ±0,4 bis ±1,2 ms Unsicherheit.
 
 ## Server (`server/`)
 
-`laptimer serve` (Port 5800; 8080/8090 belegt Docker auf dem Mac des Nutzers) liest
+`laptimer serve` (Port 5800; 8080/8090 belegt Docker auf dem Mac des Nutzers; `host`/`--host`
+Standard `localhost`, die angelegten Configs von `install.sh` und `config.rs` setzen `0.0.0.0`) liest
 `~/.laptimer/config.toml` (`config.rs`; fehlt sie, wird sie mit zufälligem Passwort angelegt;
 `--config` für eine andere, die dann existieren muss). Reihenfolge: Kommandozeile, Config,
 Standard. `--data` (Standard `~/.laptimer/data`: SQLite `laptimer.db` +

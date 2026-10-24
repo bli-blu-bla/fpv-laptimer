@@ -1,4 +1,4 @@
-//! `~/.laptimer/config.toml`: what an installation sets once (port, paths,
+//! `~/.laptimer/config.toml`: what an installation sets once (host, port, paths,
 //! password). Everything else (channels, pilots, …) is in the database and
 //! set on the web page.
 //!
@@ -16,6 +16,9 @@ use serde::Deserialize;
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
+    /// The address the web server listens on: `localhost` (default, only
+    /// this machine) or `0.0.0.0` (all networks, for the phones).
+    pub host: Option<String>,
     pub port: Option<u16>,
     /// Database, session levels, backups, hooks (`<data>/hooks`).
     pub data: Option<PathBuf>,
@@ -113,6 +116,8 @@ fn write_default(path: &Path) -> Result<()> {
         "# Laptimer: Einstellungen der Installation (alles andere auf der Web-Seite).\n\
          # Nach einer Änderung neu starten: systemctl --user restart laptimer\n\
          \n\
+         # Erreichbar von: \"localhost\" (nur dieser Rechner) oder \"0.0.0.0\" (alle Netze, Handys)\n\
+         host = \"0.0.0.0\"\n\
          # port = 5800\n\
          # data = \"~/.laptimer/data\"      # Datenbank, Pegel, Backups, hooks/\n\
          \n\
@@ -171,8 +176,9 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("laptimer_config_{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("config.toml");
-        std::fs::write(&path, "port = 81\ndata = \"d\"\n[auth]\npassword = \"x\"\n").unwrap();
+        std::fs::write(&path, "host = \"0.0.0.0\"\nport = 81\ndata = \"d\"\n[auth]\npassword = \"x\"\n").unwrap();
         let c = load(&path, true).unwrap();
+        assert_eq!(c.host.as_deref(), Some("0.0.0.0"));
         assert_eq!(c.port, Some(81));
         assert_eq!(c.data, Some(dir.join("d")));
         assert!(c.auth.enabled);
@@ -191,6 +197,7 @@ mod tests {
         let fresh = dir.join("sub").join("config.toml");
         let c = load(&fresh, false).unwrap();
         assert_eq!(c.auth.password.len(), 12);
+        assert_eq!(c.host.as_deref(), Some("0.0.0.0"));
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

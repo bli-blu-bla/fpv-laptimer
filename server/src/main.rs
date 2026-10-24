@@ -81,6 +81,10 @@ enum Command {
         /// The installation's settings. Default: ~/.laptimer/config.toml
         #[arg(long)]
         config: Option<PathBuf>,
+        /// Address to listen on: localhost (default, only this machine) or
+        /// 0.0.0.0 (all networks).
+        #[arg(long)]
+        host: Option<String>,
         /// Web port (default 5800).
         #[arg(long)]
         port: Option<u16>,
@@ -155,6 +159,7 @@ fn main() -> Result<()> {
         }
         Command::Serve {
             config,
+            host,
             port,
             data,
             web,
@@ -171,6 +176,7 @@ fn main() -> Result<()> {
             let data = data.or(cfg.data).unwrap_or_else(|| home.join("data"));
             let hooks_dir = hooks.or(cfg.hooks).unwrap_or_else(|| data.join("hooks"));
             server::run(server::ServeOptions {
+                host: host.or(cfg.host).unwrap_or_else(|| "localhost".to_string()),
                 port: port.or(cfg.port).unwrap_or(5800),
                 hooks_dir,
                 data_dir: data,
