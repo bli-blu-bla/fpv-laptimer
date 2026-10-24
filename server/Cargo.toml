@@ -27,6 +27,7 @@ sha2 = "0.10"
 flate2 = "1"
 # ~/.laptimer/config.toml
 toml = { version = "0.9", default-features = false, features = ["parse", "serde"] }
+serde_ignored = "0.1"
 tar = { version = "0.4", default-features = false }
 # Checks the signature of an update (minisign, pure Rust).
 minisign-verify = "0.3.0"

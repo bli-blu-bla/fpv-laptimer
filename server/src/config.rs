@@ -5,6 +5,9 @@
 //! Order: command line, then this file, then the defaults. Paths in the file
 //! may start with `~/`; relative ones are relative to the file's folder.
 //!
+//! Unknown keys (a typo, or a key of a newer version) are ignored with a
+//! warning, so an older version still starts with a newer file.
+//!
 //! If the default file is missing, `laptimer serve` writes one with a
 //! random password and prints it. A file given with `--config` must exist.
 
@@ -14,7 +17,7 @@ use anyhow::{Context, Result, bail};
 use serde::Deserialize;
 
 #[derive(Debug, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct Config {
     /// The address the web server listens on: `localhost` (default, only
     /// this machine) or `0.0.0.0` (all networks, for the phones).
@@ -34,7 +37,7 @@ pub struct Config {
 
 /// Updates from the web page (`update.rs`).
 #[derive(Debug, Clone, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct UpdateConfig {
     /// The Forgejo repository with the releases, e.g.
     /// `https://git.homeserver.local/bli-blu-bla/LapTimer`. Empty: only uploads.
@@ -48,7 +51,7 @@ pub struct UpdateConfig {
 
 /// The password for everything that changes something (`auth.rs`).
 #[derive(Debug, Clone, Deserialize)]
-#[serde(default, deny_unknown_fields)]
+#[serde(default)]
 pub struct AuthConfig {
     /// On unless switched off with `enabled = false`.
     pub enabled: bool,
@@ -79,7 +82,10 @@ pub fn load(path: &Path, explicit: bool) -> Result<Config> {
         write_default(path)?;
     }
     let text = std::fs::read_to_string(path).with_context(|| format!("{}", path.display()))?;
-    let mut config: Config = toml::from_str(&text).with_context(|| format!("{}", path.display()))?;
+    let (mut config, unknown) = parse(&text).with_context(|| format!("{}", path.display()))?;
+    for key in unknown {
+        eprintln!("laptimer: {}: unbekannter Eintrag `{key}` wird ignoriert", path.display());
+    }
     if config.auth.enabled && config.auth.password.is_empty() {
         bail!(
             "{}: kein Passwort gesetzt. Unter [auth] `password = \"…\"` eintragen \
@@ -95,6 +101,15 @@ pub fn load(path: &Path, explicit: bool) -> Result<Config> {
         }
     }
     Ok(config)
+}
+
+/// The settings and the keys it did not know (e.g. `auth.enable`).
+fn parse(text: &str) -> Result<(Config, Vec<String>)> {
+    let mut unknown = Vec::new();
+    let de = toml::Deserializer::parse(text)?;
+    // serde_ignored calls the closure for every key no field took.
+    let config = serde_ignored::deserialize(de, |key| unknown.push(key.to_string()))?;
+    Ok((config, unknown))
 }
 
 /// `~/x` → home/x, `x` → base/x, absolute stays.
@@ -189,7 +204,10 @@ mod tests {
         // Off only on purpose.
         std::fs::write(&path, "[auth]\nenabled = false\n").unwrap();
         assert!(!load(&path, true).unwrap().auth.enabled);
-        // A typo is an error, not silently ignored.
+        // A typo is ignored, with a warning (here: still no password).
+        let (c, unknown) = parse("colour = 1\n[auth]\nenable = false\npassword = \"x\"\n").unwrap();
+        assert!(c.auth.enabled);
+        assert_eq!(unknown, ["auth.enable", "colour"]);
         std::fs::write(&path, "[auth]\nenable = false\n").unwrap();
         assert!(load(&path, true).is_err());
 
