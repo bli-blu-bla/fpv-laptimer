@@ -8,6 +8,7 @@ import { BookOpenIcon, CopyIcon, KeyIcon, LightningIcon, PaperPlaneTiltIcon, Pen
 import { api } from '../api.js'
 import { COMMANDS, EVENTS, restCall } from '../apiCatalog.js'
 import { dateTime } from '../format.js'
+import Tabs from '../components/Tabs.jsx'
 
 /** The key the tester uses, kept in this browser. */
 const KEY_STORE = 'laptimer.apiKey'
@@ -62,15 +63,7 @@ export default function ApiPage() {
   }
   return (
     <>
-      <div className="seg" style={{ maxWidth: 560 }}>
-        {TABS.map(([id, label, Icon]) => (
-          <button key={id} className={tab === id ? 'on' : ''} onClick={() => setTab(id)}>
-            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-              <Icon size={16} /> {label}
-            </span>
-          </button>
-        ))}
-      </div>
+      <Tabs tabs={TABS} value={tab} onChange={setTab} />
       {tab === 'keys' && <Keys onKey={useKey} />}
       {tab === 'docs' && <Docs />}
       {tab === 'test' && <Tester apiKey={key} setKey={useKey} />}
