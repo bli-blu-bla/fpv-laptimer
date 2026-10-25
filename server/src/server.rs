@@ -438,31 +438,49 @@ async fn add_pass(State(app): State<Arc<App>>, Path(id): Path<i64>, Json(req): J
         }
     }
     let mut core = app.core.lock().unwrap();
-    check_room(&core, id, req.channel, time_us, None)?;
+    check_room(&core, id, req.channel, time_us, None, MANUAL_GAP_US)?;
     let pass = core.db.add_pass(id, req.channel, time_us, peak_db, true)?;
     core.session_changed(id)?;
     Ok(Json(json!({ "id": pass, "time_us": time_us })))
 }
 
-/// A pass closer than the minimum lap to another (not deleted) pass of the
-/// same channel would make a lap that can't be: refuse it.
-pub fn check_room(core: &Core, session: i64, channel: u8, time_us: i64, except: Option<i64>) -> Result<()> {
-    let s = core.db.session(session)?.context("Diese Session gibt es nicht.")?;
-    let min_lap_us = (s.config.min_lap_s * 1e6) as i64;
+/// Passes set by hand (page) may make laps shorter than the minimum lap:
+/// the race director knows better. Only two passes on the same spot (a
+/// double tap) are refused.
+pub const MANUAL_GAP_US: i64 = 100_000;
+
+/// A pass closer than `min_gap_us` to another (not deleted) pass of the
+/// same channel: refuse it. `min_gap_us`: the minimum lap (API, e.g. a
+/// button at the gate that may bounce) or `MANUAL_GAP_US` (page).
+pub fn check_room(
+    core: &Core,
+    session: i64,
+    channel: u8,
+    time_us: i64,
+    except: Option<i64>,
+    min_gap_us: i64,
+) -> Result<()> {
+    core.db.session(session)?.context("Diese Session gibt es nicht.")?;
     let clash = core.db.passes(session)?.into_iter().find(|p| {
         p.channel == channel
             && p.gate == 0
             && !p.deleted
             && Some(p.id) != except
-            && (p.time_us - time_us).abs() < min_lap_us
+            && (p.time_us - time_us).abs() < min_gap_us
     });
     if clash.is_some() {
         anyhow::bail!(
-            "Hier ist schon ein Durchflug (näher als die Mindest-Rundenzeit von {} s). Erst den anderen löschen.",
-            s.config.min_lap_s
+            "Hier ist schon ein Durchflug (näher als {:.1} s). Erst den anderen löschen.",
+            min_gap_us as f64 / 1e6
         );
     }
     Ok(())
+}
+
+/// The minimum lap of a session in µs.
+pub fn min_lap_us(core: &Core, session: i64) -> Result<i64> {
+    let s = core.db.session(session)?.context("Diese Session gibt es nicht.")?;
+    Ok((s.config.min_lap_s * 1e6) as i64)
 }
 
 #[derive(Deserialize)]
@@ -472,11 +490,12 @@ struct EditRequest {
     edit: PassEdit,
 }
 
-/// Corrections of one channel from the pass editor, saved at once. The
-/// result must keep the minimum lap between any two passes.
+/// Corrections of one channel from the pass editor, saved at once. Laps
+/// shorter than the minimum lap are allowed (set by hand), only two passes
+/// on the same spot are not.
 async fn edit_passes(State(app): State<Arc<App>>, Path(id): Path<i64>, Json(req): Json<EditRequest>) -> ApiResult {
     let mut core = app.core.lock().unwrap();
-    let s = core.db.session(id)?.context("Diese Session gibt es nicht.")?;
+    core.db.session(id)?.context("Diese Session gibt es nicht.")?;
     let e = &req.edit;
     let mut times: Vec<i64> = core
         .db
@@ -488,12 +507,10 @@ async fn edit_passes(State(app): State<Arc<App>>, Path(id): Path<i64>, Json(req)
         .chain(e.adds.iter().copied())
         .collect();
     times.sort();
-    let min_lap_us = (s.config.min_lap_s * 1e6) as i64;
-    if let Some(w) = times.windows(2).find(|w| w[1] - w[0] < min_lap_us) {
+    if let Some(w) = times.windows(2).find(|w| w[1] - w[0] < MANUAL_GAP_US) {
         return Err(anyhow::anyhow!(
-            "Zwei Durchflüge liegen nur {:.2} s auseinander – die Mindest-Rundenzeit ist {} s.",
-            (w[1] - w[0]) as f64 / 1e6,
-            s.config.min_lap_s
+            "Zwei Durchflüge liegen nur {:.2} s auseinander – einer davon ist doppelt.",
+            (w[1] - w[0]) as f64 / 1e6
         )
         .into());
     }
@@ -518,7 +535,7 @@ async fn set_pass_deleted(State(app): State<Arc<App>>, Path(id): Path<i64>, Json
             .into_iter()
             .find(|p| p.id == id)
             .context("Diesen Durchflug gibt es nicht.")?;
-        check_room(&core, session, p.channel, p.time_us, Some(id))?;
+        check_room(&core, session, p.channel, p.time_us, Some(id), MANUAL_GAP_US)?;
     }
     let session = core
         .db

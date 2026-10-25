@@ -188,7 +188,7 @@ export const COMMANDS = [
     path: '/passes',
     group: 'Durchflüge',
     title: 'Durchflug von Hand',
-    desc: 'Zählt wie ein erkannter (Ansage, Event pilot_pass), z. B. von einem Taster am Gate. Abgelehnt, wenn näher als die Mindestrunde an einem anderen oder außerhalb der Session (vor dem Start, nach dem Ende, mehr als 1 s in der Zukunft).',
+    desc: 'Zählt wie ein erkannter (Ansage, Event pilot_pass), z. B. von einem Taster am Gate. Abgelehnt, wenn näher als die Mindestrunde an einem anderen (ein Taster prellt; in der Seite gilt die Mindestrunde nicht) oder außerhalb der Session (vor dem Start, nach dem Ende, mehr als 1 s in der Zukunft).',
     args: [
       ['channel', 'Kanal, ab 0'],
       ['time_us', 'Zeit, µs seit 1970 (Standard: jetzt)'],

@@ -115,7 +115,8 @@ Einzelheiten:
   `session.discard`.
 - **`passes.add`**: zählt wie ein erkannter Durchflug (Ansage, Event `pilot_pass` mit
   `manual: true`), z. B. von einem Taster. Abgelehnt, wenn er näher als die
-  Mindest-Rundenzeit an einem anderen Durchflug desselben Kanals liegt, oder wenn `time_us`
+  Mindest-Rundenzeit an einem anderen Durchflug desselben Kanals liegt (gegen prellende
+  Taster; `passes.restore` und die Korrektur in der Seite prüfen nur auf 0,1 s), oder wenn `time_us`
   außerhalb der Session liegt: vor dem Druck auf Start oder nach dem Ende (läuft sie noch:
   mehr als 1 s in der Zukunft). Ohne Boards gut zum Testen.
 

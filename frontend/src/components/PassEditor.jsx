@@ -90,7 +90,7 @@ export default function PassEditor({ detail, onSaved }) {
     t0,
   )
   const selected = markers.find((m) => m.key === sel) ?? null
-  // Laps under the minimum the server refuses on saving: show them now.
+  // Laps under the minimum lap: only a hint, a pass set by hand counts anyway.
   const minLapUs = s.config.min_lap_s * 1e6
   const tooShort = preview.laps.filter((l) => l.duration_us < minLapUs).length
   const total = Object.values(drafts).reduce((n, d) => n + changes(d), 0)
@@ -244,9 +244,9 @@ export default function PassEditor({ detail, onSaved }) {
         am nächsten Gipfel ein. Grün: erkannt, blau: von Hand, grau gestrichelt: gelöscht, gelb gepunktet: Freigabe-Gate.
       </p>
       {tooShort > 0 && (
-        <p className="error" style={{ margin: 0 }}>
-          {tooShort === 1 ? 'Eine Runde ist' : `${tooShort} Runden sind`} kürzer als die Mindest-Rundenzeit ({s.config.min_lap_s} s) – so lässt
-          sich nicht speichern.
+        <p className="muted small" style={{ margin: 0 }}>
+          {tooShort === 1 ? 'Eine Runde ist' : `${tooShort} Runden sind`} kürzer als die Mindest-Rundenzeit ({s.config.min_lap_s} s). Von Hand
+          gesetzt zählt sie trotzdem.
         </p>
       )}
       {error && <p className="error">{error}</p>}
@@ -262,7 +262,7 @@ export default function PassEditor({ detail, onSaved }) {
         >
           Verwerfen
         </button>
-        <button className="btn btn-primary" disabled={!total || busy || tooShort > 0} onClick={save}>
+        <button className="btn btn-primary" disabled={!total || busy} onClick={save}>
           <FloppyDiskIcon size={18} /> Speichern
         </button>
       </div>

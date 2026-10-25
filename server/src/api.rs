@@ -37,7 +37,7 @@ use crate::auth::{hex, random_bytes};
 use crate::core::{ChannelSetting, Core, standings, unix_now_us};
 use crate::db::SessionRow;
 use crate::laps::{EndRule, StartMode};
-use crate::server::{App, check_room, restart_source, session_results, stats_json};
+use crate::server::{App, MANUAL_GAP_US, check_room, min_lap_us, restart_source, session_results, stats_json};
 
 /// The version in the path and in the WebSocket's `hello`.
 const API_VERSION: u32 = 1;
@@ -554,7 +554,7 @@ pub fn command(app: &App, cmd: &str, args: Value) -> Result<Value> {
                     .into_iter()
                     .find(|p| p.id == id)
                     .context("Diesen Durchflug gibt es nicht.")?;
-                check_room(&core, session, p.channel, p.time_us, Some(id))?;
+                check_room(&core, session, p.channel, p.time_us, Some(id), MANUAL_GAP_US)?;
             }
             core.db.set_pass_deleted(id, !restore)?;
             core.session_changed(session)?;
@@ -896,7 +896,8 @@ fn add_pass(app: &App, args: &Value) -> Result<Value> {
     if time_us < s.created_us || time_us > latest {
         bail!("'time_us' liegt außerhalb der Session (vor dem Start oder nach dem Ende bzw. in der Zukunft).");
     }
-    check_room(&core, session, channel, time_us, None)?;
+    // Live from a button that may bounce: keep the minimum lap here.
+    check_room(&core, session, channel, time_us, None, min_lap_us(&core, session)?)?;
     let id = core.db.add_pass(session, channel, time_us, 0.0, true)?;
     core.pass_added(session)?;
     Ok(json!({ "pass_id": id, "session_id": session, "time_us": time_us }))
