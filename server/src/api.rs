@@ -471,7 +471,7 @@ pub fn command(app: &App, cmd: &str, args: Value) -> Result<Value> {
         bail!("Die Argumente müssen ein JSON-Objekt sein.");
     }
     match cmd {
-        "ping" => Ok(json!({ "pong": true, "now_us": unix_now_us() })),
+        "ping" => Ok(json!({ "pong": true, "now_us": app.core.lock().unwrap().now_us() })),
         "state" => state(&app.core.lock().unwrap()),
         "channels.list" => Ok(json!(app.core.lock().unwrap().channel_list())),
         "channels.set" => set_channel(app, &args),
@@ -632,7 +632,7 @@ fn state(core: &Core) -> Result<Value> {
         })
         .collect();
     Ok(json!({
-        "now_us": unix_now_us(),
+        "now_us": core.now_us(),
         "session": session,
         "unconfirmed": unconfirmed,
         "channels": core.channel_list(),
@@ -646,7 +646,7 @@ fn state(core: &Core) -> Result<Value> {
 fn session_json(core: &Core, s: &SessionRow, with_passes: bool) -> Result<Value> {
     let passes = core.db.passes(s.id)?;
     let results = session_results(s, &passes);
-    let now = unix_now_us();
+    let now = core.now_us();
     let phase = match s.ended_us {
         Some(_) => "ended",
         None if now < s.start_us => "countdown",
@@ -892,7 +892,7 @@ fn add_pass(app: &App, args: &Value) -> Result<Value> {
     }
     // Between the start button and the end (running: now, with 1 s for
     // a client clock that is a little ahead).
-    let latest = s.ended_us.unwrap_or_else(|| unix_now_us() + 1_000_000);
+    let latest = s.ended_us.unwrap_or_else(|| core.now_us() + 1_000_000);
     if time_us < s.created_us || time_us > latest {
         bail!("'time_us' liegt außerhalb der Session (vor dem Start oder nach dem Ende bzw. in der Zukunft).");
     }

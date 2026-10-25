@@ -249,6 +249,10 @@ pub struct Core {
     armed_at: Vec<Option<i64>>,
     last_counted: Vec<Option<i64>>,
     /// Host time (µs since `origin`) → wall clock: origin_unix_us + host_us.
+    /// All session times come from this one clock (`now_us`), not from the
+    /// system clock: a Pi without a battery clock boots with an old time and
+    /// NTP later jumps it, sometimes by a day. With two clocks the passes
+    /// would then land before the session's start and be dropped.
     origin: Instant,
     origin_unix_us: i64,
     active: Option<Active>,
@@ -306,6 +310,23 @@ impl Core {
 
     fn wall_us(&self, host_us: i64) -> i64 {
         self.origin_unix_us + host_us
+    }
+
+    /// Now on the session clock (see `origin`).
+    pub fn now_us(&self) -> i64 {
+        self.wall_us(self.origin.elapsed().as_micros() as i64)
+    }
+
+    /// Follows the system clock again if it jumped (NTP after booting).
+    /// Only between sessions: during one, all its times stay on one clock.
+    fn resync_clock(&mut self) {
+        let host_us = self.origin.elapsed().as_micros() as i64;
+        let fresh = unix_now_us() - host_us;
+        let jump = fresh - self.origin_unix_us;
+        if jump.abs() > 1_000_000 {
+            eprintln!("system clock jumped by {:.1} s, following it", jump as f64 / 1e6);
+            self.origin_unix_us = fresh;
+        }
     }
 
     /// The boards are (re)started: new board list, fresh detectors.
@@ -461,7 +482,7 @@ impl Core {
     fn refresh(&mut self, announce: bool) -> Result<()> {
         // A pass right after the start must not be reported before the
         // `start_signal` (that one otherwise waits for the next `tick`).
-        self.countdown_events(unix_now_us());
+        self.countdown_events(self.now_us());
         let Some(a) = self.active.as_mut() else { return Ok(()) };
         a.passes = self.db.passes(a.row.id)?;
         let new = results(&a.row, &a.passes);
@@ -564,6 +585,7 @@ impl Core {
         if self.db.unconfirmed_race()?.is_some() {
             bail!("Erst das Ergebnis des letzten Rennens bestätigen (oder verwerfen).");
         }
+        self.resync_clock();
         let s = &self.settings;
         let config = if race {
             SessionConfig {
@@ -613,7 +635,7 @@ impl Core {
             })
             .collect();
 
-        let created_us = unix_now_us();
+        let created_us = self.now_us();
         let start_us = created_us + config.countdown_s as i64 * 1_000_000;
         let levels_dir = self.data_dir.join("levels");
         fs::create_dir_all(&levels_dir)?;
@@ -760,7 +782,7 @@ impl Core {
         if let Some(mut out) = a.levels_out.take() {
             out.flush()?;
         }
-        let ended_us = unix_now_us();
+        let ended_us = self.now_us();
         self.db.end_session(a.row.id, ended_us)?;
         self.scheduled.clear();
         let mut data = result_json(&a.row, &a.results);
@@ -829,7 +851,7 @@ impl Core {
             bail!("Die Session läuft noch.");
         }
         if s.confirmed_us.is_none() {
-            let now = unix_now_us();
+            let now = self.now_us();
             self.db.confirm_session(id, now)?;
             let passes = self.db.passes(id)?;
             let mut data = result_json(&s, &results(&s, &passes));
@@ -1122,7 +1144,7 @@ impl Core {
 
     /// Called often (every ~10 ms): due announcements, live levels.
     pub fn tick(&mut self) {
-        let now = unix_now_us();
+        let now = self.now_us();
         // `retain` keeps what is not due yet; the due ones are played.
         let mut due = Vec::new();
         self.scheduled.retain(|(t, s)| {
@@ -1202,7 +1224,7 @@ impl Core {
         });
         json!({
             "type": "state",
-            "now_us": unix_now_us(),
+            "now_us": self.now_us(),
             "version": crate::VERSION,
             "settings": self.settings,
             "pilots": pilots,
