@@ -35,7 +35,7 @@ use crate::config::{AuthConfig, UpdateConfig};
 use crate::core::{BoardView, Core, Settings, results};
 use crate::db::{Db, PassEdit};
 use crate::detect::DetectConfig;
-use crate::esp::board::{Event, ScanConfig, find_ports};
+use crate::esp::board::{self, Event, ScanConfig, find_ports};
 use crate::esp::flash;
 use crate::events::Events;
 use crate::hooks::Hooks;
@@ -176,6 +176,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .route("/presets/{id}", axum::routing::put(update_preset).delete(delete_preset))
         .route("/stats", get(get_stats))
         .route("/boards/rescan", post(rescan_boards))
+        .route("/boards/name", post(name_board))
         .route("/firmware", get(get_firmware))
         .route("/firmware/flash", post(flash_board))
         .route("/announce/test", post(announce_test))
@@ -256,7 +257,7 @@ fn start_source(app: &App, source: &mut Option<Source>) -> Result<()> {
     *source = Some(new);
     let views = names
         .into_iter()
-        .map(|n| BoardView::new(n.port, n.id, n.info))
+        .map(|n| BoardView::new(n.port, n.id, n.info, n.name))
         .collect();
     app.core.lock().unwrap().boards_started(views);
     Ok(())
@@ -687,7 +688,7 @@ async fn get_firmware(State(app): State<Arc<App>>) -> ApiResult {
         .map(|p| {
             // A board that runs our firmware and was set up has its INFO.
             let board = core.boards.iter().find(|b| b.port == p.name);
-            json!({ "port": p.name, "id": p.id, "info": board.map(|b| b.info.clone()) })
+            json!({ "port": p.name, "id": p.id, "info": board.map(|b| b.info.clone()), "name": board.and_then(|b| b.name.clone()) })
         })
         .collect();
     Ok(Json(json!({
@@ -718,6 +719,49 @@ async fn rescan_boards(State(app): State<Arc<App>>) -> ApiResult {
     // Talking to the boards blocks: off the async threads.
     let app2 = Arc::clone(&app);
     tokio::task::spawn_blocking(move || restart_source(&app2)).await??;
+    Ok(Json(json!({})))
+}
+
+#[derive(Deserialize)]
+struct NameRequest {
+    /// The board's id (USB serial number).
+    id: String,
+    /// "" clears the name.
+    name: String,
+}
+
+/// Saves a name on a board. The board's port is busy while it scans, so all
+/// boards stop for that moment and start again (as with a rescan).
+async fn name_board(State(app): State<Arc<App>>, Json(req): Json<NameRequest>) -> ApiResult {
+    if app.replay.is_some() {
+        return Err(anyhow::anyhow!("Im Wiedergabe-Modus gibt es keine Boards.").into());
+    }
+    let name = req.name.trim().to_string();
+    board::check_name(&name)?;
+    let port = {
+        let core = app.core.lock().unwrap();
+        if core.session_running() {
+            return Err(anyhow::anyhow!("Erst die laufende Session beenden.").into());
+        }
+        match core.boards.iter().find(|b| b.id == req.id) {
+            Some(b) => b.port.clone(),
+            None => return Err(anyhow::anyhow!("Das Board ist nicht (mehr) angesteckt.").into()),
+        }
+    };
+    if app.flash.lock().unwrap().as_ref().is_some_and(|s| !s.done) {
+        return Err(anyhow::anyhow!("Es wird gerade ein Board geflasht.").into());
+    }
+    // Talking to the boards blocks: off the async threads.
+    let app2 = Arc::clone(&app);
+    tokio::task::spawn_blocking(move || {
+        let mut source = app2.source.lock().unwrap();
+        *source = None; // stops all boards: frees the port
+        let saved = board::set_name(&port, &name);
+        // Start the boards again either way; the first error counts.
+        let restarted = start_source(&app2, &mut source);
+        saved.and(restarted)
+    })
+    .await??;
     Ok(Json(json!({})))
 }
 

@@ -199,6 +199,8 @@ pub struct BoardView {
     /// USB serial number (MAC), stable across plugging.
     pub id: String,
     pub info: String,
+    /// The name saved on the board (`NAME`), if any.
+    pub name: Option<String>,
     pub levels_per_s: f64,
     pub stats: Option<LinkStats>,
     pub failed: Option<String>,
@@ -211,11 +213,12 @@ pub struct BoardView {
 }
 
 impl BoardView {
-    pub fn new(port: String, id: String, info: String) -> BoardView {
+    pub fn new(port: String, id: String, info: String, name: Option<String>) -> BoardView {
         BoardView {
             port,
             id,
             info,
+            name,
             ..Default::default()
         }
     }

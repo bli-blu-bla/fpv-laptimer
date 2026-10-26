@@ -44,6 +44,8 @@ pub struct BoardName {
     /// Stable across plugging (USB serial number), for the board's role.
     pub id: String,
     pub info: String,
+    /// The name saved on the board, if any.
+    pub name: Option<String>,
 }
 pub type BoardNames = Vec<BoardName>;
 
@@ -58,6 +60,7 @@ pub fn start_boards(config: &ScanConfig, origin: Instant, tx: &Sender<Event>) ->
                     port: port.name.clone(),
                     id: port.id.clone(),
                     info: b.info.clone(),
+                    name: b.name.clone(),
                 });
                 boards.push(b);
             }
@@ -79,6 +82,7 @@ pub fn start_replay(path: &Path, origin: Instant, tx: Sender<Event>) -> Result<(
                 port: format!("replay {}", path.display()),
                 id: format!("replay-{}", names.len()),
                 info: rest.to_string(),
+                name: None,
             });
             continue;
         }

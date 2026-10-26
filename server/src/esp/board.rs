@@ -71,6 +71,9 @@ pub struct Board {
     pub port_name: String,
     /// The board's `INFO` reply (firmware version etc.).
     pub info: String,
+    /// The name saved on the board (`NAME?`), `None` without one or with
+    /// firmware that doesn't know the command.
+    pub name: Option<String>,
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
@@ -86,7 +89,7 @@ impl Board {
         events: Sender<Event>,
     ) -> Result<Board> {
         let mut link = Link::open(port_name, origin)?;
-        let info = link.setup(config).with_context(|| format!("setting up {port_name}"))?;
+        let (info, name) = link.setup(config).with_context(|| format!("setting up {port_name}"))?;
         let stop = Arc::new(AtomicBool::new(false));
         // The thread gets its own handle to the stop flag; `Arc` counts the
         // owners, so the flag lives as long as either side needs it.
@@ -104,6 +107,7 @@ impl Board {
         Ok(Board {
             port_name: port_name.to_string(),
             info,
+            name,
             stop,
             thread: Some(thread),
         })
@@ -259,8 +263,8 @@ impl Link {
         bail!("{line}: no reply")
     }
 
-    /// Puts the board into the mode we need. Returns its `INFO` text.
-    fn setup(&mut self, config: &ScanConfig) -> Result<String> {
+    /// Puts the board into the mode we need. Returns its `INFO` text and name.
+    fn setup(&mut self, config: &ScanConfig) -> Result<(String, Option<String>)> {
         // The firmware boots in RotorHazard mode and says nothing until asked.
         // Its text commands work there too, so switch first.
         self.command("PROTOCOL MONITOR", "OK")?;
@@ -269,6 +273,8 @@ impl Link {
         if !info.starts_with("INFO widscan58|") {
             bail!("not our firmware: {info}");
         }
+        // Older firmware answers `ERR command`: then the board has no name.
+        let name = self.command("NAME?", "NAME").ok().and_then(|r| parse_name(&r));
         // Line up the clocks while the board is quiet: the answers come
         // fastest then.
         while !self.clock.ready() {
@@ -294,7 +300,7 @@ impl Link {
         ] {
             self.command(&cmd, "OK")?;
         }
-        Ok(info.trim_start_matches("INFO ").to_string())
+        Ok((info.trim_start_matches("INFO ").to_string(), name))
     }
 
     /// Asks for the board time once and waits for the answer (setup only).
@@ -387,6 +393,42 @@ impl Link {
         }
         Ok(())
     }
+}
+
+/// Saves `name` on the board at `port_name` ("" clears it). The board must
+/// not be in use (stop the boards first).
+pub fn set_name(port_name: &str, name: &str) -> Result<()> {
+    let mut link = Link::open(port_name, Instant::now())?;
+    link.command("PROTOCOL MONITOR", "OK")?;
+    link.command("SCAN STOP", "OK")?;
+    let cmd = if name.is_empty() { "NAME".to_string() } else { format!("NAME {name}") };
+    match link.command(&cmd, "OK") {
+        Ok(_) => Ok(()),
+        Err(e) if format!("{e}").contains("ERR command") => {
+            bail!("Die Firmware des Boards kennt keine Namen – bitte erst neu flashen.")
+        }
+        Err(e) if format!("{e}").contains("ERR name") => {
+            bail!("Ungültiger Name: höchstens 32 Bytes, ohne „|“.")
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Checks a board name before sending it: what the firmware accepts.
+pub fn check_name(name: &str) -> Result<()> {
+    if name.len() > 32 {
+        bail!("Der Name ist zu lang (höchstens 32 Bytes).");
+    }
+    if name.chars().any(|c| c.is_control() || c == '|') {
+        bail!("Der Name darf kein „|“ und keine Steuerzeichen enthalten.");
+    }
+    Ok(())
+}
+
+/// "NAME Ecke links" → Some("Ecke links"); "NAME" → None.
+fn parse_name(line: &str) -> Option<String> {
+    let name = line.strip_prefix("NAME")?.trim();
+    (!name.is_empty()).then(|| name.to_string())
 }
 
 /// "TIME 123456" → 123456.

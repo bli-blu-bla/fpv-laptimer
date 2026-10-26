@@ -4,7 +4,7 @@
 // thresholds). The manual thresholds themselves are set on race control,
 // slot by slot, as on RotorHazard.
 
-import { ArrowsClockwiseIcon, CpuIcon, FlagCheckeredIcon, ShieldCheckIcon } from '@phosphor-icons/react'
+import { ArrowsClockwiseIcon, CpuIcon, FlagCheckeredIcon, PencilSimpleIcon, ShieldCheckIcon } from '@phosphor-icons/react'
 import { useState } from 'react'
 import { api, saveSettings } from '../api.js'
 import FirmwarePanel from '../components/FirmwarePanel.jsx'
@@ -59,10 +59,9 @@ export default function Boards({ state, live, flash }) {
           <div key={b.id} className="thresh-row" style={{ padding: '12px 16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <span className={b.failed ? 'status-dot bad' : 'status-dot'} />
-              <span style={{ fontWeight: 600 }} className="tnum" title={b.id}>
-                {shortId(b.id)}
-              </span>
+              <BoardName board={b} disabled={state.active != null} />
               <span className="muted small" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {b.name ? `${shortId(b.id)} · ` : ''}
                 {b.port}
               </span>
               <div className="seg" style={{ flex: 'none' }}>
@@ -128,6 +127,80 @@ export default function Boards({ state, live, flash }) {
 
       <FirmwarePanel state={state} flash={flash} />
     </>
+  )
+}
+
+/**
+ * The board's name (saved on the board itself, so it stays with the board
+ * across Pis and USB ports), or the end of its id without one. The pencil
+ * edits it; saving restarts all boards for a moment.
+ * @param {{board: import('../types').Board, disabled: boolean}} props
+ */
+function BoardName({ board, disabled }) {
+  const [draft, setDraft] = useState(/** @type {string | null} */ (null))
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  async function save() {
+    if (draft == null) return
+    setBusy(true)
+    setError('')
+    try {
+      await api('/boards/name', { body: { id: board.id, name: draft.trim() } })
+      setDraft(null)
+    } catch (e) {
+      setError(/** @type {Error} */ (e).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (draft == null) {
+    return (
+      <>
+        <span style={{ fontWeight: 600 }} className={board.name ? '' : 'tnum'} title={board.id}>
+          {board.name ?? shortId(board.id)}
+        </span>
+        <button
+          className="btn btn-ghost btn-icon"
+          disabled={disabled}
+          title={disabled ? 'Während einer Session nicht möglich' : 'Namen ändern'}
+          aria-label="Namen ändern"
+          onClick={() => setDraft(board.name ?? '')}
+        >
+          <PencilSimpleIcon size={16} />
+        </button>
+      </>
+    )
+  }
+  return (
+    <form
+      style={{ display: 'flex', gap: 8, flexWrap: 'wrap', flexBasis: '100%', alignItems: 'center' }}
+      onSubmit={(e) => {
+        e.preventDefault()
+        save()
+      }}
+    >
+      <input
+        className="input"
+        style={{ flex: 1, minWidth: 160 }}
+        autoFocus
+        maxLength={32}
+        value={draft}
+        placeholder="z. B. Gate links"
+        onChange={(e) => setDraft(e.target.value)}
+      />
+      <button type="submit" className="btn btn-primary" disabled={busy}>
+        {busy ? 'Speichern …' : 'Speichern'}
+      </button>
+      <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => setDraft(null)}>
+        Abbrechen
+      </button>
+      <span className="muted small" style={{ flexBasis: '100%' }}>
+        Wird auf dem Board gespeichert (bleibt auch nach dem Flashen). Leer = kein Name. Die Boards starten dafür kurz neu.
+      </span>
+      {error && <span className="error small" style={{ flexBasis: '100%' }}>{error}</span>}
+    </form>
   )
 }
 

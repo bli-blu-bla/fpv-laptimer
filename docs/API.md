@@ -209,7 +209,7 @@ Seite anzeigt.
 
 ```json
 {"now_us": …, "session": {Session} | null, "unconfirmed": {Session} | null,
- "channels": [Kanal], "pilots": [Pilot], "boards": [{"id", "port", "role", "ok", "error", "levels_per_s"}]}
+ "channels": [Kanal], "pilots": [Pilot], "boards": [{"id", "name", "port", "role", "ok", "error", "levels_per_s"}]}
 ```
 
 `unconfirmed`: das beendete Rennen, das auf Bestätigung wartet (vorher startet nichts).

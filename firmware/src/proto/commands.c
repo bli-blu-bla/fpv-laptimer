@@ -13,7 +13,10 @@
  * (LEVELFILTER) in NVS; every
  * switch to RotorHazard mode (and boot) applies them. CONFIG RESET erases
  * them and applies the built-in defaults.
- * A switch to monitor mode applies METRICS FULL and LEVELBATCH 0. */
+ * A switch to monitor mode applies METRICS FULL and LEVELBATCH 0.
+ *
+ * NAME <text> gives the board a name of the host's choosing (kept in NVS,
+ * survives flashing), NAME alone clears it, NAME? reads it. */
 #include <inttypes.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -131,6 +134,44 @@ static rh_saved_t rh_saved; /* applied on every switch to RotorHazard mode */
 static rh_saved_t rh_builtin; /* the defaults without a save (boot) */
 #define NVS_NAMESPACE "widscan58"
 #define NVS_KEY_RH "rh"
+#define NVS_KEY_NAME "name"
+
+/* The board's name (NAME), "" without one. Loaded at boot. */
+#define NAME_MAX_BYTES 32
+static char board_name[NAME_MAX_BYTES + 1];
+
+static void name_load(void) {
+    nvs_handle_t h;
+    if (nvs_open(NVS_NAMESPACE, NVS_READONLY, &h) != ESP_OK) return;
+    size_t len = sizeof(board_name);
+    if (nvs_get_str(h, NVS_KEY_NAME, board_name, &len) != ESP_OK) board_name[0] = 0;
+    nvs_close(h);
+}
+
+/* Saves the name ("" erases it). */
+static esp_err_t name_store(const char *name) {
+    nvs_handle_t h;
+    esp_err_t e = nvs_open(NVS_NAMESPACE, NVS_READWRITE, &h);
+    if (e != ESP_OK) return e;
+    if (*name) e = nvs_set_str(h, NVS_KEY_NAME, name);
+    else {
+        e = nvs_erase_key(h, NVS_KEY_NAME);
+        if (e == ESP_ERR_NVS_NOT_FOUND) e = ESP_OK;
+    }
+    if (e == ESP_OK) e = nvs_commit(h);
+    nvs_close(h);
+    return e;
+}
+
+/* Printable ASCII or UTF-8 bytes (umlauts), not '|' (INFO's separator, for
+ * hosts that might show it there), no spaces at the ends. */
+static bool name_valid(const char *s) {
+    size_t n = strlen(s);
+    if (n > NAME_MAX_BYTES || (n && (s[0] == ' ' || s[n - 1] == ' '))) return false;
+    for (const unsigned char *q = (const unsigned char *)s; *q; q++)
+        if (*q < 0x20 || *q == 0x7F || *q == '|') return false;
+    return true;
+}
 
 static void rh_saved_from(rh_saved_t *s, const scan_config_t *c) {
     *s = (rh_saved_t){.version = RH_SAVED_VERSION, .gain_mode = (uint8_t)c->gain_mode, .gain = c->gain,
@@ -235,8 +276,8 @@ static bool rh_allowed(const char *line) {
                                         "METRICS RSSI", "METRICS SNR", "METRICS?", "GAIN?", "GAIN HARDWARE",
                                         "FILTER AUTO", "MODE GROUP", "MODE SINGLE", "CONFIG SAVE",
                                         "CONFIG RESET", "RECAL", "LEVELFILTER MEDIAN", "LEVELFILTER EMA",
-                                        "LEVELFILTER?", "PHYIDLE?", "GPIO?", "TIME?"};
-    static const char *const prefix[] = {"GAIN MANUAL ", "FFT ", "FILTER ", "IQCORR ", "PHYIDLE ", "THROTTLE ", "GPIO "};
+                                        "LEVELFILTER?", "PHYIDLE?", "GPIO?", "TIME?", "NAME", "NAME?"};
+    static const char *const prefix[] = {"GAIN MANUAL ", "FFT ", "FILTER ", "IQCORR ", "PHYIDLE ", "THROTTLE ", "GPIO ", "NAME "};
     for (unsigned j = 0; j < sizeof(exact) / sizeof(exact[0]); j++)
         if (!strcmp(line, exact[j])) return true;
     for (unsigned j = 0; j < sizeof(prefix) / sizeof(prefix[0]); j++)
@@ -344,6 +385,15 @@ static void handle(char *line) {
     } else if (!strcmp(line, "TIME?")) {
         /* The clock of the frame timestamps, for hosts that line up several boards. */
         link_printf("TIME %" PRId64 "\n", esp_timer_get_time());
+    } else if (!strcmp(line, "NAME?")) {
+        link_printf("NAME%s%s\n", board_name[0] ? " " : "", board_name);
+    } else if (!strcmp(line, "NAME") || !strncmp(line, "NAME ", 5)) {
+        const char *name = line[4] ? line + 5 : "";
+        if (!name_valid(name)) { link_text("ERR name\n"); return; }
+        esp_err_t e = name_store(name);
+        if (e != ESP_OK) { link_printf("ERR save %s\n", esp_err_to_name(e)); return; }
+        strcpy(board_name, name);
+        link_text("OK\n");
     } else if (!strcmp(line, "PROFILE?")) {
         send_profile(&c);
     } else if (!strcmp(line, "CHANNELS DEFAULT")) {
@@ -684,6 +734,7 @@ void commands_task_start(void) {
     rh_saved_from(&rh_builtin, &c);
     rh_saved = rh_builtin;
     rh_saved_load();
+    name_load();
     rh_saved_apply(&c, &rh_saved);
     scanner_set_config(&c);
     link_set_streaming(false);

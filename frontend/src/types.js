@@ -125,6 +125,7 @@
  * @typedef {object} Board
  * @property {string} port
  * @property {string} id         USB serial number (MAC)
+ * @property {string | null} name   saved on the board (`NAME`), null without one
  * @property {BoardRole} role
  * @property {number | null} level_db
  * @property {string} info
@@ -179,6 +180,7 @@
  * @property {string} port
  * @property {string} id
  * @property {string | null} info   the board's INFO; null: not running our firmware, or not set up
+ * @property {string | null} name   the name saved on the board
  *
  * @typedef {object} FirmwareState   /api/firmware
  * @property {import('./flasher.js').Manifest | null} firmware   the firmware on offer

@@ -623,6 +623,7 @@ fn state(core: &Core) -> Result<Value> {
         .map(|b| {
             json!({
                 "id": b.id,
+                "name": b.name,
                 "port": b.port,
                 "role": b.role,
                 "ok": b.failed.is_none(),

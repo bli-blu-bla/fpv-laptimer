@@ -62,8 +62,8 @@ export default function FirmwarePanel({ state, flash }) {
           return (
             <div key={p.port} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-                <span style={{ fontWeight: 600 }} className="tnum" title={p.id}>
-                  {shortId(p.id)}
+                <span style={{ fontWeight: 600 }} className={p.name ? '' : 'tnum'} title={p.id}>
+                  {p.name ?? shortId(p.id)}
                 </span>
                 <span className="muted small" style={{ flex: 1, minWidth: 0 }}>
                   {version ? `Firmware ${version}` : 'Keine Laptimer-Firmware oder nicht erreichbar'}
