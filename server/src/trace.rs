@@ -38,20 +38,24 @@ pub struct Graph {
 
 /// Reads a level file (`core.rs` writes one per session, `laptimer record`
 /// writes the same format) and runs it through the detector: the finish-gate
-/// boards only (from the "# roles:" line; without it, all boards), with the
-/// session's fixed thresholds in classic mode and its minimum swing per channel.
+/// boards only (from the "# roles:" line; without it, all boards), or with
+/// `arming` the arming gate's, with the session's fixed thresholds in
+/// classic mode and its minimum swing per channel.
 pub fn load(
     path: &Path,
     config: DetectConfig,
     fixed: Vec<Option<(f32, f32)>>,
     min_rise: Vec<f32>,
+    arming: bool,
 ) -> Result<SessionTrace> {
     let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut offset_us = 0;
     let mut det: Option<Detector> = None;
     let mut n_channels = 0;
-    // Boards that are not on the finish gate ("1=arming", "2=off").
+    // Boards that are not on the gate asked for ("1=arming", "2=off").
+    let gate = if arming { "arming" } else { "finish" };
     let mut skip: Vec<usize> = Vec::new();
+    let mut has_roles = false;
     let mut events: Vec<Event> = Vec::new();
     for (n, line) in BufReader::new(file).lines().enumerate() {
         let line = line?;
@@ -60,10 +64,11 @@ pub fn load(
             continue;
         }
         if let Some(rest) = line.strip_prefix("# roles:") {
+            has_roles = true;
             skip = rest
                 .split_whitespace()
                 .filter_map(|r| r.split_once('='))
-                .filter(|(_, role)| *role != "finish")
+                .filter(|(_, role)| *role != gate)
                 .filter_map(|(b, _)| b.parse().ok())
                 .collect();
             continue;
@@ -79,7 +84,8 @@ pub fn load(
         if f.len() < 6 {
             continue; // the column names, or a line cut off at the end
         }
-        if skip.contains(&(f[0] as usize)) {
+        // Without roles every board was on the finish gate.
+        if skip.contains(&(f[0] as usize)) || (arming && !has_roles) {
             continue;
         }
         let d = det.get_or_insert_with(|| {

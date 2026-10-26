@@ -76,7 +76,8 @@ pub struct App {
     replay: Option<PathBuf>,
     /// Level graphs of sessions: (size of the level file, graph). A file
     /// that grew (the running session) is read again.
-    pub traces: Mutex<HashMap<i64, (u64, Arc<SessionTrace>)>>,
+    /// Key: session id and gate (true: the arming gate).
+    pub traces: Mutex<HashMap<(i64, bool), (u64, Arc<SessionTrace>)>>,
     /// Level files worked through for the board debugging: (source, file
     /// size, result), at most 2 (`debug.rs`).
     pub debug_files: Mutex<Vec<(String, u64, Arc<crate::debug::FileAnalysis>)>>,
@@ -345,7 +346,7 @@ async fn delete_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> Api
 /// Cuts the levels 10 s after the last pass (`Core::trim_session`).
 async fn trim_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> ApiResult {
     let (cut_us, removed) = app.core.lock().unwrap().trim_session(id)?;
-    app.traces.lock().unwrap().remove(&id);
+    app.traces.lock().unwrap().retain(|(k, _), _| *k != id);
     Ok(Json(json!({ "cut_us": cut_us, "removed": removed })))
 }
 
@@ -353,6 +354,12 @@ async fn trim_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> ApiRe
 /// to hundreds of MB: call it off the async threads (`spawn_blocking`); it
 /// doesn't hold the core lock while it reads.
 pub fn session_trace(app: &App, id: i64) -> Result<Arc<SessionTrace>> {
+    gate_trace(app, id, false)
+}
+
+/// `session_trace` of the finish gate's boards, or (`arming`) of the
+/// arming gate's, with that gate's thresholds.
+pub fn gate_trace(app: &App, id: i64, arming: bool) -> Result<Arc<SessionTrace>> {
     let (path, config, fixed, min_rise) = {
         let mut core = app.core.lock().unwrap();
         let s = core.db.session(id)?.context("Diese Session gibt es nicht.")?;
@@ -369,24 +376,24 @@ pub fn session_trace(app: &App, id: i64) -> Result<Arc<SessionTrace>> {
                 min_lap_us: (s.config.min_lap_s * 1e6) as i64,
                 min_rise_db: detection.min_rise_db,
             },
-            detection.fixed(false, 8),
-            detection.min_rise(false, 8),
+            detection.fixed(arming, 8),
+            detection.min_rise(arming, 8),
         )
     };
     let size = std::fs::metadata(&path)
         .with_context(|| format!("{}", path.display()))?
         .len();
-    if let Some((cached_size, t)) = app.traces.lock().unwrap().get(&id)
+    if let Some((cached_size, t)) = app.traces.lock().unwrap().get(&(id, arming))
         && *cached_size == size
     {
         return Ok(Arc::clone(t));
     }
-    let t = Arc::new(trace::load(&path, config, fixed, min_rise)?);
+    let t = Arc::new(trace::load(&path, config, fixed, min_rise, arming)?);
     let mut traces = app.traces.lock().unwrap();
     if traces.len() >= 4 {
         traces.clear(); // keep the memory small; the next request reads again
     }
-    traces.insert(id, (size, Arc::clone(&t)));
+    traces.insert((id, arming), (size, Arc::clone(&t)));
     Ok(t)
 }
 
@@ -398,10 +405,13 @@ struct GraphQuery {
     to_us: Option<i64>,
     /// At most this many points (about the width in pixels).
     points: Option<usize>,
+    /// "arming": the arming gate's boards (default: the finish gate's).
+    gate: Option<String>,
 }
 
 async fn get_graph(State(app): State<Arc<App>>, Path(id): Path<i64>, Query(q): Query<GraphQuery>) -> ApiResult {
-    let t = tokio::task::spawn_blocking(move || session_trace(&app, id)).await??;
+    let arming = q.gate.as_deref() == Some("arming");
+    let t = tokio::task::spawn_blocking(move || gate_trace(&app, id, arming)).await??;
     let Some((start, end)) = t.bounds(q.channel) else {
         return Ok(Json(json!({ "start_us": null, "end_us": null, "graph": null })));
     };

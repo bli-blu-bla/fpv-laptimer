@@ -327,6 +327,10 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
   const [detail, setDetail] = useState(/** @type {Graph | null} */ (null))
   const [range, setRange] = useState(/** @type {[number, number] | null} */ (null))
   const [error, setError] = useState('')
+  /** The arming gate's level line: whether the session has one, shown or not. */
+  const [hasArming, setHasArming] = useState(false)
+  const [showArming, setShowArming] = useState(false)
+  const [armDetail, setArmDetail] = useState(/** @type {Graph | null} */ (null))
   /** What a pointer press is doing: moving a pass, or the visible range. */
   const drag = useRef(/** @type {{x: number, moved: boolean, key: string | null, from: number, to: number} | null} */ (null))
 
@@ -342,6 +346,24 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
       .catch((e) => setError(e.message))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, channel, Math.round(width / 100)])
+
+  useEffect(() => {
+    setHasArming(false)
+    api(`/sessions/${sessionId}/graph?channel=${channel}&gate=arming&points=10`)
+      .then((/** @type {GraphReply} */ r) => setHasArming(r.start_us != null))
+      .catch(() => {})
+  }, [sessionId, channel])
+
+  useEffect(() => {
+    if (!range || !showArming || !hasArming) return setArmDetail(null)
+    const id = setTimeout(() => {
+      const [a, b] = range.map(Math.round)
+      api(`/sessions/${sessionId}/graph?channel=${channel}&gate=arming&from_us=${a}&to_us=${b}&points=${Math.round(width)}`)
+        .then((/** @type {GraphReply} */ r) => setArmDetail(r.graph))
+        .catch((e) => setError(e.message))
+    }, 60)
+    return () => clearTimeout(id)
+  }, [sessionId, channel, range, width, showArming, hasArming])
 
   useEffect(() => {
     if (!range) return
@@ -385,7 +407,7 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
 
   const plotW = width - PAD_LEFT
   const plotH = HEIGHT - PAD_BOTTOM
-  const levels = detail ? /** @type {number[]} */ (detail.level.filter((v) => v != null)) : []
+  const levels = /** @type {number[]} */ ([...(detail?.level ?? []), ...(armDetail?.level ?? [])].filter((v) => v != null))
   const maxDb = Math.max(-20, ...levels.map((v) => v + 3))
   /** @param {number} t */
   const x = (t) => PAD_LEFT + ((t - from) / span) * plotW
@@ -469,6 +491,12 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
             <path d={line(detail.time_us, detail.level, x, y)} className="combined" />
           </>
         )}
+        {armDetail && (
+          <>
+            <path d={line(armDetail.time_us, armDetail.enter, x, y)} className="arming-threshold" />
+            <path d={line(armDetail.time_us, armDetail.level, x, y)} className="arming-level" />
+          </>
+        )}
         {arming
           .filter((t) => t >= from && t <= to)
           .map((t) => (
@@ -505,6 +533,15 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
         <button className="btn btn-secondary" onClick={() => setRange([start, end])}>
           Alles
         </button>
+        {hasArming && (
+          <button
+            className={showArming ? 'chip-btn on' : 'chip-btn'}
+            title="Pegel und Eintrittsschwelle des Freigabe-Gates (gelb)"
+            onClick={() => setShowArming(!showArming)}
+          >
+            Freigabe-Gate
+          </button>
+        )}
         <span className="muted small tnum">
           {secs(from - t0)}–{secs(to - t0)} s
         </span>

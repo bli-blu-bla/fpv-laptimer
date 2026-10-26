@@ -1077,6 +1077,17 @@ body {
     bottom: 76px;
   }
 }
+.graph .arming-level {
+  stroke: #f2d45c;
+  stroke-width: 1.4;
+  opacity: 0.9;
+}
+.graph .arming-threshold {
+  stroke: #f2d45c;
+  stroke-width: 1;
+  stroke-dasharray: 5 4;
+  opacity: 0.5;
+}
 .graph .arming-tick {
   stroke: #f2d45c;
   stroke-width: 1.5;
