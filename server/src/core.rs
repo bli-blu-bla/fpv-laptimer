@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
+use crate::debug::{self, Analysis, DebugBoard, DetectSetup, Recording};
 use crate::db::{Db, Pilot, Preset, PresetValues, Seat, SessionConfig, SessionRow};
 use crate::detect::{ChannelStatus, DetectConfig, DetectionSettings, Detector, Event as DetectEvent, Thresholds};
 use crate::esp::board::{Event as BoardEvent, Level, LinkStats};
@@ -267,6 +268,10 @@ pub struct Core {
     /// To the API WebSocket and the hooks (`events.rs`).
     pub events: Events,
     data_dir: PathBuf,
+    /// Board debugging: every board's detection of the last minute
+    /// (`debug.rs`), and the recording in progress.
+    pub debug: Analysis,
+    pub recording: Option<Recording>,
     next_live_us: i64,
     next_rate_us: i64,
 }
@@ -290,7 +295,10 @@ impl Core {
         sounds.set_enabled(settings.sound);
         sounds.set_browser(settings.announce.output == SoundOutput::Browser);
         let now = unix_now_us();
+        let origin_unix_us = now - origin.elapsed().as_micros() as i64;
         Core {
+            debug: Analysis::new(debug_setup(&settings), Vec::new(), origin_unix_us, Some(debug::LIVE_KEEP_US)),
+            recording: None,
             db,
             finish,
             arming,
@@ -298,7 +306,7 @@ impl Core {
             last_counted: Vec::new(),
             settings,
             origin,
-            origin_unix_us: now - origin.elapsed().as_micros() as i64,
+            origin_unix_us,
             active: None,
             boards: Vec::new(),
             sounds,
@@ -329,6 +337,7 @@ impl Core {
         if jump.abs() > 1_000_000 {
             eprintln!("system clock jumped by {:.1} s, following it", jump as f64 / 1e6);
             self.origin_unix_us = fresh;
+            self.rebuild_debug();
         }
     }
 
@@ -337,7 +346,71 @@ impl Core {
         self.boards = boards;
         self.apply_roles();
         (self.finish, self.arming) = detectors(&self.settings);
+        self.rebuild_debug();
         self.broadcast_state();
+    }
+
+    /// Fresh debug detectors (new boards, roles or detection settings).
+    fn rebuild_debug(&mut self) {
+        let roles = self.boards.iter().map(|b| b.role).collect();
+        self.debug = Analysis::new(
+            debug_setup(&self.settings),
+            roles,
+            self.origin_unix_us,
+            Some(debug::LIVE_KEEP_US),
+        );
+    }
+
+    /// The boards for the debug page.
+    pub fn debug_boards(&self) -> Vec<DebugBoard> {
+        self.boards
+            .iter()
+            .enumerate()
+            .map(|(i, b)| DebugBoard {
+                index: i,
+                id: b.id.clone(),
+                name: b.name.clone(),
+                role: b.role,
+            })
+            .collect()
+    }
+
+    /// Starts recording every board's levels (Boards → Debug). Returns the
+    /// file name.
+    pub fn start_recording(&mut self) -> Result<String> {
+        if self.recording.is_some() {
+            bail!("Es läuft schon eine Aufnahme.");
+        }
+        if self.boards.is_empty() {
+            bail!("Keine Boards – nichts aufzunehmen.");
+        }
+        let channels: Vec<String> = self.settings.channels.iter().map(|c| format!("{}@{}", c.name, c.mhz)).collect();
+        let r = Recording::start(
+            &self.data_dir.join("recordings"),
+            self.now_us(),
+            self.origin_unix_us,
+            &channels,
+            self.settings.gain,
+            &self.debug_boards(),
+            &debug_setup(&self.settings),
+        )?;
+        let name = r.name.clone();
+        self.recording = Some(r);
+        Ok(name)
+    }
+
+    pub fn stop_recording(&mut self) -> Result<String> {
+        let r = self.recording.take().context("Es läuft keine Aufnahme.")?;
+        let name = r.name.clone();
+        r.finish()?;
+        Ok(name)
+    }
+
+    /// Writes out the recording's buffered levels (before its file is read).
+    pub fn flush_recording(&mut self) {
+        if let Some(r) = self.recording.as_mut() {
+            let _ = r.flush();
+        }
     }
 
     /// Each board's role from the settings.
@@ -372,6 +445,14 @@ impl Core {
                     b.count += levels.len() as u64;
                 }
                 self.write_levels(board, &levels)?;
+                self.debug.push(board, &levels);
+                self.debug.advance();
+                if let Some(r) = self.recording.as_mut()
+                    && let Err(e) = r.write(board, &levels)
+                {
+                    eprintln!("recording: {e:#}");
+                    self.recording = None;
+                }
                 match self.boards.get(board).map(|b| b.role).unwrap_or_default() {
                     BoardRole::Finish => {
                         self.finish.push(board, &levels);
@@ -950,6 +1031,7 @@ impl Core {
         if redetect {
             self.apply_roles();
             (self.finish, self.arming) = detectors(&self.settings);
+            self.rebuild_debug();
         }
         if channels_changed {
             self.events
@@ -1423,6 +1505,15 @@ fn detectors(s: &Settings) -> (Detector, Detector) {
     arming.set_fixed(&s.detection.fixed(true, n));
     arming.set_min_rise(&s.detection.min_rise(true, n));
     (finish, arming)
+}
+
+/// The debug detectors' settings: the same as for the laps.
+fn debug_setup(s: &Settings) -> DetectSetup {
+    DetectSetup {
+        n_channels: s.channels.len(),
+        min_lap_us: (s.min_lap_s * 1e6) as i64,
+        detection: s.detection.clone(),
+    }
 }
 
 fn detect_config(s: &Settings) -> DetectConfig {

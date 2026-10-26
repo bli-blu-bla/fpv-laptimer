@@ -4,10 +4,12 @@
 // thresholds). The manual thresholds themselves are set on race control,
 // slot by slot, as on RotorHazard.
 
-import { ArrowsClockwiseIcon, CpuIcon, FlagCheckeredIcon, PencilSimpleIcon, ShieldCheckIcon } from '@phosphor-icons/react'
+import { ArrowsClockwiseIcon, BugIcon, CpuIcon, FlagCheckeredIcon, PencilSimpleIcon, ShieldCheckIcon } from '@phosphor-icons/react'
 import { useState } from 'react'
 import { api, saveSettings } from '../api.js'
+import BoardDebug from '../components/BoardDebug.jsx'
 import FirmwarePanel from '../components/FirmwarePanel.jsx'
+import Tabs from '../components/Tabs.jsx'
 import { channelMode } from '../model.js'
 
 /** The bar spans this range, dBFS. */
@@ -27,6 +29,7 @@ export default function Boards({ state, live, flash }) {
   /** @param {string} id @param {import('../types').BoardRole} role */
   const setRole = (id, role) => save({ board_roles: { ...s.board_roles, [id]: role } })
   const count = (/** @type {import('../types').BoardRole} */ role) => boards.filter((b) => b.role === role && !b.failed).length
+  const [tab, setTab] = useState(/** @type {'setup' | 'debug'} */ ('setup'))
   const [scanning, setScanning] = useState(false)
   const [scanError, setScanError] = useState('')
 
@@ -43,8 +46,21 @@ export default function Boards({ state, live, flash }) {
     }
   }
 
+  const tabs = /** @type {const} */ ([
+    ['setup', 'Einrichtung', CpuIcon],
+    ['debug', 'Debug', BugIcon],
+  ])
+  if (tab === 'debug')
+    return (
+      <>
+        <Tabs tabs={tabs} value={tab} onChange={setTab} />
+        <BoardDebug state={state} />
+      </>
+    )
+
   return (
     <>
+      <Tabs tabs={tabs} value={tab} onChange={setTab} />
       <div className="panel">
         <div className="panel-head">
           <CpuIcon size={18} /> Boards

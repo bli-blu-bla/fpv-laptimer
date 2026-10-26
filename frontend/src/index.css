@@ -1967,3 +1967,106 @@ button.lane-pick:hover {
   gap: 4px;
   color: var(--n300);
 }
+
+/* — board debugging (Boards → Debug) — */
+.debug {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.debug-tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.debug-tools .seg button {
+  min-height: 36px;
+  padding: 0 12px;
+  white-space: nowrap;
+}
+.debug-chips {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.chip-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.chip-btn.series {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.chip-btn .dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid;
+  flex: none;
+}
+.debug-channel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--n900);
+}
+.debug-channel-head {
+  display: flex;
+  gap: 12px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.graph .debug-line {
+  fill: none;
+  stroke-width: 1.2;
+  opacity: 0.85;
+}
+.graph .debug-line.gate {
+  stroke-width: 2;
+  opacity: 1;
+}
+.graph .debug-threshold {
+  fill: none;
+  stroke-width: 1;
+  stroke-dasharray: 5 4;
+  opacity: 0.55;
+}
+.graph .debug-threshold.exit {
+  stroke-dasharray: 2 4;
+  opacity: 0.4;
+}
+.graph .debug-pass line {
+  stroke-width: 1.5;
+  opacity: 0.7;
+}
+.graph .debug-pass.retracted line {
+  stroke-dasharray: 3 3;
+  opacity: 0.45;
+}
+.debug-table {
+  max-height: 200px;
+  overflow: auto;
+}
+.debug-table .table td {
+  height: 34px;
+  padding: 4px 8px;
+  white-space: nowrap;
+}
+.debug-table .table th {
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  white-space: nowrap;
+}
+.debug-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border-top: 1px solid var(--n900);
+}

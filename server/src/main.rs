@@ -8,6 +8,7 @@ mod config;
 mod core;
 mod data;
 mod db;
+mod debug;
 mod detect;
 mod esp;
 mod events;

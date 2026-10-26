@@ -316,6 +316,16 @@ impl Detector {
         self.trace.take().unwrap_or_default()
     }
 
+    /// The slots recorded since the last call, per channel; keeps recording
+    /// (the live board debugging takes them every few ms).
+    pub fn drain_trace(&mut self) -> Vec<Vec<TracePoint>> {
+        match &mut self.trace {
+            // `mem::take` leaves an empty Vec in place of each channel's.
+            Some(t) => t.iter_mut().map(std::mem::take).collect(),
+            None => Vec::new(),
+        }
+    }
+
     /// Adds one board's levels (in the order the board sent them).
     pub fn push(&mut self, board: usize, levels: &[Level]) {
         while self.boards.len() <= board {

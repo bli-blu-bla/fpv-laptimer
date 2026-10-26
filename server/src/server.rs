@@ -77,6 +77,9 @@ pub struct App {
     /// Level graphs of sessions: (size of the level file, graph). A file
     /// that grew (the running session) is read again.
     pub traces: Mutex<HashMap<i64, (u64, Arc<SessionTrace>)>>,
+    /// Level files worked through for the board debugging: (source, file
+    /// size, result), at most 2 (`debug.rs`).
+    pub debug_files: Mutex<Vec<(String, u64, Arc<crate::debug::FileAnalysis>)>>,
     /// The firmware the page offers (`<web>/firmware`, `tools/stage_firmware.py`).
     firmware_dir: PathBuf,
     /// The flash in progress or the last one (`/api/firmware`).
@@ -130,6 +133,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         events,
         replay: opts.replay.clone(),
         traces: Mutex::new(HashMap::new()),
+        debug_files: Mutex::new(Vec::new()),
         firmware_dir: opts.web_dir.join("firmware"),
         flash: Mutex::new(None),
         update: Updater::new(opts.update.clone())?,
@@ -183,6 +187,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .merge(auth::routes())
         .merge(api::page_routes())
         .merge(crate::data::routes())
+        .merge(crate::debug::routes())
         .merge(crate::update::routes())
         .nest("/v1", api::router(Arc::clone(&app)))
         // Announcements played by the browsers: the clips and the spoken texts.
