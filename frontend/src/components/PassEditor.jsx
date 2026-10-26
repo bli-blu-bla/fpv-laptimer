@@ -6,7 +6,7 @@
 // until "Speichern"; the laps under the graph already show the result.
 
 import { useEffect, useRef, useState } from 'react'
-import { ArrowCounterClockwiseIcon, CaretLeftIcon, CaretRightIcon, CrosshairIcon, FloppyDiskIcon, MagnifyingGlassMinusIcon, MagnifyingGlassPlusIcon, TrashIcon } from '@phosphor-icons/react'
+import { ArrowCounterClockwiseIcon, CaretLeftIcon, CaretRightIcon, CrosshairIcon, FloppyDiskIcon, MagnifyingGlassMinusIcon, MagnifyingGlassPlusIcon, ScissorsIcon, TrashIcon } from '@phosphor-icons/react'
 import { api } from '../api.js'
 import { secs, slotColor } from '../format.js'
 import { computeLaps } from '../model.js'
@@ -73,6 +73,9 @@ export default function PassEditor({ detail, onSaved }) {
   const [sel, setSel] = useState(/** @type {string | null} */ (null))
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [confirmTrim, setConfirmTrim] = useState(false)
+  // Bumped after trimming: the graph loads again.
+  const [trims, setTrims] = useState(0)
 
   const draft = drafts[channel] ?? emptyDraft()
   /** @param {(d: Draft) => Draft} f */
@@ -158,6 +161,22 @@ export default function PassEditor({ detail, onSaved }) {
     }
   }
 
+  /** Cuts the levels 10 s after the last pass (all channels). */
+  async function trim() {
+    setBusy(true)
+    setError('')
+    try {
+      await api(`/sessions/${s.id}/trim`, { method: 'POST' })
+      setConfirmTrim(false)
+      setTrims((n) => n + 1)
+      onSaved()
+    } catch (e) {
+      setError(/** @type {Error} */ (e).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const color = slotColor(channel)
   return (
     <div className="panel editor" style={/** @type {React.CSSProperties} */ ({ '--lane': color })}>
@@ -187,7 +206,7 @@ export default function PassEditor({ detail, onSaved }) {
       </div>
 
       <EditGraph
-        key={channel}
+        key={`${channel}-${trims}`}
         sessionId={s.id}
         channel={channel}
         t0={t0}
@@ -250,6 +269,23 @@ export default function PassEditor({ detail, onSaved }) {
         </p>
       )}
       {error && <p className="error">{error}</p>}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <span className="muted small" style={{ flex: 1, minWidth: 200 }}>
+          {total ? 'Erst speichern oder verwerfen.' : confirmTrim ? 'Pegel und Durchflüge nach dem letzten Durchflug + 10 s, alle Kanäle. Nicht rückgängig zu machen.' : 'Pegel spätestens 10 s nach dem letzten Durchflug abschneiden.'}
+        </span>
+        {confirmTrim && (
+          <button className="btn btn-ghost" onClick={() => setConfirmTrim(false)}>
+            Abbrechen
+          </button>
+        )}
+        <button
+          className={confirmTrim ? 'btn btn-danger btn-danger-solid' : 'btn btn-secondary'}
+          disabled={busy || total > 0}
+          onClick={() => (confirmTrim ? trim() : setConfirmTrim(true))}
+        >
+          <ScissorsIcon size={16} /> {confirmTrim ? 'Endgültig kürzen' : 'Graph kürzen …'}
+        </button>
+      </div>
       <div className="editor-save">
         <span className="muted small">{total ? `${total} ungespeicherte Änderung${total === 1 ? '' : 'en'}` : 'Keine Änderungen'}</span>
         <button

@@ -527,6 +527,20 @@ impl Db {
         )?)
     }
 
+    /// A session cut after `cut_us`: the passes after it go (there are no
+    /// levels left for them), the end moves there if it was later.
+    pub fn trim_session(&self, id: i64, cut_us: i64) -> Result<usize> {
+        let removed = self.conn.execute(
+            "DELETE FROM passes WHERE session_id = ?1 AND time_us > ?2",
+            params![id, cut_us],
+        )?;
+        self.conn.execute(
+            "UPDATE sessions SET ended_us = ?2 WHERE id = ?1 AND ended_us > ?2",
+            params![id, cut_us],
+        )?;
+        Ok(removed)
+    }
+
     pub fn confirm_session(&self, id: i64, confirmed_us: i64) -> Result<()> {
         self.conn.execute(
             "UPDATE sessions SET confirmed_us = ?2 WHERE id = ?1",

@@ -8,7 +8,7 @@
 use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
@@ -811,6 +811,37 @@ impl Core {
         Ok(())
     }
 
+    /// Cuts an ended session `TRIM_AFTER_US` after its last pass (finish
+    /// gate, not deleted): the levels after it, passes there and the end.
+    /// For sessions that ran on after the flying (pilot landed, Stop
+    /// forgotten). Rewrites the level file under the core lock, so no one
+    /// reads it half done. Returns (cut wall µs, levels removed).
+    pub fn trim_session(&mut self, id: i64) -> Result<(i64, usize)> {
+        let s = self.db.session(id)?.context("Diese Session gibt es nicht.")?;
+        if s.ended_us.is_none() {
+            bail!("Die Session läuft noch.");
+        }
+        let path = s
+            .levels_file
+            .context("Für diese Session sind keine Pegel aufgezeichnet.")?;
+        let last = self
+            .db
+            .passes(id)?
+            .iter()
+            .filter(|p| p.gate == 0 && !p.deleted)
+            .map(|p| p.time_us)
+            .max()
+            .context("Die Session hat keinen Durchflug – nichts zum Kürzen.")?;
+        let cut_us = last + TRIM_AFTER_US;
+        let removed = crate::trace::trim_file(Path::new(&path), cut_us)?;
+        if removed == 0 {
+            bail!("Die Pegel enden schon spätestens 10 s nach dem letzten Durchflug – nichts zum Kürzen.");
+        }
+        self.db.trim_session(id, cut_us)?;
+        self.session_changed(id)?;
+        Ok((cut_us, removed))
+    }
+
     /// Deletes every session with its passes and level files (pilots,
     /// settings, keys and hooks stay). Refused while a session runs.
     /// Returns how many were deleted.
@@ -1402,6 +1433,9 @@ fn detect_config(s: &Settings) -> DetectConfig {
 fn spoken_seconds(us: i64) -> String {
     format!("{:.1}", us as f64 / 1e6).replace('.', ",")
 }
+
+/// `trim_session` keeps this much after the last pass.
+const TRIM_AFTER_US: i64 = 10_000_000;
 
 pub fn unix_now_us() -> i64 {
     SystemTime::now()

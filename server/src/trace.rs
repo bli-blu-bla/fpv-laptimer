@@ -5,8 +5,8 @@
 //! The same detector settings and the same levels give the same envelope and
 //! thresholds as during the session, so the graph shows what the detection saw.
 
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::fs::{self, File};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::path::Path;
 
 use anyhow::{Context, Result};
@@ -220,10 +220,65 @@ impl SessionTrace {
     }
 }
 
+/// Cuts a level file after `cut_us` (wall clock): the comment lines and
+/// the levels up to then stay. Written next to it and then renamed, so a
+/// crash leaves the old file. Returns how many levels were removed.
+pub fn trim_file(path: &Path, cut_us: i64) -> Result<usize> {
+    let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
+    let tmp = path.with_extension("csv.tmp");
+    let mut out = BufWriter::new(File::create(&tmp).with_context(|| format!("{}", tmp.display()))?);
+    let mut offset_us = 0;
+    let mut removed = 0;
+    for line in BufReader::new(file).lines() {
+        let line = line?;
+        if line.starts_with('#') {
+            if let Some((_, rest)) = line.split_once("host_us + ") {
+                offset_us = rest.split_whitespace().next().and_then(|x| x.parse().ok()).unwrap_or(0);
+            }
+        } else if let Some(host_us) = line.split(',').nth(2).and_then(|x| x.parse::<i64>().ok())
+            && host_us + offset_us > cut_us
+        {
+            removed += 1;
+            continue;
+        }
+        // Comments, the column names and the levels before the cut.
+        writeln!(out, "{line}")?;
+    }
+    out.flush()?;
+    drop(out);
+    if removed == 0 {
+        fs::remove_file(&tmp)?;
+    } else {
+        fs::rename(&tmp, path)?;
+    }
+    Ok(removed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::detect::SLOT_US;
+
+    #[test]
+    fn trim_keeps_header_and_early_levels() {
+        let dir = std::env::temp_dir().join(format!("laptimer_trim_{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("levels.csv");
+        fs::write(
+            &path,
+            "# gain: 30; host_us + 1000 = wall clock µs\nboard,channel,host_us,board_us,rssi,flags\n\
+             0,1,100,5,20,0\n0,1,200,6,20,0\n0,1,300,7,20,0\n",
+        )
+        .unwrap();
+        // Wall clock 1100, 1200, 1300: cut after 1200.
+        assert_eq!(trim_file(&path, 1200).unwrap(), 1);
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("board,channel"));
+        assert!(text.contains("0,1,200,"));
+        assert!(!text.contains("0,1,300,"));
+        assert_eq!(trim_file(&path, 1200).unwrap(), 0);
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     fn trace(levels: &[u8]) -> SessionTrace {
         let pts = levels

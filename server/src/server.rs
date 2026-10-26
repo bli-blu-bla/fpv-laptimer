@@ -167,6 +167,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .route("/sessions/{id}/graph", get(get_graph))
         .route("/sessions/{id}/snap", get(get_snap))
         .route("/sessions/{id}/edit", post(edit_passes))
+        .route("/sessions/{id}/trim", post(trim_session))
         .route("/passes/{id}", post(set_pass_deleted))
         .route("/settings", get(get_settings).put(put_settings))
         .route("/pilots", post(add_pilot))
@@ -333,6 +334,13 @@ async fn confirm_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> Ap
 async fn delete_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> ApiResult {
     app.core.lock().unwrap().delete_session(id)?;
     Ok(Json(json!({})))
+}
+
+/// Cuts the levels 10 s after the last pass (`Core::trim_session`).
+async fn trim_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> ApiResult {
+    let (cut_us, removed) = app.core.lock().unwrap().trim_session(id)?;
+    app.traces.lock().unwrap().remove(&id);
+    Ok(Json(json!({ "cut_us": cut_us, "removed": removed })))
 }
 
 /// A session's level graph, from the cache or computed. Reads a file of up
