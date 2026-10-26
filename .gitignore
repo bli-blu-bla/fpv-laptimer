@@ -6,6 +6,7 @@ firmware/sdkconfig.*
 firmware/managed_components/
 firmware/cmake-build-*/
 .idea/
+.tmp/
 
 # Rust
 server/target/
