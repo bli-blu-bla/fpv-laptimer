@@ -5,6 +5,7 @@
 import { useState } from 'react'
 import { login, showLogin } from '../auth.js'
 import Dialog from './Dialog.jsx'
+import PasswordInput from './PasswordInput.jsx'
 
 export default function LoginDialog() {
   const [password, setPassword] = useState('')
@@ -31,7 +32,7 @@ export default function LoginDialog() {
         <p className="muted small" style={{ margin: 0 }}>
           Zum Ändern (Rennleitung, Einstellungen, Piloten, …) das Passwort aus <code>~/.laptimer/config.toml</code>. Das Gerät bleibt 30 Tage angemeldet.
         </p>
-        <input className="input" type="password" autoFocus autoComplete="current-password" placeholder="Passwort" value={password} onChange={(e) => setPassword(e.target.value)} />
+        <PasswordInput autoFocus autoComplete="current-password" placeholder="Passwort" value={password} onChange={(e) => setPassword(e.target.value)} />
         {error && <p className="error" style={{ margin: 0 }}>{error}</p>}
         <button type="submit" className="btn btn-primary" disabled={busy || !password}>
           {busy ? 'Prüfe …' : 'Anmelden'}

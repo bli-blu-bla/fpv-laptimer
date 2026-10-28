@@ -289,6 +289,34 @@ body {
   border-color: var(--accent);
   outline: none;
 }
+/* PasswordInput: the eye sits inside the field, at its right end */
+.password {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-width: 0;
+}
+.password .input {
+  padding-right: 44px;
+}
+.password-eye {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 44px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--n500);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+.password-eye:hover,
+.password-eye[aria-pressed='true'] {
+  color: var(--text);
+}
 .field {
   display: flex;
   flex-direction: column;

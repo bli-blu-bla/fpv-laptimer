@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react'
 import { PlugsConnectedIcon } from '@phosphor-icons/react'
 import { api } from '../api.js'
 import { dateTime } from '../format.js'
+import PasswordInput from './PasswordInput.jsx'
 
 /** How often the status is fetched while the panel is open, ms. */
 const POLL_MS = 2000
@@ -178,9 +179,8 @@ function Secret({ label, hint, placeholder, isSet, value, onChange }) {
       <span>{label}</span>
       {hint && <span className="muted small mono">{hint}</span>}
       <span style={{ display: 'flex', gap: 8 }}>
-        <input
+        <PasswordInput
           className="input mono"
-          type="password"
           value={value ?? ''}
           onChange={(e) => onChange(e.target.value === '' ? null : e.target.value)}
           placeholder={removing ? 'wird entfernt' : isSet ? 'gesetzt (leer lassen = behalten)' : placeholder}
