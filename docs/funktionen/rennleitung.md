@@ -64,5 +64,6 @@ für einen Fernseher. **Sessions**: alle Läufe mit Ergebnis, Export als CSV ode
 ![Zuschauer-Ansicht](../assets/screens/watch.png){ .shot }
 
 !!! info "Anmelden"
-    Ansehen kann jeder im WLAN. Starten, Korrigieren, Einstellungen und alles andere, was
-    etwas ändert, braucht das Passwort der Rennleitung. Ein Gerät bleibt 30 Tage angemeldet.
+    Ansehen kann jeder im WLAN: Ohne Anmeldung zeigt die Seite Zuschauer, Bestzeiten, Sessions
+    und Piloten. Rennleitung, Boards, Einstellungen und API erscheinen erst nach der Anmeldung
+    mit dem Passwort der Rennleitung. Ein Gerät bleibt 30 Tage angemeldet.

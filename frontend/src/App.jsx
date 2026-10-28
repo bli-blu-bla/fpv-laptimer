@@ -46,6 +46,8 @@ const PAGES = /** @type {const} */ ([
 ])
 /** Not in the phone's tab bar (no room; reached from the settings). */
 const DESKTOP_ONLY = ['api']
+/** Only for the race control: hidden without a login (when a password is set). */
+const CONTROL_ONLY = ['control', 'boards', 'settings', 'api']
 
 const FULL_SCREEN_WATCH = new URLSearchParams(location.search).get('view') === 'zuschauer'
 
@@ -60,6 +62,11 @@ export default function App() {
   useEffect(() => {
     checkAuth()
   }, [])
+  // Not before the server answered whether we are logged in: no flicker.
+  const hideControl = auth.checked && !auth.canEdit
+  // A page that went away (not logged in, logged out) shows the spectators;
+  // `page` stays, so after the login it is back.
+  const shown = hideControl && CONTROL_ONLY.includes(page) ? 'watch' : page
 
   const boards = state?.boards ?? []
   const failed = boards.filter((b) => b.failed).length
@@ -87,8 +94,8 @@ export default function App() {
 
   /** @param {boolean} short */
   const nav = (short) =>
-    PAGES.filter(([id]) => !short || !DESKTOP_ONLY.includes(id)).map(([id, title, label, Icon]) => (
-      <button key={id} className={page === id ? 'nav-btn on' : 'nav-btn'} onClick={() => setPage(id)}>
+    PAGES.filter(([id]) => !(short && DESKTOP_ONLY.includes(id)) && !(hideControl && CONTROL_ONLY.includes(id))).map(([id, title, label, Icon]) => (
+      <button key={id} className={shown === id ? 'nav-btn on' : 'nav-btn'} onClick={() => setPage(id)}>
         <Icon size={22} />
         <span>{short ? label : title}</span>
       </button>
@@ -122,14 +129,14 @@ export default function App() {
         <header className="topbar">
           <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
             <span className="kicker">{raceCount}</span>
-            <span className="title">{PAGES.find((p) => p[0] === page)?.[1]}</span>
+            <span className="title">{PAGES.find((p) => p[0] === shown)?.[1]}</span>
           </div>
           <div className="right">
             <span className="narrow-only" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span className={ok ? 'status-dot' : 'status-dot bad'} />
               {boardText}
             </span>
-            {page === 'watch' && (
+            {shown === 'watch' && (
               <a className="btn btn-ghost btn-icon" href="?view=zuschauer" target="_blank" title="Als Vollbild in neuem Fenster (für Fernseher/Tablet)">
                 <ArrowSquareOutIcon size={20} />
               </a>
@@ -163,19 +170,19 @@ export default function App() {
         <main className="content">
           {!state ? (
             <p className="muted">Verbinde mit dem Server …</p>
-          ) : page === 'control' ? (
+          ) : shown === 'control' ? (
             <Control server={server} state={state} stats={stats} />
-          ) : page === 'watch' ? (
+          ) : shown === 'watch' ? (
             <Watch server={server} state={state} />
-          ) : page === 'best' ? (
+          ) : shown === 'best' ? (
             <Best state={state} stats={stats} />
-          ) : page === 'sessions' ? (
+          ) : shown === 'sessions' ? (
             <Sessions changed={changed} state={state} />
-          ) : page === 'pilots' ? (
+          ) : shown === 'pilots' ? (
             <Pilots state={state} stats={stats} />
-          ) : page === 'boards' ? (
+          ) : shown === 'boards' ? (
             auth.canEdit ? <Boards state={state} live={server.live} flash={server.flash} /> : <Locked what="Boards, Rollen und Firmware" />
-          ) : page === 'api' ? (
+          ) : shown === 'api' ? (
             auth.canEdit ? <ApiPage /> : <Locked what="API-Schlüssel und Hooks" />
           ) : auth.canEdit ? (
             <SettingsPage state={state} onOpenApi={() => setPage('api')} />
