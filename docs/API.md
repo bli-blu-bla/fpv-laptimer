@@ -285,6 +285,10 @@ async def main():
 asyncio.run(main())
 ```
 
+Etwas ausführlicher, mit `wss://` und Ausgabe jeder Nachricht: `tools/remote_server.py` im Repo
+(`--token`, `--cert`/`--key`). Der Timer vertraut nur Zertifikaten öffentlicher
+Zertifizierungsstellen (z. B. Let's Encrypt), keinem selbst signierten.
+
 ## Hooks
 
 Der Server startet bei Events Scripts, z. B. um am Pi per GPIO eine LED zu schalten.
