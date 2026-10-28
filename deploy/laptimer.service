@@ -1,5 +1,5 @@
-# The laptimer as a systemd user service (install.sh puts it into
-# ~/.config/systemd/user/). Runs as the user who installed it; with
+# The laptimer as a systemd user service (`laptimer install --service` puts
+# it into ~/.config/systemd/user/). Runs as the user who installed it; with
 # "loginctl enable-linger" it starts at boot without a login.
 #
 #   systemctl --user status laptimer
@@ -18,8 +18,10 @@ WorkingDirectory=%h/.laptimer
 # Rolls back an update from the web page that doesn't come up. Through sh and
 # with "-": an older release without the script doesn't stop the start.
 ExecStartPre=-/bin/sh %h/.laptimer/current/update-check.sh
-# current -> releases/<version> (install.sh, updates)
+# current -> releases/<version> (laptimer install, updates)
 ExecStart=%h/.laptimer/current/bin/laptimer serve
+# Tells the server that systemd starts it again after it exits (update.rs).
+Environment=LAPTIMER_SERVICE=systemd
 # Also after an update: the server exits, systemd starts the new current.
 Restart=always
 RestartSec=2

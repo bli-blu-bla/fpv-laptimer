@@ -16,31 +16,52 @@ Ownership-/async-Stellen kommentieren), Frontend in JavaScript mit JSDoc (`// @t
 | `firmware/` | widscan58 (ESP32-C5 als SDR, 5,8 GHz), per `git subtree` von [CapnBry/widscan58](https://github.com/CapnBry/widscan58), plus `LEVELBATCH`/`TIME?`/`NAME` (unten). GPL-3.0-or-later |
 | `server/` | Rust (Crate `laptimer`, Server `laptimer serve`) auf einem Raspberry Pi 3 (für den Pi auf dem Mac cross-kompilieren, der Pi 3 schafft keinen Rust-Build): ESPs per USB lesen, Durchflüge erkennen, SQLite (Sessions, Durchflüge, Rohpegel), MP3-Ansagen (`mpg123`), Web/WebSocket |
 | `frontend/` | React, JavaScript + JSDoc |
-| `tools/` | Flash-Script, `stage_firmware.py` (Firmware für die Seite), `build_release.sh` (Release für den Pi), Python-Scripts zum Messen und Auswerten |
-| `.forgejo/workflows/` | CI auf der privaten Forgejo-Instanz (`git.homeserver.local`, Runner `ubuntu-latest`, Container `node:22-bookworm`, Rust per rustup): `ci.yml` testet jeden Push, `release.yml` baut bei Tag `v*` (Doku: `docs/RASPBERRY.md`) |
+| `tools/` | Flash-Script, `stage_firmware.py` (Firmware für die Seite), `build_release.sh` (Release-Pakete), Python-Scripts zum Messen und Auswerten |
+| `.github/workflows/` | CI auf GitHub Actions (Repo `bli-blu-bla/fpv-laptimer`): `ci.yml` testet jeden Push, `release.yml` baut bei Tag `v*` (Doku: `docs/INSTALL.md`) |
 
-**Raspberry Pi** (`docs/RASPBERRY.md`): 64-bit Pi OS Lite, Dienst als systemd-User-Unit,
-alles in `~/.laptimer`. `tools/build_release.sh [VERSION] [--no-firmware]` baut Firmware,
-Seite und Server (`cargo zigbuild --target aarch64-unknown-linux-gnu.2.36`, also glibc ≥ 2.36)
-und packt `dist/laptimer-<ver>-aarch64.tar.gz` (`bin/`, `web/` mit Firmware, `sounds/`,
-`hooks-examples/`, `deploy/*`, `VERSION`, `minisign.pub`) + `.sha256`. `deploy/install.sh`
-(als Nutzer, nicht root): sudo nur für Fehlendes (Pakete, Gruppen `dialout`/`audio`, Linger,
-`/etc/sudoers.d/laptimer` nur für `systemctl poweroff/reboot`; geprüft mit `sudo -n -l`, weil
-`sudoers.d` nicht lesbar ist), Release nach `~/.laptimer/releases/<ver>`, Symlinks `current`
-und `previous` (atomar per `mv -T`), `config.toml` beim ersten Mal (Passwort fragen oder
-zufällig), drei Releases behalten, User-Unit `deploy/laptimer.service` (`Restart=always`:
-ein Update beendet den Server, systemd startet das neue `current`); `--rollback`,
-`--uninstall`. Getestet im Container mit Attrappen für sudo/systemctl/loginctl, nicht auf
-einem echten Pi. Updates gehen auch über die Seite (Einstellungen → System, `src/update.rs`):
-Paket + `.minisig` hochladen oder von Forgejo holen (`[update] url`/`token` in `config.toml`),
+**Installation** (`docs/INSTALL.md`): Pi (64-bit Pi OS Lite), Linux-PC und Mac, alles in
+`~/.laptimer`. Ein Befehl am Zielrechner: `curl -fsSL
+https://github.com/bli-blu-bla/fpv-laptimer/releases/latest/download/install.sh | bash`.
+`deploy/install.sh` (als Nutzer, nicht root; bash 3.2 tauglich wegen Mac, daher keine leeren
+Arrays unter `set -u` auf dem Mac-Pfad; Fragen über `/dev/tty`, weil stdin das Script ist):
+erkennt `linux|macos`-`aarch64|x86_64`, lädt `laptimer-<ver>-<plattform>.tar.gz` + `.sha256`
+aus dem GitHub-Release (Version und Repo trägt `build_release.sh` für `@VERSION@`/`@REPO@`
+ein; ohne sie fragt es die API nach dem neuesten), oder nimmt das entpackte Paket, in dem es
+liegt (offline). Gleiche Version schon installiert → nichts. Unter Linux sudo nur für
+Fehlendes (Pakete per apt, Gruppen `dialout`/`audio`; mit Dienst auch Linger und
+`/etc/sudoers.d/laptimer` nur für `systemctl poweroff/reboot`, geprüft mit `sudo -n -l`, weil
+`sudoers.d` nicht lesbar ist). Dann `bin/laptimer install [--service|--no-service]`
+(`src/install.rs`, Passwort über die Umgebung `LAPTIMER_PASSWORD`): Paket nach
+`releases/<ver>`, Symlinks `current`/`previous` (`update::set_link`, rename), `config.toml`
+beim ersten Mal, drei Releases behalten, Dienst optional (erste Installation fragt, Update
+behält): systemd-User-Unit `deploy/laptimer.service` bzw. launchd-Agent
+`~/Library/LaunchAgents/local.laptimer.plist` (in `install.rs` erzeugt, `KeepAlive`, Log
+`~/.laptimer/laptimer.log`). Beide setzen `LAPTIMER_SERVICE`; ohne Dienst ersetzt sich der
+Server nach Update/Neustart per `exec` selbst (`update::restart_as`). `--rollback` und
+`--uninstall` rufen `laptimer rollback`/`uninstall` der installierten Version. Getestet
+2026-10-28 in einem Test-HOME mit Attrappen für sudo/dpkg/systemctl/loginctl und einem curl,
+das die GitHub-URLs auf `dist/` umleitet (Erstinstallation, gleiche Version, Dienst
+nachträglich, Update, Rollback, offline, Aufräumen, Deinstallieren), und Update über die
+Seite ohne Dienst mit Test-Schlüssel in `extra_keys`; nicht auf einem echten Pi oder Mac.
+
+`tools/build_release.sh [VERSION] [--target T]... [--no-firmware] [--no-web] [--web-only]`:
+Ziele `linux-aarch64` (Standard), `linux-x86_64` (`cargo zigbuild --target
+<triple>.2.36`, also glibc ≥ 2.36), `macos-aarch64`, `macos-x86_64` (nur auf einem Mac),
+Pakete `dist/laptimer-<ver>-<ziel>.tar.gz` (`bin/`, `web/` mit Firmware, `sounds/`,
+`hooks-examples/`, `install.sh`, `laptimer.service`, `update-check.sh`, `VERSION`,
+`minisign.pub`) + `.sha256`, dazu `dist/install.sh`. Die Release-CI: Job `web` (Tests,
+Firmware, Seite), dann `linux` (ubuntu) und `macos` (macos-14) parallel mit `--no-web`, dann
+`release`: minisign-Signatur (Secrets `RELEASE_SIGNING_KEY`, `RELEASE_SIGNING_PASSWORD`; das
+Passwort liest minisign ohne Terminal aus stdin) und `gh release create`. Lokal gemessen
+2026-10-28: `linux-x86_64` per zigbuild ~1 min, Paket 5,4 MB. Noch nicht auf GitHub gelaufen.
+
+Updates über die Seite (Einstellungen → System, `src/update.rs`): Paket + `.minisig`
+hochladen oder von GitHub holen (Standard `update::DEFAULT_SOURCE`; `[update] url` für eine
+andere Quelle, GitHub oder Forgejo, `url = ""` schaltet ab; `token` für private Repos),
 signiert geprüft, dann ersetzt der Server `current` selbst und beendet sich; kommt die neue
-Version nicht hoch, setzt `deploy/update-check.sh` (`ExecStartPre` der Unit) beim 4. Start
-zurück. Die CI signiert mit
-minisign (Secrets `RELEASE_SIGNING_KEY`, `RELEASE_SIGNING_PASSWORD`; das Passwort liest
-minisign ohne Terminal aus stdin) und lädt per Forgejo-API (`secrets.GITHUB_TOKEN`) ins
-Release. Gemessen 2026-10-23 lokal im selben Container: ganzer Build ~3 min ohne Cache
-(Firmware 2:17), Paket 4,8 MB, die Binary braucht höchstens `GLIBC_2.34`. Der Plan mit den
-weiteren Phasen steht in `todo.md`.
+Version nicht hoch, setzt `deploy/update-check.sh` (`ExecStartPre` der Unit, im launchd-Agent
+davor; `mv -T` bzw. auf dem Mac `mv -h`) beim 4. Start zurück. Der Plan mit den weiteren
+Phasen steht in `todo.md`.
 
 Netz: Pi per LAN am Mini-Router des Nutzers, Handys per WLAN; kein Pi-Hotspot. Bluetooth von
 den ESPs geht nicht (das Funkmodul ist durch das Scannen belegt).
@@ -91,7 +112,7 @@ USB-Ports, an einem dritten 2,4 ms; also ±0,4 bis ±1,2 ms Unsicherheit.
 ## Server (`server/`)
 
 `laptimer serve` (Port 5800; 8080/8090 belegt Docker auf dem Mac des Nutzers; `host`/`--host`
-Standard `localhost`, die angelegten Configs von `install.sh` und `config.rs` setzen `0.0.0.0`) liest
+Standard `localhost`, die angelegte Config von `config.rs` setzt `0.0.0.0`) liest
 `~/.laptimer/config.toml` (`config.rs`; unbekannte Einträge nur mit Warnung, Crate `serde_ignored`; fehlt sie, wird sie mit zufälligem Passwort angelegt;
 `--config` für eine andere, die dann existieren muss). Reihenfolge: Kommandozeile, Config,
 Standard. `--data` (Standard `~/.laptimer/data`: SQLite `laptimer.db` +
@@ -119,7 +140,8 @@ Einstellungen.
 | `src/debug.rs` | Board-Debugging (Boards → Debug): `Analysis` mit eigenen Detektoren (Ziel kombiniert = Serie 0, Freigabe kombiniert = 1, jedes Board allein = 2 + Index; dieselben Einstellungen, ändern nichts an den Runden), `Detector::drain_trace` liefert die 10-ms-Slots. Live in `Core::debug` (letzte 60 s, gefüttert mit allen Boards, auch „aus“; neu bei Board-Start, Rollen/Erkennung geändert, Uhrsprung). Aufnahme (`Core::recording`): `<data>/recordings/rec_<datum>_<zeit>.csv` im Format der Session-Dateien plus `# board i {json}` und `# detection: {json}` (auch mit `laptimer replay` lesbar). Routen: `GET /api/debug/live?after_us&window_s&channels` (Slots als Pegelcodes ab `t0`, alle 10 ms; Durchflüge), `POST /api/debug/record`, `…/record/stop`, `GET /api/debug/recordings`, `GET`/`DELETE …/{name}`, `GET /api/debug/graph?source=rec:<name>\|session:<id>&channel&from_us&to_us&points` (Datei neu ausgewertet, frische Detektoren: Automatik muss erst anlernen; Cache `App::debug_files`, höchstens 2) |
 | `src/stats.rs` | Bestzeit, Sessions, Rennen, Siege pro Pilot (nach `pilot_id`, sonst nach Label), gesamt und heute; `race_order` (mehr Runden, dann frühere Gesamtzeit). `/api/stats` |
 | `src/source.rs` | Boards oder Replay (Replay liefert die Pegel nach Kanal-Position der Aufnahme, nicht nach Frequenz: nach einem Kanaltausch passen sie nicht mehr) |
-| `src/update.rs` | Updates über die Seite, nur aus einem installierten Release (`<root>/releases/<ver>/bin/laptimer`, `<root>/current` vorhanden; sonst `installed: false`). Zwei Schritte: **Bereitstellen** (`POST /api/update/upload` multipart `package` + `signature`, bis 64 MB; oder `GET /api/update/releases` + `POST /api/update/download {tag}` von Forgejo per `curl`, Token über stdin, Anhänge über `/attachments/<uuid>`): Signatur gegen den eingebauten `minisign.pub` (`include_str!`) oder `[update] extra_keys` (Crate `minisign-verify`), entpacken nach `<root>/staging/`, `VERSION`, ELF-Architektur von `bin/laptimer`. **Installieren** (`POST /api/update/install {allow_older}`): keine Session, kein Flash; Backup `…_vor-update`, nach `releases/<ver>`, `update-pending` (`to`, `from`, `previous`, `attempts`) schreiben, `previous`/`current` umsetzen (Symlink + rename), geänderte Unit nach `~/.config/systemd/user` + `daemon-reload`, aufräumen (3 behalten, zuerst eine nicht hochgekommene), nach 0,5 s `exit(0)`. Älter/gleich/unklar (`compare`: Zahlen, dann ohne Zusatz > `-rc1`, sonst unklar) nur mit `allow_older`. Die neue Version löscht `update-pending` nach 15 s; `update-check.sh` zählt die Starts und setzt beim 4. zurück (`update-failed`, auf der Seite mit `POST /api/update/dismiss` ausgeblendet). `POST /api/update/rollback` (`current` ↔ `previous`), `DELETE /api/update/staged`, `POST /api/system/restart` (nur unter systemd, `INVOCATION_ID`), `/api/system/reboot`, `/api/system/poweroff` (`sudo -n /usr/bin/systemctl …`, Regel von `install.sh`). Alles unter `/update` und `/system` braucht das Login, auch GET |
+| `src/update.rs` | Updates über die Seite, nur aus einem installierten Release (`<root>/releases/<ver>/bin/laptimer`, `<root>/current` vorhanden; sonst `installed: false`). Zwei Schritte: **Bereitstellen** (`POST /api/update/upload` multipart `package` + `signature`, bis 64 MB; oder `GET /api/update/releases` + `POST /api/update/download {tag}` von GitHub (`api.github.com`, mit Token über die API-URL des Anhangs) oder Forgejo (`/attachments/<uuid>`) per `curl`, Token über stdin; Paketname `laptimer-<ver>-<OS>-<ARCH>.tar.gz`, `update::platform()`): Signatur gegen den eingebauten `minisign.pub` (`include_str!`) oder `[update] extra_keys` (Crate `minisign-verify`), entpacken nach `<root>/staging/`, `VERSION`, System und Prozessor von `bin/laptimer` (ELF oder Mach-O). **Installieren** (`POST /api/update/install {allow_older}`): keine Session, kein Flash; Backup `…_vor-update`, nach `releases/<ver>`, `update-pending` (`to`, `from`, `previous`, `attempts`) schreiben, `previous`/`current` umsetzen (Symlink + rename), geänderte Unit nach `~/.config/systemd/user` + `daemon-reload`, aufräumen (3 behalten, zuerst eine nicht hochgekommene), nach 0,5 s `exit(0)` (mit Dienst) bzw. `exec` von `current/bin/laptimer` mit denselben Argumenten (ohne). Älter/gleich/unklar (`compare`: Zahlen, dann ohne Zusatz > `-rc1`, sonst unklar) nur mit `allow_older`. Die neue Version löscht `update-pending` nach 15 s; `update-check.sh` zählt die Starts und setzt beim 4. zurück (`update-failed`, auf der Seite mit `POST /api/update/dismiss` ausgeblendet). `POST /api/update/rollback` (`current` ↔ `previous`), `DELETE /api/update/staged`, `POST /api/system/restart` (Dienst: `LAPTIMER_SERVICE` oder `INVOCATION_ID`, sonst `exec`), `/api/system/reboot`, `/api/system/poweroff` (`sudo -n /usr/bin/systemctl …`, Regel von `install.sh`). Alles unter `/update` und `/system` braucht das Login, auch GET |
+| `src/install.rs` | `laptimer install [--service\|--no-service]`, `rollback`, `uninstall` (siehe „Installation“ oben); systemd-Teile unter `cfg(not(target_os = "macos"))`, launchd unter `cfg(target_os = "macos")` |
 | `src/sound.rs` | Ansage = Liste von `Part`s (Clip `sounds/<name>.mp3` mit Ersatztext, oder Text), nacheinander in eigenem Thread. Texte per Sprachausgabe als WAV in `<data>/tts/<hash>.wav` (beim Start geleert; `say -v Anna` auf macOS, sonst `pico2wave`, ersatzweise `espeak-ng`); Pilotennamen beim Session-Start vorab (`prepare`, eigener Thread, damit der Countdown nicht wartet). Ausgabe Server (`afplay`, sonst `mpg123`/`aplay`) oder Browser: WebSocket `announce {items: [{url} \| {text}]}`, Dateien unter `/api/audio/clips/…` und `/api/audio/tts/…`; `POST /api/announce/test` |
 
 **Boards und Gates:** Jedes Board hat eine feste Kennung, die USB-Seriennummer (= MAC,
@@ -215,7 +237,7 @@ braucht; nicht Zusammengehöriges auf getrennten Seiten.
 | `pages/Pilots.jsx` | Callsign + Name, PB, Rennen, Siege; Dialog zum Anlegen/Bearbeiten/Löschen, darin die Presets (umbenennen, löschen; angelegt werden sie in der Rennleitung) |
 | `pages/Api.jsx` | **API & Hooks** (am Handy nicht in der Tab-Leiste, sondern über einen Knopf in den Einstellungen): Reiter Schlüssel (anlegen, einmal anzeigen, löschen), Doku, Testen (Befehl per HTTP oder WebSocket, curl-Zeile, Event-Log; Schlüssel in `localStorage`), Hooks (anlegen/bearbeiten mit Event, Script aus dem Ordner, Argumente, Hintergrund; an/aus, einmal ausführen, letzte Läufe; alle 2 s neu geladen). Befehle und Events beschreibt `apiCatalog.js` |
 | `auth.js`, `components/LoginDialog.jsx` | Login-Zustand für die ganze Seite (`useAuth()` → `canEdit`); `api()` meldet ein 401 mit `login` (`loginNeeded`), dann öffnet `App.jsx` den Dialog. Ohne Login: Kopf „Anmelden“, Rennleitung ohne Start/Stopp/Zahnräder/Schwellen/Nachbearbeitung, Sessions ohne Löschen/Bearbeiten, Piloten nur ansehen, Boards/Einstellungen/API gesperrt (`Locked`) |
-| `pages/Settings.jsx` | Nach dem Entwurf „Einstellungen“ (Claude Design, ohne die Auswertungs-Profile Indoor/Outdoor/Whoop). Drei Tabs (`components/Tabs.jsx`: unterstrichene Reiter wie bei API & Hooks, Warnpunkt, rechts „Gespeichert“): Messung, Ansagen, System; je Tab die Karten nebeneinander (am Handy untereinander). **Messung:** Kanäle (Leiste mit den Frequenzen, IMD-Bewertung, eine Zeile pro Slot mit Warnung unter 30 MHz Abstand, Slot entfernen; „Kanäle wählen“ → `ChannelPicker`), Auswertung (`Stepper box`: Mindestrunde, Mindestausschlag, Gain mit 0,8 s Verzögerung, weil er die Boards neu startet, beste N in Folge), Vorschau (`DetectPreview`: erfundenes Signal mit Normalpegel und Schwelle + Mindestausschlag). **Ansagen:** Ereignisse mit Icons, Ausgabe, Beispiel + „Probe-Ansage“. **System:** `components/SystemPanel.jsx` (Version, Update hochladen oder bei Forgejo suchen, bereitgestellte Version mit Warnung bei älter/gleich, Installieren; zurück auf die vorige Version, Laptimer/Pi neu starten, herunterfahren, jeweils mit Rückfrage und gesperrt während einer Session; nach dem Neustart lädt sich die Seite selbst neu), Zugang, Backups (Jetzt sichern, Herunterladen/Löschen), Gefahrenzone („Alle Sessions löschen“ mit Rückfrage im Knopf, gesperrt während einer Session) |
+| `pages/Settings.jsx` | Nach dem Entwurf „Einstellungen“ (Claude Design, ohne die Auswertungs-Profile Indoor/Outdoor/Whoop). Drei Tabs (`components/Tabs.jsx`: unterstrichene Reiter wie bei API & Hooks, Warnpunkt, rechts „Gespeichert“): Messung, Ansagen, System; je Tab die Karten nebeneinander (am Handy untereinander). **Messung:** Kanäle (Leiste mit den Frequenzen, IMD-Bewertung, eine Zeile pro Slot mit Warnung unter 30 MHz Abstand, Slot entfernen; „Kanäle wählen“ → `ChannelPicker`), Auswertung (`Stepper box`: Mindestrunde, Mindestausschlag, Gain mit 0,8 s Verzögerung, weil er die Boards neu startet, beste N in Folge), Vorschau (`DetectPreview`: erfundenes Signal mit Normalpegel und Schwelle + Mindestausschlag). **Ansagen:** Ereignisse mit Icons, Ausgabe, Beispiel + „Probe-Ansage“. **System:** `components/SystemPanel.jsx` (Version, Update hochladen oder bei GitHub suchen, bereitgestellte Version mit Warnung bei älter/gleich, Installieren; zurück auf die vorige Version, Laptimer/Pi neu starten, herunterfahren, jeweils mit Rückfrage und gesperrt während einer Session; nach dem Neustart lädt sich die Seite selbst neu), Zugang, Backups (Jetzt sichern, Herunterladen/Löschen), Gefahrenzone („Alle Sessions löschen“ mit Rückfrage im Knopf, gesperrt während einer Session) |
 | `components/ChannelPicker.jsx` | Kanalwahl wie widscan58 („Channels to scan“): Zeilen R, A, B, E, F auf einer Achse 5630–5960 MHz, L darunter mit eigener Achse; Kanal = Glocke (antippen), Bandname wählt alle acht, gestrichelte Linien zeigen die gewählten Frequenzen in den anderen Bändern, Farben = Slot, den der Kanal bekommt. Darunter IMD-Bewertung mit den schlimmsten Mischprodukten (rote Marken auf der Achse), „Optimal verteilen“, freie MHz. Am Handy seitlich scrollbar (SVG mindestens 760 px) |
 | `imd.js` | `BANDS`, `channelName`, `imdRating` (wie ET's IMDTabler, den RotorHazard als Java aufruft: für jedes Paar 2·f1 − f2, Abstand zum nächsten gewählten Kanal, unter 35 MHz kostet (35 − Abstand)², Summe / Anzahl / 5 von 100 abgezogen; Produkte über 6100 MHz zählen nicht; geprüft gegen etserv.etheli.com/IMDTabler mit Raceband −635, IMD 6C 29, ET5 97, Racebnd4 100), `bestSet(n)` (alle Sätze mit ≥ 35 MHz Abstand durchprobieren: beste Bewertung, dann meiste Raceband-Kanäle, dann größter Abstand; ein paar zehn ms), `assignSlots` (Slots behalten ihre Frequenz, sonst bekommen sie an ihrer Stelle eine neue; Sitz und `detection.finish/arming` wandern mit) |
 | `announcer.js` | Ansagen im Browser: spielt `announce`-Nachrichten nur, wenn dieser Browser als Lautsprecher eingeschaltet ist (`localStorage`); blockiert der Browser den Ton (kein Tipp seit dem Laden), zeigt der Kopf „Ton freigeben“. Texte ohne Datei per `speechSynthesis` |

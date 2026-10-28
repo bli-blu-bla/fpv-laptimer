@@ -58,7 +58,7 @@ pub struct ServeOptions {
     pub hooks_dir: PathBuf,
     /// The password for changes (`auth.rs`).
     pub auth: AuthConfig,
-    /// Updates from Forgejo (`update.rs`).
+    /// Updates from GitHub or Forgejo (`update.rs`).
     pub update: UpdateConfig,
 }
 

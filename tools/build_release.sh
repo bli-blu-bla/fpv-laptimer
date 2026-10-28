@@ -1,78 +1,123 @@
 #!/usr/bin/env bash
-# Build a release for the Raspberry Pi (64-bit Pi OS): firmware, web page,
-# server (cross-compiled), packed with everything the installation needs.
-# The CI runs this (.forgejo/workflows/release.yml); it runs locally too.
-# GPL-3.0-or-later.
+# Build release packages: firmware, web page, the server for each target,
+# packed with everything the installation needs, plus install.sh for
+# "curl … | bash". The CI runs this in parts (.github/workflows/release.yml);
+# it runs locally too. GPL-3.0-or-later.
 #
-#   tools/build_release.sh [VERSION] [--no-firmware]
+#   tools/build_release.sh [VERSION] [--target T]... [--no-firmware] [--no-web] [--web-only]
 #
 #   VERSION        default: git describe without the leading "v"
+#   --target T     linux-aarch64 (default, the Pi), linux-x86_64,
+#                  macos-aarch64, macos-x86_64; repeat for several
 #   --no-firmware  don't build the firmware; a staged one
 #                  (frontend/public/firmware) is packed as it is
+#   --no-web       don't build the web page, pack frontend/dist as it is
+#                  (the CI builds it once for all targets)
+#   --web-only     only firmware and web page (frontend/dist), no packages
 #
-# Result: dist/laptimer-<VERSION>-aarch64.tar.gz and its .sha256. The CI
-# signs it afterwards (minisign).
+# Result: dist/laptimer-<VERSION>-<T>.tar.gz and its .sha256 per target, and
+# dist/install.sh (with VERSION and the repository filled in; the repository
+# is $LAPTIMER_REPO, default bli-blu-bla/fpv-laptimer). The CI signs the
+# packages afterwards (minisign).
 #
-# Needs: Rust with the target aarch64-unknown-linux-gnu, cargo-zigbuild and
-# zig (`pip install cargo-zigbuild ziglang`), Node/npm, Python 3, and for the
-# firmware PlatformIO (`pio`).
+# Linux targets are cross-compiled with cargo-zigbuild against glibc 2.36
+# (Pi OS Bookworm), so they also run on newer systems; that works on Linux
+# and on a Mac. macOS targets build only on a Mac (Apple's linker).
 #
-# The server is linked against glibc 2.36 (Pi OS Bookworm), so it also runs
-# on newer ones (Trixie).
+# Needs: Rust with the targets (rustup target add aarch64-unknown-linux-gnu
+# …), for Linux targets cargo-zigbuild and zig (`pip install cargo-zigbuild
+# ziglang`), Node/npm, Python 3, and for the firmware PlatformIO (`pio`).
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
-target=aarch64-unknown-linux-gnu
 glibc=2.36
+repo=${LAPTIMER_REPO:-bli-blu-bla/fpv-laptimer}
 
-version="" firmware=1
-for arg in "$@"; do
-    case $arg in
+version="" firmware=1 web=1 packages=1 targets=()
+while [ $# -gt 0 ]; do
+    case $1 in
+        --target) [ $# -ge 2 ] || { echo "--target needs a target" >&2; exit 2; }; targets+=("$2"); shift ;;
         --no-firmware) firmware=0 ;;
-        -*) echo "unknown option $arg" >&2; exit 2 ;;
-        *) version=$arg ;;
+        --no-web) web=0 ;;
+        --web-only) packages=0 ;;
+        -*) echo "unknown option $1" >&2; exit 2 ;;
+        *) version=$1 ;;
     esac
+    shift
 done
+[ ${#targets[@]} -gt 0 ] || targets=(linux-aarch64)
 if [ -z "$version" ]; then
     version=$(git -C "$root" describe --tags --always --dirty)
     version=${version#v}
 fi
 echo "== laptimer $version"
 
-if [ $firmware = 1 ]; then
-    echo "== firmware"
-    (cd "$root/firmware" && pio run -e esp32c5)
-    python3 "$root/tools/stage_firmware.py"
-elif [ -f "$root/frontend/public/firmware/manifest.json" ]; then
-    echo "== firmware: packing the staged one (--no-firmware)"
+# The Rust target of a package target.
+triple() {
+    case $1 in
+        linux-aarch64) echo aarch64-unknown-linux-gnu ;;
+        linux-x86_64) echo x86_64-unknown-linux-gnu ;;
+        macos-aarch64) echo aarch64-apple-darwin ;;
+        macos-x86_64) echo x86_64-apple-darwin ;;
+        *) echo "unknown target $1 (linux-aarch64, linux-x86_64, macos-aarch64, macos-x86_64)" >&2; exit 2 ;;
+    esac
+}
+for t in "${targets[@]}"; do triple "$t" >/dev/null; done
+
+if [ $web = 1 ]; then
+    if [ $firmware = 1 ]; then
+        echo "== firmware"
+        (cd "$root/firmware" && pio run -e esp32c5)
+        python3 "$root/tools/stage_firmware.py"
+    elif [ -f "$root/frontend/public/firmware/manifest.json" ]; then
+        echo "== firmware: packing the staged one (--no-firmware)"
+    else
+        echo "== firmware: none (--no-firmware, nothing staged)"
+    fi
+    echo "== web page"
+    (cd "$root/frontend" && npm ci --no-audit --no-fund && npm run build)
+fi
+[ $packages = 1 ] || exit 0
+[ -f "$root/frontend/dist/index.html" ] || { echo "frontend/dist is missing (--no-web without a built page)" >&2; exit 1; }
+
+sha256() {
+    if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi
+}
+# GNU tar (Linux) and bsdtar (Mac) name the owner options differently.
+if tar --version 2>/dev/null | grep -q GNU; then
+    owner=(--owner=0 --group=0)
 else
-    echo "== firmware: none (--no-firmware, nothing staged)"
+    owner=(--uid 0 --gid 0)
 fi
-
-echo "== web page"
-(cd "$root/frontend" && npm ci --no-audit --no-fund && npm run build)
-
-echo "== server ($target, glibc $glibc)"
-(cd "$root/server" && LAPTIMER_VERSION=$version cargo zigbuild --release --target "$target.$glibc")
-
-echo "== package"
-name=laptimer-$version
-stage=$(mktemp -d)
-trap 'rm -rf "$stage"' EXIT
-pkg=$stage/$name
-mkdir -p "$pkg/bin"
-cp "$root/server/target/$target/release/laptimer" "$pkg/bin/"
-cp -r "$root/frontend/dist" "$pkg/web"
-cp -r "$root/sounds" "$pkg/sounds"
-cp -r "$root/tools/hooks" "$pkg/hooks-examples"
-# install.sh and the systemd unit (Phase 3: deploy/).
-if [ -d "$root/deploy" ]; then
-    cp -r "$root/deploy/." "$pkg/"
-fi
-cp "$root/README.md" "$root/LICENSE" "$root/minisign.pub" "$pkg/"
-echo "$version" > "$pkg/VERSION"
 
 mkdir -p "$root/dist"
-tarball=$root/dist/$name-aarch64.tar.gz
-tar -C "$stage" --owner=0 --group=0 -czf "$tarball" "$name"
-(cd "$root/dist" && sha256sum "$(basename "$tarball")" > "$(basename "$tarball").sha256")
-echo "== $tarball ($(du -h "$tarball" | cut -f1))"
+sed -e "s|@VERSION@|$version|g" -e "s|@REPO@|$repo|g" "$root/deploy/install.sh" > "$root/dist/install.sh"
+chmod +x "$root/dist/install.sh"
+stage=$(mktemp -d)
+trap 'rm -rf "$stage"' EXIT
+
+for t in "${targets[@]}"; do
+    rust=$(triple "$t")
+    echo "== server $t ($rust)"
+    case $t in
+        linux-*) (cd "$root/server" && LAPTIMER_VERSION=$version cargo zigbuild --release --target "$rust.$glibc") ;;
+        macos-*) (cd "$root/server" && LAPTIMER_VERSION=$version MACOSX_DEPLOYMENT_TARGET=11.0 cargo build --release --target "$rust") ;;
+    esac
+
+    echo "== package $t"
+    name=laptimer-$version
+    pkg=$stage/$t/$name
+    mkdir -p "$pkg/bin"
+    cp "$root/server/target/$rust/release/laptimer" "$pkg/bin/"
+    cp -r "$root/frontend/dist" "$pkg/web"
+    cp -r "$root/sounds" "$pkg/sounds"
+    cp -r "$root/tools/hooks" "$pkg/hooks-examples"
+    cp "$root/deploy/laptimer.service" "$root/deploy/update-check.sh" "$pkg/"
+    cp "$root/dist/install.sh" "$pkg/"
+    cp "$root/README.md" "$root/LICENSE" "$root/minisign.pub" "$pkg/"
+    echo "$version" > "$pkg/VERSION"
+
+    tarball=$root/dist/$name-$t.tar.gz
+    tar -C "$stage/$t" "${owner[@]}" -czf "$tarball" "$name"
+    (cd "$root/dist" && sha256 "$(basename "$tarball")" > "$(basename "$tarball").sha256")
+    echo "== $tarball ($(du -h "$tarball" | cut -f1))"
+done

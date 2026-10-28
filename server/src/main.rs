@@ -1,5 +1,5 @@
 //! FPV lap timer: `laptimer serve` (the server), `record`/`replay` (test
-//! flights), `ports`.
+//! flights), `ports`, `install`/`rollback`/`uninstall` (the installation).
 
 mod api;
 mod auth;
@@ -13,6 +13,7 @@ mod detect;
 mod esp;
 mod events;
 mod hooks;
+mod install;
 mod laps;
 mod record;
 mod replay;
@@ -105,6 +106,24 @@ enum Command {
         #[arg(long)]
         hooks: Option<PathBuf>,
     },
+    /// Install this package to ~/.laptimer, or update the installed version.
+    ///
+    /// Run from an unpacked package (install.sh does that). Config and data
+    /// stay; the version before becomes "previous".
+    Install {
+        /// Run as a service that starts at boot (systemd user unit on Linux,
+        /// launchd agent on the Mac).
+        #[arg(long)]
+        service: bool,
+        /// No service (removes one that is there). Without either option:
+        /// keep what is there.
+        #[arg(long, conflicts_with = "service")]
+        no_service: bool,
+    },
+    /// Go back to the version installed before.
+    Rollback,
+    /// Remove the service; versions, config and data stay in ~/.laptimer.
+    Uninstall,
     /// Run a recording through the pass detection.
     Replay {
         csv: PathBuf,
@@ -190,6 +209,18 @@ fn main() -> Result<()> {
                 update: cfg.update,
             })
         }
+        Command::Install { service, no_service } => install::install(install::InstallOptions {
+            service: match (service, no_service) {
+                (true, _) => Some(true),
+                (_, true) => Some(false),
+                _ => None,
+            },
+            // From install.sh, which asked for it (not on the command line,
+            // where `ps` would show it).
+            password: std::env::var("LAPTIMER_PASSWORD").ok(),
+        }),
+        Command::Rollback => install::rollback(),
+        Command::Uninstall => install::uninstall(),
         Command::Replay { csv, board, min_lap, min_rise } => {
             let config = detect::DetectConfig {
                 min_lap_us: (min_lap * 1e6) as i64,

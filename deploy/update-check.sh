@@ -1,7 +1,7 @@
 #!/bin/sh
-# Run by systemd before each start of the laptimer (ExecStartPre in
-# laptimer.service): goes back to the previous version if an update from the
-# web page doesn't come up. GPL-3.0-or-later.
+# Run by the service before each start of the laptimer (ExecStartPre in
+# laptimer.service, the launchd agent on the Mac): goes back to the previous
+# version if an update from the web page doesn't come up. GPL-3.0-or-later.
 #
 # The server writes ~/.laptimer/update-pending before switching to the new
 # version (to=releases/<new>, from=releases/<old>, previous=<the previous
@@ -12,6 +12,13 @@
 home=$HOME/.laptimer
 marker=$home/update-pending
 [ -f "$marker" ] || exit 0
+
+# Points $home/<name> at <target>: a new link renamed over the old one.
+# GNU mv needs -T, the Mac's -h, so it doesn't move into the old link's folder.
+relink() {
+    ln -sfn "$2" "$home/$1.new" &&
+        { mv -Tf "$home/$1.new" "$home/$1" 2>/dev/null || mv -hf "$home/$1.new" "$home/$1"; }
+}
 
 to=$(sed -n 's/^to=//p' "$marker")
 from=$(sed -n 's/^from=//p' "$marker")
@@ -33,9 +40,9 @@ fi
 
 if [ -n "$from" ] && [ -x "$home/$from/bin/laptimer" ]; then
     echo "laptimer: $to kommt nicht hoch, zurück auf $from" >&2
-    ln -sfn "$from" "$home/current.new" && mv -Tf "$home/current.new" "$home/current"
+    relink current "$from"
     if [ -n "$previous" ] && [ -x "$home/$previous/bin/laptimer" ]; then
-        ln -sfn "$previous" "$home/previous.new" && mv -Tf "$home/previous.new" "$home/previous"
+        relink previous "$previous"
     else
         rm -f "$home/previous"
     fi

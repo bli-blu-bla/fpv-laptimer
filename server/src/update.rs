@@ -2,12 +2,13 @@
 //! previous version, restarting the laptimer and shutting the Pi down.
 //!
 //! Only for an installed release (`<root>/releases/<ver>/bin/laptimer`, made
-//! by `install.sh`; `<root>` is `~/.laptimer`). With `cargo run` the page
-//! says that updates are not possible.
+//! by `laptimer install`, see `install.rs`; `<root>` is `~/.laptimer`). With
+//! `cargo run` the page says that updates are not possible.
 //!
-//! An update comes from an upload (tarball + `.minisig`) or from the Forgejo
-//! releases (`[update] url` in `config.toml`, downloaded with `curl`). Two
-//! steps, so the page can show what it got before anything changes:
+//! An update comes from an upload (tarball + `.minisig`) or from the releases
+//! of a repository (`[update] url` in `config.toml`, default our GitHub
+//! repository; GitHub or Forgejo, downloaded with `curl`). Two steps, so the
+//! page can show what it got before anything changes:
 //! 1. Stage (`POST /api/update/upload` or `/api/update/download`): check the
 //!    signature (the built-in `minisign.pub` or `[update] extra_keys`),
 //!    unpack to `<root>/staging/`, read `VERSION`, check that `bin/laptimer`
@@ -15,13 +16,14 @@
 //! 2. Install (`POST /api/update/install`): no session running, backup
 //!    `…_vor-update`, move to `releases/<ver>`, switch `previous` and
 //!    `current`, replace the systemd unit if it changed, then the server
-//!    exits and systemd starts the new `current` (`Restart=always`). An older
+//!    exits and the service (systemd or launchd) starts the new `current`;
+//!    without a service the server starts the new program itself. An older
 //!    (or the same, or an unclear) version only with `allow_older`: the page
 //!    asks first.
 //!
 //! Automatic rollback: before switching, the server writes
 //! `<root>/update-pending` (`to=releases/<new>`, `from=releases/<old>`,
-//! `attempts=0`). `update-check.sh`, run by systemd before each start
+//! `attempts=0`). `update-check.sh`, run by the service before each start
 //! (`ExecStartPre`), counts the starts; at the 4th start it switches back to
 //! `from` and writes `<root>/update-failed`, which the page shows. The new
 //! version deletes `update-pending` once it has run for 15 s.
@@ -55,6 +57,8 @@ const CONFIRM_AFTER: Duration = Duration::from_secs(15);
 const KEEP: usize = 3;
 /// Upload limit; a release is ~5 MB.
 const MAX_UPLOAD: usize = 64 << 20;
+/// Where updates come from without `[update] url` in `config.toml`.
+pub const DEFAULT_SOURCE: &str = "https://github.com/bli-blu-bla/fpv-laptimer";
 
 pub struct Updater {
     /// `~/.laptimer` if this program runs from an installed release.
@@ -74,7 +78,7 @@ struct Staged {
     /// `<root>/staging/<the tarball's folder>`
     dir: PathBuf,
     order: Order,
-    /// For the page: "Upload <file>" or "Forgejo <tag>".
+    /// For the page: "Upload <file>" or "GitHub <tag>".
     source: String,
 }
 
@@ -119,7 +123,7 @@ impl Updater {
     fn root(&self) -> Result<&Path> {
         self.root
             .as_deref()
-            .context("Updates gehen nur bei einer installierten Version (install.sh auf dem Pi), nicht mit cargo run.")
+            .context("Updates gehen nur bei einer installierten Version (install.sh), nicht mit cargo run.")
     }
 
     /// One update at a time.
@@ -144,12 +148,16 @@ impl Updater {
             "version": crate::VERSION,
             "installed": root.is_some(),
             "previous": previous,
-            "online": !self.config.url.trim().is_empty(),
+            "online": !self.source_url().is_empty(),
+            // "GitHub" or "Forgejo", for the page's texts.
+            "source": self.source().map(|s| s.name()).ok(),
+            "platform": platform(),
             "staged": self.staged_json(),
             "failed": failed,
             "pending": root.is_some_and(|r| r.join("update-pending").exists()),
-            // systemd sets INVOCATION_ID: it starts the server again after an exit.
-            "managed": std::env::var_os("INVOCATION_ID").is_some(),
+            // Under a service (systemd, launchd), which starts it again after
+            // an exit; otherwise the server starts the new program itself.
+            "managed": managed(),
             "power": can_power(),
         })
     }
@@ -268,7 +276,7 @@ impl Updater {
         update_unit(&dest);
         cleanup(root);
         println!("laptimer: Update auf {} installiert, Neustart", staged.version);
-        exit_soon();
+        exit_soon(Some(root));
         Ok(json!({ "version": staged.version, "backup": backup }))
     }
 
@@ -285,7 +293,7 @@ impl Updater {
         set_link(root, "current", &prev)?;
         set_link(root, "previous", &cur)?;
         println!("laptimer: zurück auf {}, Neustart", version_of(&prev));
-        exit_soon();
+        exit_soon(Some(root));
         Ok(json!({ "version": version_of(&prev) }))
     }
 
@@ -325,30 +333,44 @@ impl Updater {
         });
     }
 
-    // --- Forgejo ---
+    // --- GitHub / Forgejo ---
 
-    /// `https://host/owner/repo` → ("https://host", "owner/repo").
-    fn repo(&self) -> Result<(String, String)> {
-        let url = self.config.url.trim().trim_end_matches('/').trim_end_matches(".git");
+    /// `[update] url`, or our repository if there is none (`url = ""`: off).
+    fn source_url(&self) -> &str {
+        self.config.url.as_deref().unwrap_or(DEFAULT_SOURCE).trim()
+    }
+
+    /// `https://github.com/owner/repo` or `https://host/owner/repo` (Forgejo).
+    fn source(&self) -> Result<Source> {
+        let url = self.source_url().trim_end_matches('/').trim_end_matches(".git");
         if url.is_empty() {
-            bail!("Keine Update-Quelle: in ~/.laptimer/config.toml unter [update] url = \"https://…/Besitzer/Repo\" eintragen.");
+            bail!("Keine Update-Quelle: in ~/.laptimer/config.toml steht unter [update] url = \"\".");
         }
         let bad = || anyhow!("[update] url: erwartet https://host/Besitzer/Repo, nicht „{url}“");
         let (scheme, rest) = url.split_once("://").ok_or_else(bad)?;
-        let (host, path) = rest.split_once('/').ok_or_else(bad)?;
-        Ok((format!("{scheme}://{host}"), path.to_string()))
+        let (host, repo) = rest.split_once('/').ok_or_else(bad)?;
+        Ok(Source {
+            github: host == "github.com",
+            origin: format!("{scheme}://{host}"),
+            repo: repo.to_string(),
+        })
     }
 
-    fn forgejo_releases(&self) -> Result<Vec<ForgejoRelease>> {
-        let (origin, repo) = self.repo()?;
-        let body = self.curl(&format!("{origin}/api/v1/repos/{repo}/releases?limit=20"), None)?;
-        serde_json::from_slice(&body).context("Unerwartete Antwort von Forgejo")
+    fn online_releases(&self, source: &Source) -> Result<Vec<OnlineRelease>> {
+        let url = if source.github {
+            format!("https://api.github.com/repos/{}/releases?per_page=20", source.repo)
+        } else {
+            format!("{}/api/v1/repos/{}/releases?limit=20", source.origin, source.repo)
+        };
+        let body = self.curl(source, &url, None, false)?;
+        serde_json::from_slice(&body).with_context(|| format!("Unerwartete Antwort von {}", source.name()))
     }
 
-    /// The releases on Forgejo, newest first, compared with this version.
+    /// The releases online, newest first, compared with this version.
     pub fn list_online(&self) -> Result<Value> {
+        let source = self.source()?;
         let list: Vec<Value> = self
-            .forgejo_releases()?
+            .online_releases(&source)?
             .iter()
             .filter(|r| !r.draft)
             .take(10)
@@ -369,46 +391,59 @@ impl Updater {
         Ok(json!({ "releases": list }))
     }
 
-    /// Downloads a release from Forgejo and stages it.
+    /// Downloads a release and stages it.
     pub fn download(&self, tag: &str) -> Result<Value> {
         let root = self.root()?;
         let _busy = self.lock_busy()?;
-        let (origin, _) = self.repo()?;
+        let source = self.source()?;
         let release = self
-            .forgejo_releases()?
+            .online_releases(&source)?
             .into_iter()
             .find(|r| r.tag_name == tag)
-            .with_context(|| format!("Release {tag} gibt es auf Forgejo nicht."))?;
+            .with_context(|| format!("Release {tag} gibt es auf {} nicht.", source.name()))?;
         let version = tag.trim_start_matches('v');
         let (package, signature) = package_names(version);
-        // `/attachments/<uuid>` also takes the token (the download link of
-        // a private repository's release may not).
-        let url = |name: &str| -> Result<String> {
-            let a = release
+        let asset = |name: &str| {
+            release
                 .assets
                 .iter()
                 .find(|a| a.name == name)
-                .with_context(|| format!("{name} fehlt im Release {tag}."))?;
-            Ok(if a.uuid.is_empty() { a.browser_download_url.clone() } else { format!("{origin}/attachments/{}", a.uuid) })
+                .with_context(|| format!("{name} fehlt im Release {tag}."))
         };
-        let (package_url, signature_url) = (url(&package)?, url(&signature)?);
+        let (package_asset, signature_asset) = (asset(&package)?, asset(&signature)?);
         let dir = root.join("download");
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir)?;
         let result = (|| {
-            self.curl(&package_url, Some(&dir.join(&package)))?;
-            self.curl(&signature_url, Some(&dir.join(&signature)))?;
+            self.fetch_asset(&source, package_asset, &dir.join(&package))?;
+            self.fetch_asset(&source, signature_asset, &dir.join(&signature))?;
             let bytes = fs::read(dir.join(&package))?;
             let sig = fs::read_to_string(dir.join(&signature))?;
-            self.stage_locked(&bytes, &sig, &format!("Forgejo {tag}"))
+            self.stage_locked(&bytes, &sig, &format!("{} {tag}", source.name()))
         })();
         let _ = fs::remove_dir_all(&dir);
         result
     }
 
+    /// One file of a release into `out`. With a token (private repository)
+    /// not over the public download link: GitHub wants the asset's API URL,
+    /// Forgejo `/attachments/<uuid>`.
+    fn fetch_asset(&self, source: &Source, asset: &OnlineAsset, out: &Path) -> Result<()> {
+        let token = !self.config.token.is_empty();
+        if source.github && token && !asset.url.is_empty() {
+            self.curl(source, &asset.url, Some(out), true)?;
+        } else if !source.github && !asset.uuid.is_empty() {
+            self.curl(source, &format!("{}/attachments/{}", source.origin, asset.uuid), Some(out), false)?;
+        } else {
+            self.curl(source, &asset.browser_download_url, Some(out), false)?;
+        }
+        Ok(())
+    }
+
     /// GET with curl (into `out`, or returned). The token goes to curl on
-    /// stdin, not on the command line (where `ps` would show it).
-    fn curl(&self, url: &str, out: Option<&Path>) -> Result<Vec<u8>> {
+    /// stdin, not on the command line (where `ps` would show it). `binary`:
+    /// the file itself, not its description (GitHub's asset API).
+    fn curl(&self, source: &Source, url: &str, out: Option<&Path>, binary: bool) -> Result<Vec<u8>> {
         let mut cmd = Command::new("curl");
         cmd.args(["-fsSL", "--max-time", "300", "--max-filesize", "200000000", "-K", "-"]);
         if let Some(p) = out {
@@ -418,21 +453,42 @@ impl Updater {
         let mut child = cmd.spawn().context("curl fehlt (sudo apt install curl)")?;
         let mut config = String::new();
         if !self.config.token.is_empty() {
-            config = format!("header = \"Authorization: token {}\"\n", self.config.token);
+            let scheme = if source.github { "Bearer" } else { "token" };
+            config += &format!("header = \"Authorization: {scheme} {}\"\n", self.config.token);
+        }
+        if binary {
+            config += "header = \"Accept: application/octet-stream\"\n";
         }
         // Dropping stdin after writing ends curl's config.
         child.stdin.take().unwrap().write_all(config.as_bytes())?;
         let output = child.wait_with_output()?;
         if !output.status.success() {
             let err = String::from_utf8_lossy(&output.stderr);
-            bail!("Forgejo nicht erreichbar oder kein Zugriff ({url}): {}", err.trim());
+            bail!("{} nicht erreichbar oder kein Zugriff ({url}): {}", source.name(), err.trim());
         }
         Ok(output.stdout)
     }
 }
 
+/// Where the releases are: GitHub or a Forgejo.
+struct Source {
+    github: bool,
+    /// `https://host`
+    origin: String,
+    /// `owner/repo`
+    repo: String,
+}
+
+impl Source {
+    fn name(&self) -> &'static str {
+        if self.github { "GitHub" } else { "Forgejo" }
+    }
+}
+
+/// A release as GitHub and Forgejo describe it (the fields both have, plus
+/// each one's own download handle).
 #[derive(Deserialize)]
-struct ForgejoRelease {
+struct OnlineRelease {
     tag_name: String,
     #[serde(default)]
     prerelease: bool,
@@ -441,23 +497,33 @@ struct ForgejoRelease {
     #[serde(default)]
     published_at: String,
     #[serde(default)]
-    assets: Vec<ForgejoAsset>,
+    assets: Vec<OnlineAsset>,
 }
 
 #[derive(Deserialize)]
-struct ForgejoAsset {
+struct OnlineAsset {
     name: String,
     #[serde(default)]
-    uuid: String,
-    #[serde(default)]
     browser_download_url: String,
+    /// GitHub: the asset's API URL.
+    #[serde(default)]
+    url: String,
+    /// Forgejo: for `/attachments/<uuid>`.
+    #[serde(default)]
+    uuid: String,
 }
 
-/// The release's files for this processor (`tools/build_release.sh`).
+/// The release's files for this system and processor, e.g.
+/// `laptimer-0.2.0-linux-aarch64.tar.gz` (`tools/build_release.sh`).
 fn package_names(version: &str) -> (String, String) {
-    let package = format!("laptimer-{version}-{}.tar.gz", std::env::consts::ARCH);
+    let package = format!("laptimer-{version}-{}.tar.gz", platform());
     let signature = format!("{package}.minisig");
     (package, signature)
+}
+
+/// `linux-aarch64`, `macos-x86_64`, …: the packages' names.
+pub fn platform() -> String {
+    format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH)
 }
 
 /// `(~/.laptimer, "releases/<ver>")` if this program is
@@ -476,17 +542,17 @@ fn install_location() -> Option<(PathBuf, String)> {
 }
 
 /// Where a link in `<root>` points, e.g. `releases/0.2.0`.
-fn link(root: &Path, name: &str) -> Option<String> {
+pub fn link(root: &Path, name: &str) -> Option<String> {
     fs::read_link(root.join(name)).ok().map(|p| p.to_string_lossy().into_owned())
 }
 
 /// `releases/0.2.0` → `0.2.0`.
-fn version_of(release: &str) -> String {
+pub fn version_of(release: &str) -> String {
     release.rsplit('/').next().unwrap_or(release).to_string()
 }
 
 /// Points `<root>/<name>` at `target`, atomically (a new link renamed over the old).
-fn set_link(root: &Path, name: &str, target: &str) -> Result<()> {
+pub fn set_link(root: &Path, name: &str, target: &str) -> Result<()> {
     let tmp = root.join(format!("{name}.new"));
     let _ = fs::remove_file(&tmp);
     #[cfg(unix)]
@@ -498,7 +564,7 @@ fn set_link(root: &Path, name: &str, target: &str) -> Result<()> {
 }
 
 /// The marker files: `key=value` lines (read by `update-check.sh` too).
-fn read_kv(path: &Path) -> Option<HashMap<String, String>> {
+pub fn read_kv(path: &Path) -> Option<HashMap<String, String>> {
     let text = fs::read_to_string(path).ok()?;
     Some(
         text.lines()
@@ -554,7 +620,7 @@ fn unpack(package: &[u8], into: &Path) -> Result<PathBuf> {
 }
 
 /// Used as a folder name: letters, digits, `.`, `-`, `_`, `+`.
-fn check_version_name(v: &str) -> Result<()> {
+pub fn check_version_name(v: &str) -> Result<()> {
     let ok = !v.is_empty()
         && v.len() <= 64
         && !v.starts_with('.')
@@ -565,27 +631,35 @@ fn check_version_name(v: &str) -> Result<()> {
     Ok(())
 }
 
-/// The program must be a Linux program for this processor (ELF header:
-/// machine type at byte 18).
+/// The program must be for this system and processor: a Linux program (ELF,
+/// machine type at byte 18) or a Mac program (Mach-O, CPU type at byte 4).
 fn check_binary(path: &Path) -> Result<()> {
     let mut head = [0u8; 20];
     fs::File::open(path)
         .and_then(|mut f| f.read_exact(&mut head))
         .map_err(|_| anyhow!("Im Paket fehlt bin/laptimer."))?;
-    if &head[..4] != b"\x7fELF" {
-        bail!("bin/laptimer im Paket ist kein Linux-Programm.");
-    }
-    let name = |machine: u16| match machine {
-        183 => "aarch64",
-        62 => "x86_64",
-        40 => "arm",
-        243 => "riscv64",
-        _ => "unbekannt",
+    let found = if &head[..4] == b"\x7fELF" {
+        let arch = match u16::from_le_bytes([head[18], head[19]]) {
+            183 => "aarch64",
+            62 => "x86_64",
+            40 => "arm",
+            243 => "riscv64",
+            _ => "unbekannt",
+        };
+        format!("linux-{arch}")
+    } else if head[..4] == [0xcf, 0xfa, 0xed, 0xfe] {
+        let arch = match u32::from_le_bytes([head[4], head[5], head[6], head[7]]) {
+            0x0100_000c => "aarch64",
+            0x0100_0007 => "x86_64",
+            _ => "unbekannt",
+        };
+        format!("macos-{arch}")
+    } else {
+        bail!("bin/laptimer im Paket ist kein Programm für Linux oder macOS.");
     };
-    let machine = u16::from_le_bytes([head[18], head[19]]);
-    let here = std::env::consts::ARCH;
-    if name(machine) != here {
-        bail!("Das Paket ist für {}, dieser Rechner ist {here}.", name(machine));
+    let here = platform();
+    if found != here {
+        bail!("Das Paket ist für {found}, dieser Rechner ist {here}.");
     }
     Ok(())
 }
@@ -606,9 +680,8 @@ fn update_unit(release: &Path) {
     let _ = Command::new("systemctl").args(["--user", "daemon-reload"]).status();
 }
 
-/// Keeps the newest KEEP releases, and always `current` and `previous`
-/// (like `install.sh`).
-fn cleanup(root: &Path) {
+/// Keeps the newest KEEP releases, and always `current` and `previous`.
+pub fn cleanup(root: &Path) {
     let keep: Vec<String> = ["current", "previous"].iter().filter_map(|n| link(root, n)).collect();
     let Ok(entries) = fs::read_dir(root.join("releases")) else { return };
     let mut dirs: Vec<(std::time::SystemTime, PathBuf, String)> = entries
@@ -627,16 +700,44 @@ fn cleanup(root: &Path) {
     }
 }
 
-/// Ends the server shortly, after the answer got out; systemd starts
-/// `current` again.
-fn exit_soon() {
-    std::thread::spawn(|| {
+/// Runs under a service that starts it again after an exit: systemd
+/// (`INVOCATION_ID`) or the units `laptimer install` writes
+/// (`LAPTIMER_SERVICE`, also launchd).
+fn managed() -> bool {
+    std::env::var_os("LAPTIMER_SERVICE").is_some() || std::env::var_os("INVOCATION_ID").is_some()
+}
+
+/// Ends the server shortly, after the answer got out. A service starts
+/// `current` again; without one the server replaces itself with
+/// `<root>/current/bin/laptimer` (same arguments).
+fn exit_soon(root: Option<&Path>) {
+    let next = root.map(|r| r.join("current/bin/laptimer")).filter(|_| !managed());
+    std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(500));
+        if let Some(program) = next {
+            restart_as(&program);
+        }
         std::process::exit(0);
     });
 }
 
-/// `install.sh` allows `sudo systemctl poweroff/reboot` without a password.
+/// Replaces this process with `program` (exec): same process, same
+/// arguments. Open files, the port and the serial ports are closed on exec
+/// (Rust, SQLite and serialport open them with O_CLOEXEC), so the new
+/// program can open them again. Returns only if exec failed.
+#[cfg(unix)]
+fn restart_as(program: &Path) {
+    use std::os::unix::process::CommandExt;
+    println!("laptimer: starte {} neu", program.display());
+    let err = Command::new(program).args(std::env::args_os().skip(1)).exec();
+    eprintln!("laptimer: Neustart fehlgeschlagen: {err}");
+}
+
+#[cfg(not(unix))]
+fn restart_as(_program: &Path) {}
+
+/// `install.sh` allows `sudo systemctl poweroff/reboot` without a password
+/// (Linux with a service).
 fn can_power() -> bool {
     Command::new("sudo")
         .args(["-n", "-l", "/usr/bin/systemctl", "poweroff"])
@@ -794,15 +895,14 @@ async fn dismiss(State(app): St) -> Response {
     blocking(app, |app| app.update.dismiss()).await
 }
 
-/// Restarts the laptimer: exits, systemd starts it again.
+/// Restarts the laptimer: exits, the service starts it again (or it starts
+/// itself again without one).
 async fn restart(State(app): St) -> Response {
     blocking(app, |app| {
         check_idle(app)?;
-        if std::env::var_os("INVOCATION_ID").is_none() {
-            bail!("Der Laptimer läuft nicht als Dienst (systemd): er würde sich nur beenden.");
-        }
+        let root = app.update.root()?;
         println!("laptimer: Neustart über die Seite");
-        exit_soon();
+        exit_soon(Some(root));
         Ok(json!({}))
     })
     .await
@@ -850,5 +950,56 @@ mod tests {
     #[test]
     fn built_in_key_reads() {
         assert!(PublicKey::decode(RELEASE_KEY).is_ok());
+    }
+
+    #[test]
+    fn reads_sources() {
+        let updater = |url: Option<&str>| {
+            Updater::new(UpdateConfig { url: url.map(str::to_string), ..Default::default() }).unwrap()
+        };
+        let s = updater(None).source().unwrap();
+        assert!(s.github);
+        assert_eq!(s.repo, "bli-blu-bla/fpv-laptimer");
+        let s = updater(Some("https://git.example.org/me/laptimer.git/")).source().unwrap();
+        assert!(!s.github);
+        assert_eq!((s.origin.as_str(), s.repo.as_str()), ("https://git.example.org", "me/laptimer"));
+        assert!(updater(Some("")).source().is_err());
+        assert!(updater(Some("github.com/x")).source().is_err());
+    }
+
+    #[test]
+    fn checks_binaries() {
+        let dir = std::env::temp_dir().join(format!("laptimer_bin_{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("laptimer");
+        let check = |head: &[u8]| {
+            let mut bytes = head.to_vec();
+            bytes.resize(64, 0);
+            fs::write(&file, bytes).unwrap();
+            check_binary(&file)
+        };
+        let mut elf = b"\x7fELF".to_vec();
+        elf.resize(18, 0);
+        let mut macho = vec![0xcf, 0xfa, 0xed, 0xfe];
+        let (elf_ok, macho_ok) = match (std::env::consts::OS, std::env::consts::ARCH) {
+            ("linux", "x86_64") => (62u16, None),
+            ("linux", "aarch64") => (183, None),
+            ("macos", "aarch64") => (0, Some(0x0100_000cu32)),
+            ("macos", "x86_64") => (0, Some(0x0100_0007)),
+            _ => return,
+        };
+        if let Some(cpu) = macho_ok {
+            macho.extend(cpu.to_le_bytes());
+            assert!(check(&macho).is_ok());
+            elf.extend(183u16.to_le_bytes());
+            assert!(check(&elf).is_err());
+        } else {
+            elf.extend(elf_ok.to_le_bytes());
+            assert!(check(&elf).is_ok());
+            macho.extend(0x0100_000cu32.to_le_bytes());
+            assert!(check(&macho).unwrap_err().to_string().contains("macos-aarch64"));
+        }
+        assert!(check(b"#!/bin/sh").is_err());
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

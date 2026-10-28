@@ -1,5 +1,6 @@
-# Tests on every push: server (cargo test) and web page (JSDoc types, build).
-# The release (firmware, Pi build, signature) is release.yml.
+# Tests on every push: server (cargo test), web page (JSDoc types, build),
+# the install script's syntax. The release (firmware, packages, signature)
+# is release.yml.
 name: CI
 
 on:
@@ -10,19 +11,14 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    # Node for the actions and the web page; Rust is installed below.
-    container:
-      image: node:22-bookworm
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # git describe (version)
 
-      - name: Rust
-        run: |
-          curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          git config --global --add safe.directory '*'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
 
       - uses: actions/cache@v4
         with:
@@ -43,3 +39,6 @@ jobs:
           npm ci --no-audit --no-fund
           npm run check
           npm run build
+
+      - name: Scripts
+        run: bash -n deploy/install.sh tools/build_release.sh && sh -n deploy/update-check.sh

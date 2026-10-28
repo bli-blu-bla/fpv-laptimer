@@ -1,5 +1,5 @@
 // @ts-check
-// Settings → System: the version, updates (upload or from Forgejo), back to
+// Settings → System: the version, updates (upload or from GitHub/Forgejo), back to
 // the previous version, restarting the laptimer, rebooting or shutting down
 // the Pi (server/src/update.rs).
 //
@@ -83,7 +83,7 @@ export default function SystemPanel({ version, running }) {
     const signature = list.find((f) => f.name.endsWith('.minisig'))
     const pkg = list.find((f) => f.name.endsWith('.tar.gz'))
     if (!pkg || !signature) {
-      setError('Bitte beide Dateien zusammen wählen: laptimer-…-aarch64.tar.gz und laptimer-…-aarch64.tar.gz.minisig.')
+      setError('Bitte beide Dateien zusammen wählen: laptimer-….tar.gz und laptimer-….tar.gz.minisig.')
       return
     }
     const form = new FormData()
@@ -93,7 +93,7 @@ export default function SystemPanel({ version, running }) {
     load()
   }
 
-  const search = () => run('Frage Forgejo …', () => api('/update/releases').then((r) => setReleases(r.releases)))
+  const search = () => run(`Frage ${status?.source ?? 'GitHub'} …`, () => api('/update/releases').then((r) => setReleases(r.releases)))
   /** @param {string} tag */
   const download = async (tag) => {
     await run(`Lade ${tag} herunter und prüfe die Signatur …`, () => api('/update/download', { body: { tag } }))
@@ -142,7 +142,7 @@ export default function SystemPanel({ version, running }) {
 
       {!status.installed ? (
         <span className="muted small">
-          Updates, Neustart und Herunterfahren gibt es nur bei einer installierten Version (<code>install.sh</code> auf dem Pi), nicht bei{' '}
+          Updates, Neustart und Herunterfahren gibt es nur bei einer installierten Version (<code>install.sh</code>), nicht bei{' '}
           <code>cargo run</code>.
         </span>
       ) : (
@@ -179,8 +179,9 @@ export default function SystemPanel({ version, running }) {
             </div>
           ) : (
             <span className="muted small">
-              Update: Paket und Signatur aus dem Release laden (<code>laptimer-…-aarch64.tar.gz</code> und <code>….minisig</code>) und hier beide zusammen
-              wählen{status.online ? ', oder direkt bei Forgejo suchen' : ''}. Nur von uns signierte Pakete werden angenommen.
+              Update: Paket für diesen Rechner und Signatur aus dem Release laden (<code>laptimer-…-{status.platform}.tar.gz</code> und{' '}
+              <code>….minisig</code>) und hier beide zusammen wählen{status.online ? `, oder direkt bei ${status.source} suchen` : ''}. Nur von uns
+              signierte Pakete werden angenommen.
             </span>
           )}
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -248,23 +249,21 @@ export default function SystemPanel({ version, running }) {
               <ArrowCounterClockwiseIcon size={16} /> Zurück auf {status.previous}
             </button>
           )}
-          {status.managed && (
-            <button
-              className="btn btn-ghost"
-              disabled={locked}
-              title={lockedTitle}
-              onClick={() =>
-                setConfirm({
-                  title: 'Laptimer neu starten?',
-                  text: 'Der Server startet neu (einige Sekunden); die Boards werden dabei neu eingestellt.',
-                  label: 'Neu starten',
-                  run: () => restarting('Neustart …', () => api('/system/restart', { method: 'POST' })),
-                })
-              }
-            >
-              <ArrowsClockwiseIcon size={16} /> Laptimer neu starten
-            </button>
-          )}
+          <button
+            className="btn btn-ghost"
+            disabled={locked}
+            title={lockedTitle}
+            onClick={() =>
+              setConfirm({
+                title: 'Laptimer neu starten?',
+                text: 'Der Server startet neu (einige Sekunden); die Boards werden dabei neu eingestellt.',
+                label: 'Neu starten',
+                run: () => restarting('Neustart …', () => api('/system/restart', { method: 'POST' })),
+              })
+            }
+          >
+            <ArrowsClockwiseIcon size={16} /> Laptimer neu starten
+          </button>
           {status.power && (
             <>
               <button
@@ -304,7 +303,8 @@ export default function SystemPanel({ version, running }) {
           )}
           {!status.managed && (
             <span className="muted small">
-              Der Laptimer läuft nicht als Dienst (systemd): nach einem Update startet er nicht von selbst neu.
+              Der Laptimer läuft nicht als Dienst: nach einem Update startet er sich selbst neu, beim Hochfahren aber nicht von selbst
+              (dafür <code>install.sh --service</code>).
             </span>
           )}
         </div>

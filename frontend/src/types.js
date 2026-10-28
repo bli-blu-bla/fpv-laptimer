@@ -194,11 +194,13 @@
  * @property {string} version
  * @property {boolean} installed   runs from an installed release (only then updates)
  * @property {string | null} previous   the version "back" goes to
- * @property {boolean} online   [update] url is set: Forgejo can be asked
+ * @property {boolean} online   there is an update source ([update] url, default GitHub)
+ * @property {'GitHub' | 'Forgejo' | null} source   where "search for updates" asks
+ * @property {string} platform   e.g. linux-aarch64: the package to pick
  * @property {{version: string, order: VersionOrder, source: string} | null} staged   checked, waiting for "install"
  * @property {{to: string, from: string, time_s: number | null} | null} failed   an update that didn't come up (rolled back)
  * @property {boolean} pending   a new version still has to prove it runs
- * @property {boolean} managed   runs under systemd (starts again after an exit)
+ * @property {boolean} managed   runs as a service (systemd, launchd): starts at boot and again after an exit
  * @property {boolean} power   may reboot / shut down the Pi
  *
  * @typedef {object} OnlineRelease   /api/update/releases

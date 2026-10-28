@@ -1,0 +1,172 @@
+# A release on a tag "v*" (git tag v0.2.0 && git push origin v0.2.0): tests,
+# firmware and web page once, the server for Linux (Pi and PC) and the Mac
+# (tools/build_release.sh), the packages signed with minisign and attached
+# to a GitHub release, together with install.sh:
+#
+#   curl -fsSL https://github.com/<owner>/<repo>/releases/latest/download/install.sh | bash
+#
+# Secrets (repository → Settings → Secrets and variables → Actions):
+#   RELEASE_SIGNING_KEY       the whole content of minisign.key (made with `minisign -G`)
+#   RELEASE_SIGNING_PASSWORD  its password
+# The public key is minisign.pub in the repository; the server checks
+# updates against it.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # gh release create
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # git describe: the firmware's version
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio
+            ~/.cargo/registry
+            ~/.cargo/git
+            server/target
+          key: release-web-${{ hashFiles('firmware/platformio.ini', 'server/Cargo.lock') }}
+          restore-keys: release-web-
+
+      - name: Tests
+        run: |
+          (cd server && cargo test --release)
+          (cd frontend && npm ci --no-audit --no-fund && npm run check)
+
+      - name: Firmware and web page
+        run: |
+          sudo apt-get install -y --no-install-recommends cmake ninja-build
+          pip install --quiet platformio
+          tools/build_release.sh "${GITHUB_REF_NAME#v}" --web-only
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: frontend/dist
+
+  linux:
+    needs: web
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: web
+          path: frontend/dist
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            server/target
+          key: release-linux-${{ hashFiles('server/Cargo.lock') }}
+          restore-keys: release-linux-
+
+      - name: Build
+        env:
+          LAPTIMER_REPO: ${{ github.repository }}
+        run: |
+          pip install --quiet cargo-zigbuild ziglang
+          rustup target add aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
+          tools/build_release.sh "${GITHUB_REF_NAME#v}" --no-web --target linux-aarch64 --target linux-x86_64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-linux
+          path: dist/
+
+  macos:
+    needs: web
+    runs-on: macos-14 # Apple silicon; builds for Intel too
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: web
+          path: frontend/dist
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            server/target
+          key: release-macos-${{ hashFiles('server/Cargo.lock') }}
+          restore-keys: release-macos-
+
+      - name: Build
+        env:
+          LAPTIMER_REPO: ${{ github.repository }}
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          tools/build_release.sh "${GITHUB_REF_NAME#v}" --no-web --target macos-aarch64 --target macos-x86_64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-macos
+          path: dist/
+
+  release:
+    needs: [linux, macos]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4 # minisign.pub
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: packages-*
+          merge-multiple: true # both have the same install.sh
+          path: dist
+
+      - name: Sign
+        env:
+          KEY: ${{ secrets.RELEASE_SIGNING_KEY }}
+          PASSWORD: ${{ secrets.RELEASE_SIGNING_PASSWORD }}
+        run: |
+          sudo apt-get install -y --no-install-recommends minisign
+          version=${GITHUB_REF_NAME#v}
+          key=$(mktemp)
+          printf '%s\n' "$KEY" > "$key"
+          for f in dist/laptimer-$version-*.tar.gz; do
+            # minisign reads the password from stdin when there is no terminal.
+            printf '%s\n' "$PASSWORD" | minisign -S -s "$key" -m "$f" -t "laptimer $(basename "$f")"
+            minisign -V -p minisign.pub -m "$f"
+          done
+          rm -f "$key"
+
+      - name: Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          # A version with "-" (0.2.0-rc1) is a pre-release ("latest" skips it).
+          pre=""
+          case $version in *-*) pre=--prerelease ;; esac
+          notes="Installieren oder aktualisieren (Raspberry Pi mit 64-bit Pi OS, Linux, Mac):
+
+          \`\`\`
+          curl -fsSL https://github.com/$GITHUB_REPOSITORY/releases/download/$GITHUB_REF_NAME/install.sh | bash
+          \`\`\`
+
+          Update über die Seite: Einstellungen → System → Nach Updates suchen, oder Paket + \`.minisig\` hochladen."
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
+            --title "Laptimer $version" --notes "$notes" $pre

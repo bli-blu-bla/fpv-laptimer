@@ -9,7 +9,8 @@
 //! warning, so an older version still starts with a newer file.
 //!
 //! If the default file is missing, `laptimer serve` writes one with a
-//! random password and prints it. A file given with `--config` must exist.
+//! random password and prints it (`laptimer install` too, with the password
+//! `install.sh` asked for). A file given with `--config` must exist.
 
 use std::path::{Path, PathBuf};
 
@@ -39,10 +40,12 @@ pub struct Config {
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(default)]
 pub struct UpdateConfig {
-    /// The Forgejo repository with the releases, e.g.
-    /// `https://git.homeserver.local/bli-blu-bla/LapTimer`. Empty: only uploads.
-    pub url: String,
-    /// A Forgejo access token (scope read:repository) for a private repository.
+    /// The repository with the releases, on GitHub or a Forgejo, e.g.
+    /// `https://github.com/bli-blu-bla/fpv-laptimer`. Missing: that one
+    /// (`update::DEFAULT_SOURCE`); empty: only uploads.
+    pub url: Option<String>,
+    /// An access token for a private repository (GitHub: fine-grained,
+    /// Contents read; Forgejo: read:repository).
     pub token: String,
     /// More public keys (the base64 line of a `minisign.pub`) besides the
     /// built-in one, e.g. for a new signing key.
@@ -79,7 +82,7 @@ pub fn load(path: &Path, explicit: bool) -> Result<Config> {
         if explicit {
             bail!("{} gibt es nicht", path.display());
         }
-        write_default(path)?;
+        create(path, None)?;
     }
     let text = std::fs::read_to_string(path).with_context(|| format!("{}", path.display()))?;
     let (mut config, unknown) = parse(&text).with_context(|| format!("{}", path.display()))?;
@@ -121,12 +124,20 @@ fn resolve(base: &Path, p: &Path) -> Result<PathBuf> {
     Ok(base.join(p))
 }
 
-/// A new file with a random password, readable only by the user.
-fn write_default(path: &Path) -> Result<()> {
+/// A new file, readable only by the user, with `password` or a random one
+/// (printed).
+pub fn create(path: &Path, password: Option<&str>) -> Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir).with_context(|| format!("{}", dir.display()))?;
     }
-    let password = random_password()?;
+    let given = password.filter(|p| !p.is_empty());
+    if given.is_some_and(|p| p.contains(['"', '\\', '\n'])) {
+        bail!("Das Passwort darf kein \", kein \\ und keinen Zeilenumbruch enthalten.");
+    }
+    let password = match given {
+        Some(p) => p.to_string(),
+        None => random_password()?,
+    };
     let text = format!(
         "# Laptimer: Einstellungen der Installation (alles andere auf der Web-Seite).\n\
          # Nach einer Änderung neu starten: systemctl --user restart laptimer\n\
@@ -143,16 +154,18 @@ fn write_default(path: &Path) -> Result<()> {
          password = \"{password}\"\n\
          \n\
          [update]\n\
-         # Updates von Forgejo (Einstellungen → System → Nach Updates suchen).\n\
-         # Ohne url: nur Hochladen. Token (read:repository) für ein privates Repo.\n\
-         # url = \"https://git.homeserver.local/bli-blu-bla/LapTimer\"\n\
-         # token = \"\"\n"
+         # Woher „Nach Updates suchen“ (Einstellungen → System) die Releases holt:\n\
+         # Standard {default} (GitHub oder Forgejo); url = \"\" schaltet es ab (nur Hochladen).\n\
+         # url = \"{default}\"\n\
+         # token = \"\"                   # nur für ein privates Repo\n",
+        default = crate::update::DEFAULT_SOURCE,
     );
     write_private(path, &text)?;
-    eprintln!(
-        "laptimer: {} angelegt, Passwort für die Rennleitung: {password}",
-        path.display()
-    );
+    if given.is_some() {
+        eprintln!("laptimer: {} angelegt", path.display());
+    } else {
+        eprintln!("laptimer: {} angelegt, Passwort für die Rennleitung: {password}", path.display());
+    }
     Ok(())
 }
 

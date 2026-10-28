@@ -24,10 +24,17 @@ Status: im Aufbau.
 | `sounds/` | Fertige Ansage-Bausteine als MP3 (Platzhalter von `tools/make_sounds.sh`, gern durch eigene mit gleichem Namen ersetzen; fehlt einer, wird sein Text gesprochen). Namen und Rundenzeiten spricht die Sprachausgabe: auf dem Pi `sudo apt install libttspico-utils` (oder `espeak-ng`). Einstellungen → Ansagen: welche Ereignisse angesagt werden, und ob der Server oder ein Browser (z. B. Laptop mit Bluetooth-Box) sie abspielt |
 | `tools/` | Flash-Script, Release-Build, Mess- und Auswerte-Scripts |
 
-## Raspberry Pi
+## Installieren
 
-Releases für den Pi baut die CI in Forgejo bei einem Tag `v*`; Installation, Signatur und
-lokaler Build: [docs/RASPBERRY.md](docs/RASPBERRY.md).
+Auf dem Raspberry Pi (64-bit Pi OS), einem Linux-PC oder dem Mac, als normaler Nutzer:
+
+```sh
+curl -fsSL https://github.com/bli-blu-bla/fpv-laptimer/releases/latest/download/install.sh | bash
+```
+
+Derselbe Befehl aktualisiert eine installierte Version. Danach Updates auch über die Seite
+(Einstellungen → System). Dienst, Optionen, Installation ohne Internet, Releases bauen:
+[docs/INSTALL.md](docs/INSTALL.md).
 
 ## Firmware flashen
 
