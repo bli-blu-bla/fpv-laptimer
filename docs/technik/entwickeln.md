@@ -73,9 +73,12 @@ Release an. Lokal: `tools/build_release.sh`. Alles dazu unter
 ## Diese Doku
 
 ```sh
-pip install mkdocs-material
-mkdocs serve                       # http://127.0.0.1:8000
+pip install zensical
+zensical serve                     # http://127.0.0.1:8000
 ```
+
+Gebaut wird mit [Zensical](https://zensical.org), dem Nachfolger von Material for MkDocs; es
+liest die `mkdocs.yml` unverändert.
 
 Die Seiten liegen in `docs/`, die Konfiguration in `mkdocs.yml`. Jeder Push auf `main`
 veröffentlicht sie über `.github/workflows/docs.yml` auf GitHub Pages.

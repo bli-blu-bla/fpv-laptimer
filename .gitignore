@@ -35,5 +35,8 @@ dist/
 minisign.key
 *.key
 
-# Doku-Seite (mkdocs build)
+# Doku-Seite (zensical build), sein Cache, eine venv dafür (nie in docs/ anlegen:
+# Zensical liest dann die ganze venv als Doku und wird nicht fertig)
 site/
+.cache/
+.venv*/

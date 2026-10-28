@@ -1,5 +1,6 @@
-# Die Doku-Seite (GitHub Pages): mkdocs build, Theme Material.
-# Lokal: pip install mkdocs-material && mkdocs serve
+# Die Doku-Seite (GitHub Pages), gebaut mit Zensical, dem Nachfolger von Material
+# for MkDocs (liest diese Datei so, wie sie ist; mkdocs-material ginge auch noch).
+# Lokal: pip install zensical && zensical serve
 # Veröffentlicht von .github/workflows/docs.yml bei jedem Push auf main.
 site_name: FPV Laptimer
 site_description: Rundenzeitmessung für FPV-Flüge im kleinen Rahmen mit Freunden, mit ESP32-C5-Boards als Empfänger
