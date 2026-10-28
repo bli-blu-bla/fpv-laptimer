@@ -1024,14 +1024,20 @@ impl Core {
         let channels_changed = s.channels != self.settings.channels || s.seats != self.settings.seats;
         self.sounds.set_enabled(s.sound);
         self.sounds.set_browser(s.announce.output == SoundOutput::Browser);
-        let redetect = s.min_lap_s != self.settings.min_lap_s
-            || s.detection != self.settings.detection
-            || s.board_roles != self.settings.board_roles;
+        let redetect = s.min_lap_s != self.settings.min_lap_s || s.board_roles != self.settings.board_roles;
+        let retune = s.detection != self.settings.detection;
         self.settings = s;
         if redetect {
             self.apply_roles();
             (self.finish, self.arming) = detectors(&self.settings);
             self.rebuild_debug();
+        } else if retune {
+            // Only thresholds or modes: the detectors keep what they learned
+            // and the pass in progress, so the race director can adjust a
+            // channel between two laps.
+            self.finish.set_detection(&self.settings.detection, false);
+            self.arming.set_detection(&self.settings.detection, true);
+            self.debug.set_detection(&self.settings.detection);
         }
         if channels_changed {
             self.events
@@ -1499,11 +1505,9 @@ fn report_passes(a: &mut Active, new: &[PilotResult], events: &Events) {
 fn detectors(s: &Settings) -> (Detector, Detector) {
     let n = s.channels.len();
     let mut finish = Detector::new(n, detect_config(s));
-    finish.set_fixed(&s.detection.fixed(false, n));
-    finish.set_min_rise(&s.detection.min_rise(false, n));
+    finish.set_detection(&s.detection, false);
     let mut arming = Detector::new(n, detect_config(s));
-    arming.set_fixed(&s.detection.fixed(true, n));
-    arming.set_min_rise(&s.detection.min_rise(true, n));
+    arming.set_detection(&s.detection, true);
     (finish, arming)
 }
 

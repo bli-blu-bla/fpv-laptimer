@@ -66,8 +66,7 @@ impl DetectSetup {
             min_rise_db: self.detection.min_rise_db,
         };
         let mut d = Detector::with_trace(self.n_channels, config);
-        d.set_fixed(&self.detection.fixed(arming, self.n_channels));
-        d.set_min_rise(&self.detection.min_rise(arming, self.n_channels));
+        d.set_detection(&self.detection, arming);
         d
     }
 }
@@ -123,6 +122,17 @@ impl Analysis {
             passes: Vec::new(),
             keep_us,
         }
+    }
+
+    /// New detection settings, keeping what the detectors saw and learned
+    /// (as `Detector::set_detection`).
+    pub fn set_detection(&mut self, detection: &DetectionSettings) {
+        self.finish.set_detection(detection, false);
+        self.arming.set_detection(detection, true);
+        for (i, d) in self.singles.iter_mut().enumerate() {
+            d.set_detection(detection, self.roles.get(i) == Some(&BoardRole::Arming));
+        }
+        self.setup.detection = detection.clone();
     }
 
     /// One board's levels: into its gate's detector and its own.

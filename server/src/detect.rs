@@ -298,6 +298,15 @@ impl Detector {
         }
     }
 
+    /// New settings for the finish gate (`arming` false) or the arming gate,
+    /// without starting over: what was learned, a pass in progress and the
+    /// last pass (for the minimum lap) stay. So the race director can move
+    /// a channel's thresholds during a session.
+    pub fn set_detection(&mut self, d: &DetectionSettings, arming: bool) {
+        self.set_fixed(&d.fixed(arming, self.n_channels));
+        self.set_min_rise(&d.min_rise(arming, self.n_channels));
+    }
+
     /// One board's current level: the highest envelope of its channels, dBFS.
     pub fn board_level(&self, board: usize) -> Option<f32> {
         let b = self.boards.get(board)?;
@@ -836,6 +845,55 @@ mod tests {
         };
         assert_eq!(run(-12.0), 0);
         assert_eq!(run(-20.0), 3);
+    }
+
+    #[test]
+    fn thresholds_changed_during_the_run() {
+        // Fixed thresholds, peaks at -15 dBFS. `switch`: at this time (s) the
+        // enter level changes from `before` to `after`.
+        let run = |passes: &[f64], switch: f64, before: f32, after: f32| {
+            let fixed = |enter: f32| DetectionSettings {
+                finish_mode: DetectMode::Classic,
+                finish: vec![Thresholds {
+                    enter_db: enter,
+                    exit_db: enter - 6.0,
+                    mode: None,
+                    min_rise_db: None,
+                }],
+                ..Default::default()
+            };
+            let mut det = Detector::new(1, DetectConfig::default());
+            det.set_detection(&fixed(before), false);
+            let mut found = Vec::new();
+            let mut switched = false;
+            for k in 0..15_000u64 {
+                let t = k as f64 * 0.002;
+                if !switched && t >= switch {
+                    det.set_detection(&fixed(after), false);
+                    switched = true;
+                }
+                let mut db = -40.0f64;
+                for p in passes {
+                    db = db.max(-15.0 - 30.0 * (1.0 - (-((t - p) / 0.2f64).powi(2)).exp()));
+                }
+                let l = Level {
+                    host_us: (t * 1e6) as i64,
+                    board_us: 0,
+                    channel: 0,
+                    rssi: db_code(db as f32),
+                    flags: 0,
+                };
+                det.push(0, &[l]);
+                found.extend(det.advance());
+            }
+            found.extend(det.flush());
+            final_passes(&found).len()
+        };
+        // Too high at first: the first pass is missed, the rest count.
+        assert_eq!(run(&[5.0, 12.0, 19.0], 8.0, -12.0, -20.0), 2);
+        // The minimum lap still holds across the change: 7.5 s is too close
+        // to the pass at 5 s (a fresh detector would count it).
+        assert_eq!(run(&[5.0, 7.5], 6.5, -20.0, -21.0), 1);
     }
 
     #[test]

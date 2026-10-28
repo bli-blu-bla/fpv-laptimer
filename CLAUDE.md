@@ -168,7 +168,10 @@ Schwellen, `classic` = feste Enter/Exit; `null` = der Gate-Modus `finish_mode` /
 `Detector::set_min_rise`). `fixed()` liefert pro Kanal `Some((enter, exit))` oder `None` für
 `Detector::set_fixed` (feste Kanäle ohne Anlernen und Zurücknehmen). Eingestellt in der
 Rennleitung (Slot antippen); „Alle automatisch / Alle manuell“ auf der Boards-Seite setzt den
-Gate-Modus und löscht die Kanal-Modi. Ältere Einstellungen mit einem `mode` werden als `finish_mode`
+Gate-Modus und löscht die Kanal-Modi. Auch während einer Session: geändert werden nur
+Schwellen, Modi und Mindestausschlag (`Detector::set_detection`); Gelerntes, ein laufender
+Durchflug und der letzte (Mindestrunde) bleiben, damit die Rennleitung zwischen zwei Runden
+nachstellen kann. Mindestrunde oder Rollen ändern baut die Detektoren neu. Ältere Einstellungen mit einem `mode` werden als `finish_mode`
 gelesen (`serde(alias)`). Die Session speichert die Einstellung in `config.detection`, damit
 ihr Graph dieselben Schwellen zeigt.
 
