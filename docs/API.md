@@ -258,7 +258,7 @@ python3` o. ä. in der ersten Zeile). Ein neues Script erscheint ohne Neustart.
 `true`/`false` werden `1`/`0`, `null` ein leerer Text. Listen und Objekte (`seats`, `results`,
 `channels`) stehen nur in `LAPTIMER_JSON` (z. B. mit `jq` lesen).
 
-Beispiele zum Kopieren in den Script-Ordner: [`tools/hooks/`](../tools/hooks/) (`led.sh` für
+Beispiele zum Kopieren in den Script-Ordner: [`tools/hooks/`](https://github.com/bli-blu-bla/fpv-laptimer/tree/main/tools/hooks) (`led.sh` für
 GPIO-LEDs mit `pinctrl`, `log.sh`). Eine Ampel am Start z. B. so:
 
 | Event | Script | Argumente | Hintergrund |

@@ -1,0 +1,85 @@
+# Die Doku-Seite (GitHub Pages): mkdocs build, Theme Material.
+# Lokal: pip install mkdocs-material && mkdocs serve
+# Veröffentlicht von .github/workflows/docs.yml bei jedem Push auf main.
+site_name: FPV Laptimer
+site_description: Rundenzeitmessung für FPV-Rennen am Stammtisch, mit ESP32-C5-Boards als Empfänger
+site_url: https://bli-blu-bla.github.io/fpv-laptimer/
+repo_url: https://github.com/bli-blu-bla/fpv-laptimer
+repo_name: bli-blu-bla/fpv-laptimer
+edit_uri: edit/main/docs/
+copyright: GPL-3.0-or-later · Firmware aus widscan58 von Bryan Mayland
+
+theme:
+  name: material
+  language: de
+  # Nur dunkel, wie die App (Design-System „Nocturne“).
+  palette:
+    scheme: slate
+    primary: custom
+    accent: custom
+  # Keine Google Fonts: Inter, falls installiert, sonst die Systemschrift.
+  font: false
+  icon:
+    logo: material/timer-outline
+    repo: fontawesome/brands/github
+  favicon: assets/favicon.svg
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - toc.follow
+
+extra_css:
+  - assets/extra.css
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - def_list
+  - footnotes
+  - toc:
+      permalink: true
+      # Anker wie auf GitHub, mit Umlauten (#schlüssel), damit Links in beiden gehen.
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+nav:
+  - Start: index.md
+  - Konzept: konzept.md
+  - Funktionen:
+      - Rennleitung: funktionen/rennleitung.md
+      - Runden korrigieren: funktionen/korrigieren.md
+      - Zwei Gates: funktionen/gates.md
+      - Boards und Debug: funktionen/boards.md
+      - API und Hooks: funktionen/api.md
+  - Installation: INSTALL.md
+  - FAQ: faq.md
+  - Technik:
+      - technik/index.md
+      - Architektur: technik/architektur.md
+      - Durchflug-Erkennung: technik/erkennung.md
+      - Firmware und Protokoll: technik/firmware.md
+      - API-Referenz: API.md
+      - Entwickeln: technik/entwickeln.md

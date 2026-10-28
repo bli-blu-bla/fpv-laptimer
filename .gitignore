@@ -34,3 +34,6 @@ dist/
 # Signing key (minisign): only the public key belongs in git
 minisign.key
 *.key
+
+# Doku-Seite (mkdocs build)
+site/

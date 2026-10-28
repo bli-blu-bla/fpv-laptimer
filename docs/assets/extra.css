@@ -1,0 +1,89 @@
+/* Farben und Schrift wie die App (frontend/src/index.css, „Nocturne“). */
+:root,
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #ff8a3d;
+  --md-primary-fg-color--light: #ffa766;
+  --md-primary-fg-color--dark: #e8732a;
+  --md-primary-bg-color: #161826;
+  --md-primary-bg-color--light: #161826b3;
+  --md-accent-fg-color: #ff8a3d;
+  --md-accent-fg-color--transparent: #ff8a3d1a;
+  --md-text-font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --md-code-font: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-default-bg-color: #161826;
+  --md-default-fg-color: #e9e9ede6;
+  --md-default-fg-color--light: #e9e9edb3;
+  --md-default-fg-color--lighter: #e9e9ed73;
+  --md-default-fg-color--lightest: #e9e9ed1f;
+  --md-code-bg-color: #232532;
+  --md-typeset-a-color: #ff9d5c;
+  --md-footer-bg-color: #11131e;
+  --md-footer-bg-color--dark: #0d0f18;
+}
+
+/* Kopfleiste dunkel statt orange, Akzent nur in Links und Markierungen. */
+.md-header,
+.md-tabs {
+  background-color: #1b1d2b;
+  color: #e9e9ed;
+}
+.md-tabs__link--active,
+.md-tabs__item--active .md-tabs__link {
+  color: #ff8a3d;
+}
+
+/* Screenshots: Rahmen wie die Karten der App. */
+.md-typeset img.shot {
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px #3f424d, 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+.md-typeset figure {
+  margin: 1.4em auto;
+}
+.md-typeset figcaption {
+  color: var(--md-default-fg-color--light);
+  font-size: 0.75rem;
+  max-width: 44rem;
+}
+
+/* Startseite: großer Einstieg und Feature-Karten. */
+.hero {
+  padding: 1.2rem 0 0.4rem;
+}
+.hero h1 {
+  font-size: 2.2rem;
+  font-weight: 700;
+  margin-bottom: 0.4rem;
+  color: #e9e9ed;
+}
+.hero p.lead {
+  font-size: 1.05rem;
+  color: var(--md-default-fg-color--light);
+  max-width: 40rem;
+}
+.md-typeset .grid.cards > ul > li,
+.md-typeset .grid > .card {
+  border-color: #3f424d;
+  background: #1d1f2d;
+}
+.md-typeset .grid.cards > ul > li:hover {
+  border-color: #ff8a3d80;
+  box-shadow: none;
+}
+.md-typeset .grid.cards img.shot {
+  margin-top: 0.6em;
+}
+
+/* Seite an Seite: Handy-Screenshots. */
+.phones {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.phones img {
+  width: 230px;
+}

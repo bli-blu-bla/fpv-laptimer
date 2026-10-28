@@ -4,7 +4,7 @@ Einfache Rundenzeitmessung für FPV-Rennen am Stammtisch: ESP32-C5-Boards am Gat
 messen die Videosignale der Piloten, ein Raspberry Pi erkennt die Durchflüge,
 speichert sie und sagt an. Bedienung im Browser, ohne Rennen und Heats anlegen.
 
-Status: im Aufbau.
+Status: im Aufbau. Doku mit Screenshots: **[bli-blu-bla.github.io/fpv-laptimer](https://bli-blu-bla.github.io/fpv-laptimer/)**
 
 ## Aufbau
 
