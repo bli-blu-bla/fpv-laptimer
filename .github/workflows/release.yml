@@ -23,16 +23,16 @@ jobs:
   web:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # git describe: the firmware's version
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.platformio
@@ -53,7 +53,7 @@ jobs:
           pip install --quiet platformio
           tools/build_release.sh "${GITHUB_REF_NAME#v}" --web-only
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: web
           path: frontend/dist
@@ -62,17 +62,17 @@ jobs:
     needs: web
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: web
           path: frontend/dist
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -89,7 +89,7 @@ jobs:
           rustup target add aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
           tools/build_release.sh "${GITHUB_REF_NAME#v}" --no-web --target linux-aarch64 --target linux-x86_64
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: packages-linux
           path: dist/
@@ -98,14 +98,14 @@ jobs:
     needs: web
     runs-on: macos-14 # Apple silicon; builds for Intel too
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: web
           path: frontend/dist
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry
@@ -121,7 +121,7 @@ jobs:
           rustup target add aarch64-apple-darwin x86_64-apple-darwin
           tools/build_release.sh "${GITHUB_REF_NAME#v}" --no-web --target macos-aarch64 --target macos-x86_64
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: packages-macos
           path: dist/
@@ -130,8 +130,8 @@ jobs:
     needs: [linux, macos]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4 # minisign.pub
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7 # minisign.pub
+      - uses: actions/download-artifact@v8
         with:
           pattern: packages-*
           merge-multiple: true # both have the same install.sh
