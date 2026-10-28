@@ -20,6 +20,8 @@ const PAD_BOTTOM = 18
 const MIN_DB = -62
 /** How close (px) a tap or drag must start to a pass to grab it. */
 const HIT_PX = 16
+/** Trimming keeps this long after the last pass (`TRIM_AFTER_US` in core.rs). */
+const TRIM_AFTER_US = 10e6
 
 /**
  * Unsaved corrections of one channel.
@@ -97,6 +99,10 @@ export default function PassEditor({ detail, onSaved }) {
   const minLapUs = s.config.min_lap_s * 1e6
   const tooShort = preview.laps.filter((l) => l.duration_us < minLapUs).length
   const total = Object.values(drafts).reduce((n, d) => n + changes(d), 0)
+  // Where trimming cuts, as the server does it: the last finish-gate pass
+  // of any channel + 10 s. Only stored passes count (unsaved ones block it).
+  const lastPass = Math.max(-Infinity, ...passes.filter((p) => !p.gate && !p.deleted).map((p) => p.time_us))
+  const cutUs = Number.isFinite(lastPass) ? lastPass + TRIM_AFTER_US : null
 
   /** Moves a pass (stored or added) to `t`. @param {string} key @param {number} t */
   function move(key, t) {
@@ -217,6 +223,7 @@ export default function PassEditor({ detail, onSaved }) {
         onSelect={setSel}
         onMove={move}
         onTapEmpty={add}
+        cutUs={confirmTrim ? cutUs : null}
       />
 
       {selected && (
@@ -271,7 +278,13 @@ export default function PassEditor({ detail, onSaved }) {
       {error && <p className="error">{error}</p>}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
         <span className="muted small" style={{ flex: 1, minWidth: 200 }}>
-          {total ? 'Erst speichern oder verwerfen.' : confirmTrim ? 'Pegel und Durchflüge nach dem letzten Durchflug + 10 s, alle Kanäle. Nicht rückgängig zu machen.' : 'Pegel spätestens 10 s nach dem letzten Durchflug abschneiden.'}
+          {total
+            ? 'Erst speichern oder verwerfen.'
+            : confirmTrim
+              ? cutUs == null
+                ? 'Keine Durchflüge – nichts zum Kürzen.'
+                : `Schnitt bei ${secs(cutUs - t0)} s (rote Linie): Pegel und Durchflüge danach, alle Kanäle. Nicht rückgängig zu machen.`
+              : 'Pegel spätestens 10 s nach dem letzten Durchflug abschneiden.'}
         </span>
         {confirmTrim && (
           <button className="btn btn-ghost" onClick={() => setConfirmTrim(false)}>
@@ -319,8 +332,9 @@ export default function PassEditor({ detail, onSaved }) {
  * @param {(key: string | null) => void} props.onSelect
  * @param {(key: string, t: number) => void} props.onMove
  * @param {(t: number) => void} props.onTapEmpty
+ * @param {number | null} props.cutUs   where trimming would cut (shown while asking)
  */
-function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected, onSelect, onMove, onTapEmpty }) {
+function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected, onSelect, onMove, onTapEmpty, cutUs }) {
   const box = useRef(/** @type {HTMLDivElement | null} */ (null))
   const width = useWidth(box)
   const [overview, setOverview] = useState(/** @type {GraphReply | null} */ (null))
@@ -376,6 +390,18 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
     }, 60) // while dragging, ask once the range rests
     return () => clearTimeout(id)
   }, [sessionId, channel, range, width])
+
+  // Asking whether to trim: bring the cut into view (at 70 % of the width).
+  useEffect(() => {
+    if (cutUs == null || overview?.start_us == null || overview.end_us == null) return
+    const [s, e] = [overview.start_us, overview.end_us]
+    setRange((old) => {
+      if (!old || (cutUs >= old[0] && cutUs <= old[1])) return old
+      const len = Math.min(old[1] - old[0], e - s)
+      const a = Math.max(s, Math.min(cutUs - len * 0.7, e - len))
+      return [a, a + len]
+    })
+  }, [cutUs, overview])
 
   /** @param {string} text @param {string} cls */
   const note = (text, cls) => (
@@ -464,7 +490,7 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
 
   return (
     <div className="graph" ref={box}>
-      <Overview reply={overview} width={width} range={range} markers={markers} onPick={(t) => setRange(clamp(t - span / 2, t + span / 2))} />
+      <Overview reply={overview} width={width} range={range} markers={markers} cutUs={cutUs} onPick={(t) => setRange(clamp(t - span / 2, t + span / 2))} />
       <svg width="100%" viewBox={`0 0 ${width} ${HEIGHT}`} className="detail" onPointerDown={down} onPointerMove={move} onPointerUp={up}>
         {[-60, -50, -40, -30, -20, -10, 0]
           .filter((d) => d < maxDb)
@@ -496,6 +522,12 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
             <path d={line(armDetail.time_us, armDetail.enter, x, y)} className="arming-threshold" />
             <path d={line(armDetail.time_us, armDetail.level, x, y)} className="arming-level" />
           </>
+        )}
+        {cutUs != null && cutUs < to && (
+          <g className="cut">
+            <rect x={Math.max(PAD_LEFT, x(cutUs))} width={width - Math.max(PAD_LEFT, x(cutUs))} y={0} height={plotH} />
+            {cutUs >= from && <line x1={x(cutUs)} x2={x(cutUs)} y1={0} y2={plotH} />}
+          </g>
         )}
         {arming
           .filter((t) => t >= from && t <= to)
@@ -552,9 +584,9 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
 
 /**
  * The whole session as a strip; the visible range marked. Tap to go there.
- * @param {{reply: GraphReply, width: number, range: [number, number], markers: Marker[], onPick: (t: number) => void}} props
+ * @param {{reply: GraphReply, width: number, range: [number, number], markers: Marker[], cutUs: number | null, onPick: (t: number) => void}} props
  */
-function Overview({ reply, width, range, markers, onPick }) {
+function Overview({ reply, width, range, markers, cutUs, onPick }) {
   const g = reply.graph
   if (!g || reply.start_us == null || reply.end_us == null) return null
   const [s, e] = [reply.start_us, reply.end_us]
@@ -580,6 +612,12 @@ function Overview({ reply, width, range, markers, onPick }) {
         .map((m) => (
           <line key={m.key} x1={x(m.t)} x2={x(m.t)} y1={0} y2={OVERVIEW_HEIGHT} className="pass-tick" />
         ))}
+      {cutUs != null && cutUs < e && (
+        <g className="cut">
+          <rect x={x(cutUs)} width={width - x(cutUs)} y={0} height={OVERVIEW_HEIGHT} />
+          <line x1={x(cutUs)} x2={x(cutUs)} y1={0} y2={OVERVIEW_HEIGHT} />
+        </g>
+      )}
     </svg>
   )
 }

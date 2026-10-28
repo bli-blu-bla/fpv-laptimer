@@ -1094,6 +1094,16 @@ body {
   stroke-dasharray: 1 4;
   stroke-linecap: round;
 }
+.graph .cut rect {
+  fill: var(--bad);
+  opacity: 0.12;
+  pointer-events: none;
+}
+.graph .cut line {
+  stroke: var(--bad);
+  stroke-width: 2;
+  pointer-events: none;
+}
 .level-bar {
   position: relative;
   height: 10px;
