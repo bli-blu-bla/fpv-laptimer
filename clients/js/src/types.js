@@ -1,5 +1,5 @@
 // @ts-check
-// The JSON the server sends (docs/API.md, "Datenformate" and "Events").
+// The JSON the server sends (docs/api/datenformate.md and events.md).
 // Only typedefs: this file exports nothing at runtime.
 
 /**
@@ -136,7 +136,7 @@
 // --- events ---
 
 /**
- * Fields every event about a pilot has ("Sitz" in docs/API.md).
+ * Fields every event about a pilot has ("Sitz" in docs/api/events.md).
  * @typedef {object} Seat
  * @property {number} channel
  * @property {string} channel_name

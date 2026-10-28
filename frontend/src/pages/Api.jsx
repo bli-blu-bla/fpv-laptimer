@@ -1,5 +1,5 @@
 // @ts-check
-// The public API for other programs (server/src/api.rs, docs/API.md): keys,
+// The public API for other programs (server/src/api.rs, docs/api/): keys,
 // a reference of its commands and events, a tester (HTTP and WebSocket, with
 // the live events), the hooks (scripts run on events, server/src/hooks.rs) and
 // the connection to a server of the user's (RemotePanel, server/src/remote.rs).

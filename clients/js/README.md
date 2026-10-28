@@ -1,6 +1,6 @@
 # laptimer-client (JavaScript)
 
-Client für die API des Laptimers (`/api/v1`, ausführlich in [`docs/API.md`](../../docs/API.md)):
+Client für die API des Laptimers (`/api/v1`, ausführlich in [`docs/api/`](../../docs/api/index.md)):
 jeder Befehl als Methode, Events live über den WebSocket, mit automatischem Neuverbinden.
 
 - läuft in **Node ≥ 22** und im **Browser** (nutzt das eingebaute `fetch` und `WebSocket`)
@@ -118,7 +118,7 @@ sind µs seit 1970.
 | `passes.restore(id)` | `passes.restore` | einen markierten wiederherstellen |
 | `command(name, args)` | jeder | für Befehle, die neuer sind als dieser Client |
 
-Was die Felder bedeuten, steht in [`docs/API.md`](../../docs/API.md); die Typen in
+Was die Felder bedeuten, steht in [`docs/api/events.md`](../../docs/api/events.md) und [`docs/api/datenformate.md`](../../docs/api/datenformate.md); die Typen in
 [`src/types.js`](src/types.js).
 
 ## Events

@@ -1,7 +1,7 @@
 // @ts-check
 // The public API (/api/v1, server/src/api.rs) described for the API page:
 // its reference and its tester both read this list. The same in long form:
-// docs/API.md.
+// docs/api/.
 
 /**
  * @typedef {object} ApiCommand

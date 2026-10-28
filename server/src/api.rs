@@ -1,6 +1,6 @@
 //! The public API (`/api/v1`) for other programs: channels and pilots,
 //! starting and stopping sessions, confirming results, and every event
-//! (`events.rs`) over a WebSocket. Documented in `docs/API.md`.
+//! (`events.rs`) over a WebSocket. Documented in `docs/api/`.
 //!
 //! Every action is a command with a name and JSON arguments (`command`).
 //! The same command can be sent two ways:

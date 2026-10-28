@@ -109,7 +109,7 @@ sequenceDiagram
 
 Die Seite bekommt über `/ws` zuerst den ganzen Zustand (`state`), danach `state` bei
 Änderungen und `live` zehnmal pro Sekunde (Pegel, Freigabe-Status, Boards). Die öffentliche
-API hat ihren eigenen WebSocket mit Events, siehe [API-Referenz](../API.md).
+API hat ihren eigenen WebSocket mit Events, siehe [API](../api/index.md) und [Events](../api/events.md).
 
 ## Installation und Updates
 

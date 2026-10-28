@@ -1,5 +1,5 @@
 // @ts-check
-// Client for the lap timer's public API (/api/v1, docs/API.md).
+// Client for the lap timer's public API (/api/v1, docs/api/).
 // No dependencies: global fetch and WebSocket (Node >= 22, browsers).
 
 /** @import { Channel, ChannelChange, EventMap, EventMessage, Hello, Pilot, Session, StartOptions, State, Stats } from './types.js' */

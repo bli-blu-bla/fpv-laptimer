@@ -84,7 +84,7 @@ der Signalverlauf live.</figcaption>
     Alles, was die Seite kann, geht auch per HTTP oder WebSocket, mit jedem Ereignis live.
     Hooks starten eigene Scripts, z. B. eine LED beim Startsignal.
 
-    [:octicons-arrow-right-24: API und Hooks](funktionen/api.md)
+    [:octicons-arrow-right-24: API](api/index.md)
 
 </div>
 
@@ -124,4 +124,4 @@ curl -fsSL https://github.com/bli-blu-bla/fpv-laptimer/releases/latest/download/
 ```
 
 Derselbe Befehl aktualisiert später. Danach `http://<rechner>.local:5800` öffnen.
-Alles Weitere: [Installation](INSTALL.md) · [FAQ](faq.md) · [Technik](technik/index.md)
+Alles Weitere: [Installation](INSTALL.md) · [FAQ](faq.md) · [API](api/index.md) · [Technik](technik/index.md)

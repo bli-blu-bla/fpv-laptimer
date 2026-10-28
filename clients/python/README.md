@@ -1,7 +1,7 @@
 # laptimer-client (Python)
 
 Python-Client für die API des Laptimers (`/api/v1`, ausführlich in
-[`docs/API.md`](../../docs/API.md)). Befehle laufen über HTTP und brauchen nur die
+[`docs/api/`](../../docs/api/index.md)). Befehle laufen über HTTP und brauchen nur die
 Standardbibliothek; für Events (WebSocket) braucht es zusätzlich das Paket `websockets`.
 Python ab 3.10.
 
@@ -31,7 +31,7 @@ lt.confirm()                                                # Ergebnis bestätig
 ```
 
 - Jede Methode gibt das JSON des Servers als `dict`/`list` zurück (Felder wie in
-  [`docs/API.md`](../../docs/API.md#datenformate)).
+  [`docs/api/datenformate.md`](../../docs/api/datenformate.md)).
 - Argumente mit `None` werden nicht mitgeschickt, d. h. „bleibt, wie es ist“ bzw. „Standard“.
   Ein ausdrückliches `null` (z. B. „kein Pilot auf diesem Kanal“) ist `NOBODY`:
   `lt.set_channel(2, NOBODY)`.
@@ -114,7 +114,7 @@ async with lt.connect() as conn:
 
 | Feld | Inhalt |
 |---|---|
-| `event` | Name, z. B. `pilot_pass` (Liste in [`docs/API.md`](../../docs/API.md#events)) |
+| `event` | Name, z. B. `pilot_pass` (Liste in [`docs/api/events.md`](../../docs/api/events.md)) |
 | `seq` | laufende Nummer ab Serverstart (Lücke = Events verpasst) |
 | `time_us` | wann, µs seit 1970 |
 | `data` | die Felder des Events als `dict` |

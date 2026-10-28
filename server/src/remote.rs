@@ -1,7 +1,7 @@
 //! The connection to a server of the user's (Einstellungen → System →
 //! Server-Verbindung): the laptimer connects itself, as a client, to a
 //! WebSocket URL and speaks the protocol of the API's WebSocket on it
-//! (`api.rs`, `docs/API.md`): first `hello` with the state, then every event;
+//! (`api.rs`, `docs/api/server-verbindung.md`): first `hello` with the state, then every event;
 //! commands coming in are answered with `reply`, unless switched off. For a
 //! server that is always on, while the timer only runs at the track.
 //!

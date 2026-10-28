@@ -132,7 +132,8 @@ LED am GPIO des Pi beim Startsignal. Die Scripts kommen in den Ordner `~/.laptim
 (ausführbar), welches Script bei welchem Ereignis läuft, stellst du auf der Seite ein.
 Beispiele in `tools/hooks/`.
 
-Alles im Detail: [docs/API.md](docs/API.md).
+Alles im Detail: [docs/api/](docs/api/index.md) (HTTP, WebSocket, Server-Verbindung, Events,
+Befehle, Hooks).
 
 ## Pegel aufzeichnen (Testflüge)
 

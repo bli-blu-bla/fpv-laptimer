@@ -12,7 +12,7 @@ self-signed ones; for a quick test in the LAN use ws://.
 Login with --token: either the Authorization header ("Bearer <token>" or the
 token alone) or the first message {"type": "auth", "token": "<token>"};
 otherwise the connection is closed with 4001. Without --token everyone may
-connect. Protocol: docs/API.md, "Server-Verbindung".
+connect. Protocol: docs/api/server-verbindung.md.
 
 GPL-3.0-or-later.
 """

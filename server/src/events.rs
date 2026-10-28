@@ -6,7 +6,7 @@
 //! The message:
 //! `{"type": "event", "event": "pilot_pass", "seq": 17, "time_us": …, "data": {…}}`
 //! (`seq` counts up from 1 at every server start; `time_us`: wall clock, µs
-//! since 1970). The events and their data are listed in `docs/API.md`.
+//! since 1970). The events and their data are explained in `docs/api/events.md`.
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::Sender;
@@ -17,7 +17,7 @@ use tokio::sync::broadcast;
 
 use crate::core::unix_now_us;
 
-/// Every event there is (for the page; see `docs/API.md`).
+/// Every event there is (for the page; see `docs/api/events.md`).
 pub const EVENT_NAMES: &[&str] = &[
     "session_started",
     "countdown",

@@ -74,8 +74,17 @@ nav:
       - Runden korrigieren: funktionen/korrigieren.md
       - Zwei Gates: funktionen/gates.md
       - Boards und Debug: funktionen/boards.md
-      - API und Hooks: funktionen/api.md
   - Installation: INSTALL.md
+  - API:
+      - api/index.md
+      - HTTP: api/http.md
+      - WebSocket: api/websocket.md
+      - Server-Verbindung: api/server-verbindung.md
+      - Events: api/events.md
+      - Befehle: api/befehle.md
+      - Datenformate: api/datenformate.md
+      - Hooks: api/hooks.md
+      - Clients: api/clients.md
   - FAQ: faq.md
   - Danksagung: danksagung.md
   - Technik:
@@ -83,5 +92,4 @@ nav:
       - Architektur: technik/architektur.md
       - Durchflug-Erkennung: technik/erkennung.md
       - Firmware und Protokoll: technik/firmware.md
-      - API-Referenz: API.md
       - Entwickeln: technik/entwickeln.md

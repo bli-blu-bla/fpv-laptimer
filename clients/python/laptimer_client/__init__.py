@@ -1,4 +1,4 @@
-"""Client for the FPV lap timer's public API (`/api/v1`, see docs/API.md).
+"""Client for the FPV lap timer's public API (`/api/v1`, see docs/api/).
 
 Commands go over HTTP with the standard library only (`urllib`), so this
 file also works copied on its own, e.g. next to a hook script on the Pi:
@@ -102,7 +102,7 @@ class Event:
     `event` is the name (`pilot_pass`, `session_stopped`, ...), `seq` counts
     from 1 since the server started (a gap means missed events), `time_us`
     is when it happened (µs since 1970), `data` the event's fields as in
-    docs/API.md.
+    docs/api/events.md.
 
     Two extra names come from the client itself, with `seq` = 0:
     `connected` (after every (re)connect; `data` = the `state`) and
