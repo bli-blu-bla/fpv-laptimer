@@ -4,8 +4,9 @@
   --md-primary-fg-color: #ff8a3d;
   --md-primary-fg-color--light: #ffa766;
   --md-primary-fg-color--dark: #e8732a;
-  --md-primary-bg-color: #161826;
-  --md-primary-bg-color--light: #161826b3;
+  /* Text und Icons auf der Kopfleiste (auch im Suchfeld): hell, die Leiste ist dunkel. */
+  --md-primary-bg-color: #e9e9ed;
+  --md-primary-bg-color--light: #9397ab;
   --md-accent-fg-color: #ff8a3d;
   --md-accent-fg-color--transparent: #ff8a3d1a;
   --md-text-font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -32,6 +33,43 @@
 }
 .md-tabs__link--active,
 .md-tabs__item--active .md-tabs__link {
+  color: #ff8a3d;
+}
+
+/* Suchfeld wie die Eingabefelder der App: dunkler Grund, Rand, orange beim Tippen. */
+.md-search__form {
+  background-color: #161826;
+  box-shadow: 0 0 0 1px #3f424d;
+  border-radius: 8px;
+}
+.md-search__form:hover {
+  background-color: #1b1d29;
+}
+[data-md-toggle="search"]:checked ~ .md-header .md-search__form {
+  background-color: #161826;
+  box-shadow: 0 0 0 1px #ff8a3d;
+  border-radius: 8px 8px 0 0;
+}
+.md-search__input {
+  color: #e9e9ed;
+  caret-color: #ff8a3d;
+}
+.md-search__input::placeholder,
+.md-search__icon {
+  color: #9397ab;
+}
+.md-search__output {
+  border-radius: 0 0 8px 8px;
+}
+.md-search-result,
+.md-search__scrollwrap {
+  background-color: #1d1f2d;
+}
+.md-search-result__meta {
+  background-color: #232532;
+  color: #9397ab;
+}
+.md-search-result mark {
   color: #ff8a3d;
 }
 
