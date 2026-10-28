@@ -203,6 +203,22 @@
  * @property {boolean} managed   runs as a service (systemd, launchd): starts at boot and again after an exit
  * @property {boolean} power   may reboot / shut down the Pi
  *
+ * @typedef {object} RemoteStatus   the connection to a server (server/src/remote.rs)
+ * @property {'off' | 'connecting' | 'connected' | 'waiting'} state   waiting: for the next attempt
+ * @property {number | null} since_us   since when, µs since 1970
+ * @property {string | null} error   why the last attempt or connection failed
+ * @property {number} sent   messages sent since the server started
+ * @property {number} buffered   events waiting for the connection
+ * @property {number} dropped   events dropped (too old, too many)
+ *
+ * @typedef {object} RemoteView   /api/remote (needs the login, also for reading)
+ * @property {boolean} enabled
+ * @property {string} url   ws://… or wss://…
+ * @property {boolean} authorization_set   the Authorization header of the handshake is set (never comes back)
+ * @property {boolean} auth_token_set   the token sent as first message is set (never comes back)
+ * @property {boolean} commands   the server may send commands
+ * @property {RemoteStatus} status
+ *
  * @typedef {object} OnlineRelease   /api/update/releases
  * @property {string} tag
  * @property {string} version

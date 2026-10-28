@@ -87,6 +87,8 @@ pub struct App {
     flash: Mutex<Option<FlashStatus>>,
     /// Updates, rollback, restart (`update.rs`).
     pub update: Updater,
+    /// The connection to a server of the user's (`remote.rs`).
+    pub remote: crate::remote::Remote,
 }
 
 /// What the page shows while a board is flashed; also sent as the
@@ -111,6 +113,7 @@ impl App {
 pub fn run(opts: ServeOptions) -> Result<()> {
     std::fs::create_dir_all(&opts.data_dir)?;
     let db = Db::open(&opts.data_dir.join("laptimer.db").to_string_lossy())?;
+    let remote = crate::remote::Remote::new(db.get_setting("remote")?.unwrap_or_default());
     let (tx, _) = broadcast::channel(256);
     let (api_tx, _) = broadcast::channel(1024);
     let (hooks, hooks_tx) = Hooks::start(opts.hooks_dir.clone(), db.hooks()?)?;
@@ -138,6 +141,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         firmware_dir: opts.web_dir.join("firmware"),
         flash: Mutex::new(None),
         update: Updater::new(opts.update.clone())?,
+        remote,
     });
     restart_source(&app)?;
 
@@ -190,12 +194,14 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .merge(crate::data::routes())
         .merge(crate::debug::routes())
         .merge(crate::update::routes())
+        .merge(crate::remote::routes())
         .nest("/v1", api::router(Arc::clone(&app)))
         // Announcements played by the browsers: the clips and the spoken texts.
         .nest_service("/audio/clips", ServeDir::new(&opts.sounds_dir))
         .nest_service("/audio/tts", ServeDir::new(opts.data_dir.join("tts")))
         // Changes need the login (reading stays open).
         .layer(middleware::from_fn_with_state(Arc::clone(&app), auth::require_login));
+    let app_remote = Arc::clone(&app);
     let web = ServeDir::new(&opts.web_dir).fallback(ServeFile::new(opts.web_dir.join("index.html")));
     let router = Router::new()
         .nest("/api", api)
@@ -219,6 +225,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
     }
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async move {
+        tokio::spawn(crate::remote::run(app_remote));
         // `localhost` would resolve to ::1 only on some systems (then
         // 127.0.0.1 does not answer); other names are looked up by `bind`.
         let host = if opts.host == "localhost" { "127.0.0.1" } else { opts.host.as_str() };

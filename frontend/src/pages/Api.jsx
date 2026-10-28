@@ -1,13 +1,15 @@
 // @ts-check
 // The public API for other programs (server/src/api.rs, docs/API.md): keys,
 // a reference of its commands and events, a tester (HTTP and WebSocket, with
-// the live events), and the hooks (scripts run on events, server/src/hooks.rs).
+// the live events), the hooks (scripts run on events, server/src/hooks.rs) and
+// the connection to a server of the user's (RemotePanel, server/src/remote.rs).
 
 import { useEffect, useRef, useState } from 'react'
 import { BookOpenIcon, CopyIcon, KeyIcon, LightningIcon, PaperPlaneTiltIcon, PencilSimpleIcon, PlayIcon, PlugIcon, PlugsConnectedIcon, PlusIcon, TrashIcon } from '@phosphor-icons/react'
 import { api } from '../api.js'
 import { COMMANDS, EVENTS, restCall } from '../apiCatalog.js'
 import { dateTime } from '../format.js'
+import RemotePanel from '../components/RemotePanel.jsx'
 import Tabs from '../components/Tabs.jsx'
 
 /** The key the tester uses, kept in this browser. */
@@ -17,6 +19,7 @@ const TABS = /** @type {const} */ ([
   ['docs', 'Doku', BookOpenIcon],
   ['test', 'Testen', PaperPlaneTiltIcon],
   ['hooks', 'Hooks', LightningIcon],
+  ['remote', 'Server', PlugsConnectedIcon],
 ])
 
 const base = `${location.protocol}//${location.host}/api/v1`
@@ -68,6 +71,11 @@ export default function ApiPage() {
       {tab === 'docs' && <Docs />}
       {tab === 'test' && <Tester apiKey={key} setKey={useKey} />}
       {tab === 'hooks' && <Hooks />}
+      {tab === 'remote' && (
+        <div style={{ maxWidth: 640 }}>
+          <RemotePanel />
+        </div>
+      )}
     </>
   )
 }

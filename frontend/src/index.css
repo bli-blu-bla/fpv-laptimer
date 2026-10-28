@@ -472,6 +472,9 @@ body {
   background: var(--ok);
   display: inline-block;
 }
+.status-dot.off {
+  background: var(--n600);
+}
 .status-dot.bad {
   background: var(--bad);
 }

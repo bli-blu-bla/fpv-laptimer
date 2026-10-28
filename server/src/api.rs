@@ -40,7 +40,7 @@ use crate::laps::{EndRule, StartMode};
 use crate::server::{App, MANUAL_GAP_US, check_room, min_lap_us, restart_source, session_results, stats_json};
 
 /// The version in the path and in the WebSocket's `hello`.
-const API_VERSION: u32 = 1;
+pub const API_VERSION: u32 = 1;
 
 /// Raceband, for channels given by name ("R3").
 const RACEBAND: [u32; 8] = [5658, 5695, 5732, 5769, 5806, 5843, 5880, 5917];
@@ -418,7 +418,8 @@ struct WsCommand {
     args: Value,
 }
 
-async fn ws_command(app: &Arc<App>, text: &str) -> Value {
+/// Answers one command message (also for the server connection, `remote.rs`).
+pub async fn ws_command(app: &Arc<App>, text: &str) -> Value {
     let req: WsCommand = match serde_json::from_str(text) {
         Ok(r) => r,
         Err(e) => {

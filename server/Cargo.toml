@@ -31,3 +31,8 @@ serde_ignored = "0.1"
 tar = { version = "0.4", default-features = false }
 # Checks the signature of an update (minisign, pure Rust).
 minisign-verify = "0.3.0"
+# The connection to a server of the user's (remote.rs): a WebSocket client,
+# wss:// with rustls and ring (no OpenSSL: the cross-build stays C-free).
+tokio-tungstenite = { version = "0.29", default-features = false, features = ["connect", "handshake", "rustls-tls-webpki-roots"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }

@@ -33,6 +33,16 @@ Ereignisse live mitschreibt.
 
 ![API-Seite mit Tester](../assets/screens/api.png){ .shot }
 
+## Server-Verbindung
+
+Für einen Server, der immer läuft, während der Timer nur am Platz an ist: Unter
+**API & Hooks → Server** trägt man eine `ws://`- oder `wss://`-Adresse
+ein, optional mit `Authorization`-Header und/oder einem Token, den er als erste Nachricht
+schickt. Der Timer verbindet sich dann selbst dorthin und schickt dasselbe wie
+die API, den Zustand und jedes Ereignis live; Befehle vom Server beantwortet er, wenn erlaubt.
+Kurze Abbrüche überbrückt er, Ereignisse der letzten 5 Minuten schickt er nach. Details:
+[API-Referenz](../API.md#server-verbindung-der-timer-verbindet-sich).
+
 ## Hooks
 
 Für Scripts direkt auf dem Pi: Bei einem Ereignis startet der Server ein Script aus

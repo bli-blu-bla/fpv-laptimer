@@ -16,6 +16,7 @@ mod hooks;
 mod install;
 mod laps;
 mod record;
+mod remote;
 mod replay;
 mod server;
 mod sound;
