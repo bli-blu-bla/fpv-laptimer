@@ -48,7 +48,7 @@
     Einstellen nur mit dem Passwort der Rennleitung.
 
 ??? question "Wie genau ist die Zeit?"
-    Für Rundenzeiten am Stammtisch gut genug, für Hundertstel-Entscheidungen nicht. Zwei
+    Für Rundenzeiten unter Freunden gut genug, für Hundertstel-Entscheidungen nicht. Zwei
     Boards lagen für denselben Durchflug bis zu 0,3–0,4 s auseinander, weil der Gipfel ein
     breiter Buckel ist. Mehr im [Konzept](konzept.md#genauigkeit).
 

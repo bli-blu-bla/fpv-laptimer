@@ -15,6 +15,9 @@
 #                  (the CI builds it once for all targets)
 #   --web-only     only firmware and web page (frontend/dist), no packages
 #
+# The packages carry LICENSE and NOTICE.md (where the firmware comes from,
+# what we changed, where its source is: the GPL asks for it with binaries).
+#
 # Result: dist/laptimer-<VERSION>-<T>.tar.gz and its .sha256 per target, and
 # dist/install.sh (with VERSION and the repository filled in; the repository
 # is $LAPTIMER_REPO, default bli-blu-bla/fpv-laptimer). The CI signs the
@@ -113,7 +116,7 @@ for t in "${targets[@]}"; do
     cp -r "$root/tools/hooks" "$pkg/hooks-examples"
     cp "$root/deploy/laptimer.service" "$root/deploy/update-check.sh" "$pkg/"
     cp "$root/dist/install.sh" "$pkg/"
-    cp "$root/README.md" "$root/LICENSE" "$root/minisign.pub" "$pkg/"
+    cp "$root/README.md" "$root/LICENSE" "$root/NOTICE.md" "$root/minisign.pub" "$pkg/"
     echo "$version" > "$pkg/VERSION"
 
     tarball=$root/dist/$name-$t.tar.gz

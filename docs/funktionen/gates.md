@@ -7,10 +7,10 @@ durchs Gate flog, knapp darüber oder daneben. In einer Testsession flog ein Pil
 über dem Gate; diese Überflüge waren am Pegel kaum von echten Durchflügen zu unterscheiden. Und wer nach
 dem Ziel umdreht und noch einmal durchfliegt, hätte eine sehr kurze Runde.
 
-## Die Lösung: ein zweites Gate auf der Strecke
+## Die Lösung: ein zweites Gate vor dem Ziel
 
-Ein weiteres Board steht an einer anderen Stelle der Strecke, idealerweise etwa auf halber
-Runde. Es ist das **Freigabe-Gate** (englisch oft „arming gate“). Die Regel:
+Ein weiteres Board steht ein Stück vor dem Ziel-Gate auf der Strecke. Es ist das
+**Freigabe-Gate** (englisch oft „arming gate“). Die Regel:
 
 > Ein Durchflug am Ziel zählt nur, wenn der Pilot seit seinem letzten gezählten Durchflug am
 > Freigabe-Gate vorbeikam.
@@ -31,6 +31,19 @@ sequenceDiagram
 Abgelehnte Durchflüge gehen nicht verloren: Sie werden als gelöscht gespeichert und lassen
 sich im [Editor](korrigieren.md) mit einem Tipp wiederherstellen, falls das Freigabe-Board
 den Piloten einmal nicht gesehen hat.
+
+## Wo das Freigabe-Gate hinkommt
+
+Am einfachsten **vor dem Ziel, mit gutem Abstand**: Die Piloten fliegen erst durchs
+Freigabe-Gate, dann durchs Ziel. Weiter weg, etwa auf halber Runde, wäre zwar auch möglich,
+aber alle Boards hängen per USB am selben Rechner, und so lange Kabel sind unpraktisch (USB 2.0
+ist ohne aktive Verlängerung für höchstens 5 m gedacht).
+
+Der Abstand ist wichtig: Das Freigabe-Board darf einen Durchflug am Ziel nicht selbst als
+Vorbeiflug erkennen, sonst gibt jeder Durchflug am Ziel gleich wieder frei, und die Regel
+greift nicht. Ob der Abstand reicht, zeigt **Boards → Debug**: Bei einem Durchflug am Ziel
+sollte die Serie des Freigabe-Boards keinen eigenen Durchflug melden. Hilft mehr Abstand nicht,
+kann man für das Freigabe-Gate den Mindestausschlag erhöhen oder feste Schwellen setzen.
 
 ## Einrichten
 
@@ -54,4 +67,4 @@ wie ohne Freigabe-Gate.
 - Die Pegel-Datei der Session enthält alle Boards mit ihren Rollen; der Editor kann das
   Freigabe-Gate deshalb auch nachträglich einblenden.
 - Die Freigabe-Regel ist bisher nur mit Aufnahmen getestet, noch nicht auf einer echten
-  Strecke mit dem Board an anderer Stelle.
+  Strecke. Welcher Abstand zum Ziel reicht, ist noch nicht gemessen.

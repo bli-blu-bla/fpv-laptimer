@@ -1,6 +1,9 @@
 /* Wire protocol v1: binary frames. Mirrored in web/src/proto/frames.ts.
  * GPL-3.0-or-later.
  *
+ * Modified for the FPV Laptimer (github.com/bli-blu-bla/fpv-laptimer), see NOTICE.md there:
+ * 2026-10-22 frame type 7, FRAME_LEVEL_BATCH.
+ *
  * Host -> device: ASCII command lines ending in '\n'.
  * Device -> host: ASCII reply lines (always start with a printable character)
  * interleaved with binary frames:

@@ -18,6 +18,7 @@ Ownership-/async-Stellen kommentieren), Frontend in JavaScript mit JSDoc (`// @t
 | `frontend/` | React, JavaScript + JSDoc |
 | `tools/` | Flash-Script, `stage_firmware.py` (Firmware für die Seite), `build_release.sh` (Release-Pakete), Python-Scripts zum Messen und Auswerten |
 | `.github/workflows/` | CI auf GitHub Actions (Repo `bli-blu-bla/fpv-laptimer`): `ci.yml` testet jeden Push, `release.yml` baut bei Tag `v*` (Doku: `docs/INSTALL.md`), `docs.yml` veröffentlicht die Doku-Seite |
+| `NOTICE.md` | Herkunft und Danksagung (widscan58, C5VRX, esp-sdr), die Änderungen an der Firmware mit Datum (auch im Kopf jeder geänderten Firmware-Datei vermerken, GPL §5a), Quellcode-Hinweis; kommt in jedes Release-Paket. Bei neuen Firmware-Änderungen ergänzen |
 | `docs/`, `mkdocs.yml` | Doku-Seite (MkDocs Material, nur dunkel in den App-Farben, ohne Google Fonts) auf GitHub Pages: Start, Konzept, Funktionen, Installation (`INSTALL.md`), FAQ, Technik (inkl. `API.md`). Screenshots in `docs/assets/screens/` von `tools/docs_screenshots.cjs` (playwright-core) gegen einen Server mit der erfundenen Aufnahme von `tools/make_demo_recording.py` (4 Piloten, 2 Ziel- + 1 Freigabe-Board); Ablauf im Kopf des Scripts. Anker mit Umlauten (`pymdownx.slugs`), damit Links auf GitHub und auf der Seite gehen |
 
 **Installation** (`docs/INSTALL.md`): Pi (64-bit Pi OS Lite), Linux-PC und Mac, alles in

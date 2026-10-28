@@ -3,9 +3,9 @@
 ## Warum noch ein Laptimer?
 
 [RotorHazard](https://github.com/RotorHazard/RotorHazard) ist der Standard für FPV-Rennen
-und kann sehr viel: Heats, Klassen, Formate, Event-Verwaltung. Für einen Stammtisch, an dem
-abends vier Leute ein paar Runden drehen, ist das oft zu viel Verwaltung, und die Empfänger
-wollen kalibriert werden.
+und kann sehr viel: Heats, Klassen, Formate, Event-Verwaltung. Wenn sich ein paar Freunde
+treffen und vier Leute ein paar Runden drehen, ist das oft zu viel Verwaltung, und die
+Empfänger wollen kalibriert werden.
 
 Der FPV Laptimer setzt deshalb andere Schwerpunkte:
 
@@ -42,7 +42,7 @@ Sendepause. Deshalb sitzen meist zwei Boards an den unteren Ecken des Gates, und
 nimmt pro Zeitpunkt den höheren Pegel (Diversity). In den Testaufnahmen haben einzelne Boards
 Durchflüge verpasst oder erfunden; kombiniert stimmten alle.
 
-Ein drittes Board kann an anderer Stelle der Strecke als **Freigabe-Gate** stehen: Eine
+Ein drittes Board kann mit etwas Abstand vor dem Ziel als **Freigabe-Gate** stehen: Eine
 Runde zählt dann nur, wenn der Pilot dazwischen dort vorbeikam. Siehe
 [Zwei Gates](funktionen/gates.md).
 
@@ -60,6 +60,6 @@ etwa mit anderen Einstellungen.
 
 Ehrlich gesagt: Der Gipfel beim Durchflug ist ein breiter Buckel, keine scharfe Spitze. Für
 denselben Durchflug lagen zwei Boards in den Tests bis zu 0,3 bis 0,4 s auseinander.
-Für Rundenzeiten am Stammtisch und ein faires Rennen reicht das; für Wettkämpfe mit
+Für Rundenzeiten unter Freunden und ein faires Rennen reicht das; für Wettkämpfe mit
 Hundertstel-Entscheidungen ist ein System mit Transpondern die bessere Wahl. Mit fest
 montierten Boards und Richtantennen soll das noch genauer gemessen werden.

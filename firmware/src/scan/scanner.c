@@ -1,4 +1,7 @@
-/* GPL-3.0-or-later. */
+/* GPL-3.0-or-later.
+ *
+ * Modified for the FPV Laptimer (github.com/bli-blu-bla/fpv-laptimer), see NOTICE.md there:
+ * 2026-10-22 level batches (LEVELBATCH) and the clock query (TIME?). */
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>

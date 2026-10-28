@@ -8,7 +8,7 @@ hide:
 
 # FPV Laptimer
 
-<p class="lead">Rundenzeitmessung für den FPV-Stammtisch: zwei, drei ESP32-C5 am Gate messen
+<p class="lead">Rundenzeitmessung für FPV-Flüge im kleinen Rahmen mit Freunden: zwei, drei ESP32-C5 am Gate messen
 die Videosignale, ein Raspberry Pi erkennt die Durchflüge, sagt an und zeigt alles im Browser,
 am Handy wie am Laptop. Session starten, fliegen, fertig. Ohne Kalibrieren und ohne Heats
 anzulegen.</p>
@@ -54,7 +54,7 @@ der Signalverlauf live.</figcaption>
 
     ---
 
-    Ein optionales Freigabe-Gate auf der Strecke: Eine Runde zählt nur, wenn der Pilot dort
+    Ein optionales Freigabe-Gate vor dem Ziel: Eine Runde zählt nur, wenn der Pilot dort
     vorbeikam. Überflüge und Abkürzungen am Ziel fallen so raus.
 
     [:octicons-arrow-right-24: Zwei Gates](funktionen/gates.md)
@@ -103,16 +103,17 @@ Bedienung.
 ## Aufbau am Platz
 
 ```
- Gate:  [ESP links]  [ESP rechts]         Strecke: [ESP Freigabe]  (optional)
+ Ziel:  [ESP links]  [ESP rechts]         davor: [ESP Freigabe]  (optional)
               \          |                      /
                \________ USB _________________/
                           |
           Raspberry Pi (Server, Datenbank, Ansagen) ── LAN ── Router ── WLAN ── Handys
 ```
 
-Die ESP32-C5 laufen mit der Firmware [widscan58](https://github.com/CapnBry/widscan58) als
-einfacher Empfänger (SDR) für das 5,8-GHz-Band und messen jeden Kanal etwa 500-mal pro Sekunde.
-Mehr dazu im [Konzept](konzept.md).
+Die ESP32-C5 laufen mit einer veränderten Version der Firmware [widscan58](https://github.com/CapnBry/widscan58) von
+Bryan Mayland als einfacher Empfänger (SDR) für das 5,8-GHz-Band und messen jeden Kanal etwa
+500-mal pro Sekunde. Mehr dazu im [Konzept](konzept.md), wem wir das verdanken unter
+[Danksagung](danksagung.md).
 
 ## Installieren
 

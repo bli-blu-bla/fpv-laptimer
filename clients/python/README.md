@@ -186,7 +186,7 @@ Nur auf `Connection`: `hello`, `initial_state` (Zustand beim Verbinden; `await c
 
 ## Tests
 
-Gegen einen laufenden Server, **nicht den vom Stammtisch** (die Tests starten und löschen
+Gegen einen laufenden Server, **nicht den, mit dem ihr gerade fliegt** (die Tests starten und löschen
 Sessions und legen Piloten an). Ohne `LAPTIMER_API_KEY` legen sie selbst einen Schlüssel an.
 
 ```sh

@@ -1,6 +1,6 @@
 # FPV Laptimer
 
-Einfache Rundenzeitmessung für FPV-Rennen am Stammtisch: ESP32-C5-Boards am Gate
+Einfache Rundenzeitmessung für FPV-Flüge im kleinen Rahmen mit Freunden: ESP32-C5-Boards am Gate
 messen die Videosignale der Piloten, ein Raspberry Pi erkennt die Durchflüge,
 speichert sie und sagt an. Bedienung im Browser, ohne Rennen und Heats anlegen.
 
@@ -155,9 +155,12 @@ tools/.venv-analysis/bin/python tools/plot_recording.py <datei>.csv --channel R3
 
 ## Danksagung
 
-Die Firmware stammt aus [widscan58](https://github.com/CapnBry/widscan58)
-(Bryan Mayland), die den Funkteil des ESP32 als SDR nutzt, über den I/Q-Debugpfad
-aus [ESPARGOS/esp-sdr](https://github.com/ESPARGOS/esp-sdr).
+Die Firmware ist [widscan58](https://github.com/CapnBry/widscan58) von Bryan Mayland
+(CapnBry), die den Funkteil des ESP32 als Empfänger für 5,8 GHz nutzt; ohne sie gäbe es den
+Laptimer nicht. widscan58 wiederum baut auf [C5VRX](https://github.com/Twotoz/C5VRX) und den
+davon abgeleiteten [esp-sdr](https://github.com/ESPARGOS/esp-sdr)-Projekten auf, die den
+versteckten I/Q-Debugpfad des ESP32 gefunden haben. Woher was stammt und was wir an der
+Firmware geändert haben: [NOTICE.md](NOTICE.md).
 
 ## Lizenz
 

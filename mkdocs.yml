@@ -2,12 +2,12 @@
 # Lokal: pip install mkdocs-material && mkdocs serve
 # Veröffentlicht von .github/workflows/docs.yml bei jedem Push auf main.
 site_name: FPV Laptimer
-site_description: Rundenzeitmessung für FPV-Rennen am Stammtisch, mit ESP32-C5-Boards als Empfänger
+site_description: Rundenzeitmessung für FPV-Flüge im kleinen Rahmen mit Freunden, mit ESP32-C5-Boards als Empfänger
 site_url: https://bli-blu-bla.github.io/fpv-laptimer/
 repo_url: https://github.com/bli-blu-bla/fpv-laptimer
 repo_name: bli-blu-bla/fpv-laptimer
 edit_uri: edit/main/docs/
-copyright: GPL-3.0-or-later · Firmware aus widscan58 von Bryan Mayland
+copyright: GPL-3.0-or-later · Firmware <a href="https://github.com/CapnBry/widscan58">widscan58</a> von Bryan Mayland, aufbauend auf C5VRX und esp-sdr · <a href="https://bli-blu-bla.github.io/fpv-laptimer/danksagung/">Danksagung</a>
 
 theme:
   name: material
@@ -76,6 +76,7 @@ nav:
       - API und Hooks: funktionen/api.md
   - Installation: INSTALL.md
   - FAQ: faq.md
+  - Danksagung: danksagung.md
   - Technik:
       - technik/index.md
       - Architektur: technik/architektur.md
