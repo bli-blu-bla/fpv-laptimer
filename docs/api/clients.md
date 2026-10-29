@@ -11,7 +11,7 @@ automatischem Neuverbinden, Fehler als Ausnahme mit der Meldung des Servers.
 Python ab 3.10. Befehle brauchen nur die Standardbibliothek, Events zusätzlich `websockets`.
 
 ```sh
-pip install "laptimer-client[events]"   # oder aus dem Repo: "./clients/python[events]"
+pip install "fpv-laptimer-client[events]"   # oder aus dem Repo: "./clients/python[events]"
 ```
 
 ```python

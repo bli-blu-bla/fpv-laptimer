@@ -4,7 +4,7 @@ ausgeben, am Ende das Ergebnis zeigen und bestätigen oder verwerfen.
 
     python race.py --url http://pi:5800 --key lt_... --laps 3 NITRO ACE BOB
 
-Braucht `websockets` (pip install "laptimer-client[events]").
+Braucht `websockets` (pip install "fpv-laptimer-client[events]").
 """
 
 import argparse

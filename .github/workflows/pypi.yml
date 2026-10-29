@@ -6,7 +6,7 @@
 # as <last py-v tag>.dev<run number>, so every run gets a new version.
 #
 # Trusted Publishing, no token: once on pypi.org and test.pypi.org add a
-# "pending publisher" (project laptimer-client, this repository, workflow
+# "pending publisher" (project fpv-laptimer-client, this repository, workflow
 # pypi.yml, environment pypi / testpypi), and create both environments in
 # the repository settings. Details: clients/python/README.md.
 name: PyPI
@@ -73,7 +73,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: ${{ github.event_name == 'push' && 'pypi' || 'testpypi' }}
-      url: ${{ github.event_name == 'push' && 'https://pypi.org/p/laptimer-client' || 'https://test.pypi.org/p/laptimer-client' }}
+      url: ${{ github.event_name == 'push' && 'https://pypi.org/p/fpv-laptimer-client' || 'https://test.pypi.org/p/fpv-laptimer-client' }}
     permissions:
       id-token: write # Trusted Publishing
     steps:

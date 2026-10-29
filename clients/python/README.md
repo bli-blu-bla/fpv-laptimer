@@ -1,4 +1,4 @@
-# laptimer-client (Python)
+# fpv-laptimer-client (Python)
 
 Python-Client für die API des [FPV-Laptimers](https://github.com/bli-blu-bla/fpv-laptimer)
 (`/api/v1`, ausführlich in der [Doku](https://bli-blu-bla.github.io/fpv-laptimer/api/)). Befehle laufen über HTTP und brauchen nur die
@@ -8,8 +8,8 @@ Python ab 3.10.
 ## Installieren
 
 ```sh
-pip install laptimer-client              # nur Befehle (HTTP)
-pip install "laptimer-client[events]"    # dazu Events über den WebSocket
+pip install fpv-laptimer-client              # nur Befehle (HTTP)
+pip install "fpv-laptimer-client[events]"    # dazu Events über den WebSocket
 ```
 
 Aus dem Repo statt von PyPI: `pip install "./clients/python[events]"`.
@@ -213,10 +213,10 @@ schreibt vor dem Bauen die echte Version hinein, `pyproject.toml` liest sie von 
 
 Von Hand starten (*Actions → PyPI → Run workflow*) lädt auf **TestPyPI** statt PyPI, zum
 Ausprobieren, als `<letzter py-v-Tag>.dev<Laufnummer>` (z. B. `0.2.0.dev14`), damit jeder Lauf
-eine neue Version hat: `pip install --pre -i https://test.pypi.org/simple/ laptimer-client`.
+eine neue Version hat: `pip install --pre -i https://test.pypi.org/simple/ fpv-laptimer-client`.
 
 Einmal einrichten: auf pypi.org bzw. test.pypi.org unter *Publishing → Add a new pending
-publisher* das Projekt `laptimer-client`, Owner `bli-blu-bla`, Repo `fpv-laptimer`, Workflow
+publisher* das Projekt `fpv-laptimer-client`, Owner `bli-blu-bla`, Repo `fpv-laptimer`, Workflow
 `pypi.yml`, Environment `pypi` bzw. `testpypi` eintragen; im GitHub-Repo unter *Settings →
 Environments* die beiden Environments anlegen (bei `pypi` am besten mit Freigabe durch dich).
 

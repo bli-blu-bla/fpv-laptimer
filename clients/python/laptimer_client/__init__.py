@@ -9,7 +9,7 @@ file also works copied on its own, e.g. next to a hook script on the Pi:
     lt.start_session(race=True, laps=3)
 
 Events come over the WebSocket `/api/v1/ws` and need the package
-`websockets` (`pip install "laptimer-client[events]"`), imported only when
+`websockets` (`pip install "fpv-laptimer-client[events]"`), imported only when
 used. Two ways to read them:
 
     # asyncio
@@ -594,7 +594,7 @@ async def _open_websocket(url: str, key: str) -> Any:
     except ImportError:
         raise LaptimerError(
             'Für Events fehlt das Paket "websockets" (ab Version 13): '
-            'pip install "laptimer-client[events]" oder pip install websockets'
+            'pip install "fpv-laptimer-client[events]" oder pip install websockets'
         ) from None
     try:
         return await connect(url, additional_headers={"Authorization": f"Bearer {key}"},

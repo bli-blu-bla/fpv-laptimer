@@ -3,7 +3,7 @@ requires = ["setuptools>=77"]  # 77: license als SPDX-Ausdruck, license-files
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "laptimer-client"
+name = "fpv-laptimer-client"
 dynamic = ["version"]  # aus laptimer_client.__version__ (unten)
 description = "Python-Client für die API des FPV-Laptimers (/api/v1)"
 readme = "README.md"
