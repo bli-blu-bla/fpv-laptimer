@@ -10,6 +10,8 @@
 // Environment: LAPTIMER_URL (default http://127.0.0.1:5800), LAPTIMER_PASSWORD,
 // CHROME (a Chromium binary, if playwright's own isn't installed), OUT (folder),
 // ONLY (the parts below to run, e.g. "3,4"; default all).
+// Part 5 points the server connection at REMOTE_URL (default ws://127.0.0.1:8770,
+// tools/remote_server.py --token geheim), so the picture shows it connected.
 // Part 2 starts one more race (about 2 minutes) for the live pictures and
 // confirms it. GPL-3.0-or-later.
 
@@ -19,7 +21,8 @@ const path = require('path')
 const URL = process.env.LAPTIMER_URL || 'http://127.0.0.1:5800'
 const PASSWORD = process.env.LAPTIMER_PASSWORD || ''
 const OUT = process.env.OUT || path.join(__dirname, '..', 'docs', 'assets', 'screens')
-const ONLY = (process.env.ONLY || '1,2,3,4').split(',')
+const ONLY = (process.env.ONLY || '1,2,3,4,5').split(',')
+const REMOTE_URL = process.env.REMOTE_URL || 'ws://127.0.0.1:8770'
 const DESKTOP = { viewport: { width: 1280, height: 860 }, deviceScaleFactor: 1 }
 const PHONE = { viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true }
 
@@ -113,6 +116,16 @@ async function main() {
     await nav(d, 'Einstellungen')
     await d.getByText('Kanäle wählen').click()
     await shot(d, 'channels', { wait: 1000 })
+  }
+
+  // 5. The server connection's settings (API & Hooks → Server).
+  if (ONLY.includes('5')) {
+    await api('PUT', '/remote', { enabled: true, url: REMOTE_URL, authorization: 'Bearer geheim', auth_token: '', commands: true })
+    await d.goto(URL)
+    await nav(d, 'API & Hooks')
+    await d.getByRole('tab', { name: 'Server' }).click()
+    await d.getByText('Verbunden').first().waitFor({ timeout: 30_000 })
+    await shot(d, 'remote', { wait: 2500 })
   }
 
   await browser.close()

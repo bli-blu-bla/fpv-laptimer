@@ -36,6 +36,8 @@ Auf der Seite unter **API & Hooks → Server** (mit Login):
 Header und Token gehen einzeln oder zusammen. Die Seite zeigt beide nie wieder an, nur ob sie
 gesetzt sind. Einen API-Schlüssel braucht diese Verbindung nicht.
 
+![Einstellungen der Server-Verbindung](../assets/screens/remote.png){ .shot }
+
 ## Protokoll
 
 Auf der Verbindung läuft **dasselbe Protokoll wie bei `/api/v1/ws`**, nur dass der Timer
