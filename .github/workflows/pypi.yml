@@ -1,0 +1,71 @@
+# The Python client (clients/python) on PyPI, on a tag "py-v*"
+# (git tag py-v0.2.0 && git push origin py-v0.2.0). The tag must match
+# __version__ in clients/python/laptimer_client/__init__.py.
+# Started by hand (Actions → PyPI → Run workflow) it goes to TestPyPI instead.
+#
+# Trusted Publishing, no token: once on pypi.org and test.pypi.org add a
+# "pending publisher" (project laptimer-client, this repository, workflow
+# pypi.yml, environment pypi / testpypi), and create both environments in
+# the repository settings. Details: clients/python/README.md.
+name: PyPI
+
+on:
+  push:
+    tags: ['py-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: clients/python
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Build
+        run: |
+          pip install --quiet build twine
+          python -m build
+          twine check --strict dist/*
+
+      - name: Check version and wheel
+        run: |
+          version=$(python -c 'import laptimer_client; print(laptimer_client.__version__)')
+          echo "version $version"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "${GITHUB_REF_NAME#py-v}" != "$version" ]; then
+            echo "Tag $GITHUB_REF_NAME passt nicht zu __version__ $version" >&2
+            exit 1
+          fi
+          # Import from the installed wheel, not from the source folder.
+          python -m venv /tmp/check
+          /tmp/check/bin/pip install --quiet dist/*.whl
+          (cd /tmp && /tmp/check/bin/python -c 'import laptimer_client as l; assert l.__version__ == "'"$version"'"; l.Laptimer')
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: python-dist
+          path: clients/python/dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ github.event_name == 'push' && 'pypi' || 'testpypi' }}
+      url: ${{ github.event_name == 'push' && 'https://pypi.org/p/laptimer-client' || 'https://test.pypi.org/p/laptimer-client' }}
+    permissions:
+      id-token: write # Trusted Publishing
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: python-dist
+          path: dist
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: ${{ github.event_name == 'push' && 'https://upload.pypi.org/legacy/' || 'https://test.pypi.org/legacy/' }}

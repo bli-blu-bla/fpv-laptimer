@@ -1,16 +1,18 @@
 # laptimer-client (Python)
 
-Python-Client für die API des Laptimers (`/api/v1`, ausführlich in
-[`docs/api/`](../../docs/api/index.md)). Befehle laufen über HTTP und brauchen nur die
+Python-Client für die API des [FPV-Laptimers](https://github.com/bli-blu-bla/fpv-laptimer)
+(`/api/v1`, ausführlich in der [Doku](https://bli-blu-bla.github.io/fpv-laptimer/api/)). Befehle laufen über HTTP und brauchen nur die
 Standardbibliothek; für Events (WebSocket) braucht es zusätzlich das Paket `websockets`.
 Python ab 3.10.
 
 ## Installieren
 
 ```sh
-pip install ./clients/python             # nur Befehle (HTTP)
-pip install "./clients/python[events]"   # dazu Events über den WebSocket
+pip install laptimer-client              # nur Befehle (HTTP)
+pip install "laptimer-client[events]"    # dazu Events über den WebSocket
 ```
+
+Aus dem Repo statt von PyPI: `pip install "./clients/python[events]"`.
 
 Oder ohne Installation: `laptimer_client/__init__.py` als `laptimer_client.py` neben das
 eigene Script kopieren. Befehle funktionieren dann sofort (auch auf dem Pi in Hook-Scripts);
@@ -31,7 +33,7 @@ lt.confirm()                                                # Ergebnis bestätig
 ```
 
 - Jede Methode gibt das JSON des Servers als `dict`/`list` zurück (Felder wie in
-  [`docs/api/datenformate.md`](../../docs/api/datenformate.md)).
+  [Datenformate](https://bli-blu-bla.github.io/fpv-laptimer/api/datenformate/)).
 - Argumente mit `None` werden nicht mitgeschickt, d. h. „bleibt, wie es ist“ bzw. „Standard“.
   Ein ausdrückliches `null` (z. B. „kein Pilot auf diesem Kanal“) ist `NOBODY`:
   `lt.set_channel(2, NOBODY)`.
@@ -114,7 +116,7 @@ async with lt.connect() as conn:
 
 | Feld | Inhalt |
 |---|---|
-| `event` | Name, z. B. `pilot_pass` (Liste in [`docs/api/events.md`](../../docs/api/events.md)) |
+| `event` | Name, z. B. `pilot_pass` (Liste in [Events](https://bli-blu-bla.github.io/fpv-laptimer/api/events/)) |
 | `seq` | laufende Nummer ab Serverstart (Lücke = Events verpasst) |
 | `time_us` | wann, µs seit 1970 |
 | `data` | die Felder des Events als `dict` |
@@ -142,7 +144,7 @@ if ev.event == "session_stopped" and ev.data["race"] and ev.data["reason"] == "f
 Ins Script-Ordner (Standard `server/data/hooks/`) gehören dann das Script (`chmod +x`),
 `laptimer_client.py` und `api_key.txt`. Hooks laufen im Script-Ordner.
 
-Fertige Beispiele in [`examples/`](examples/):
+Fertige Beispiele in [`examples/`](https://github.com/bli-blu-bla/fpv-laptimer/tree/main/clients/python/examples):
 
 - `race.py`: Piloten setzen, Rennen starten, Countdown und Runden ausgeben, am Ende
   bestätigen oder verwerfen (`python examples/race.py --url http://pi:5800 --key lt_… --laps 3 NITRO ACE`).
@@ -196,3 +198,33 @@ LAPTIMER_API_URL=http://localhost:5802 /tmp/lt-venv/bin/python -m unittest disco
 ```
 
 Ohne `websockets` laufen nur die HTTP-Tests, die Event-Tests werden übersprungen.
+
+## Veröffentlichen (PyPI)
+
+Die Version steht nur in `laptimer_client/__init__.py` (`__version__`), `pyproject.toml` liest
+sie von dort. Sie ist unabhängig von der Server-Version. Ablauf:
+
+1. `__version__` erhöhen, committen.
+2. Tag `py-v<version>` pushen, z. B. `git tag py-v0.2.0 && git push origin py-v0.2.0`.
+3. Der Workflow `.github/workflows/pypi.yml` baut sdist und Wheel, prüft sie (`twine check`,
+   Tag = `__version__`, Import aus dem Wheel) und lädt sie per Trusted Publishing (ohne Token)
+   auf PyPI.
+
+Von Hand starten (*Actions → PyPI → Run workflow*) lädt auf **TestPyPI** statt PyPI, zum
+Ausprobieren: `pip install -i https://test.pypi.org/simple/ laptimer-client`.
+
+Einmal einrichten: auf pypi.org bzw. test.pypi.org unter *Publishing → Add a new pending
+publisher* das Projekt `laptimer-client`, Owner `bli-blu-bla`, Repo `fpv-laptimer`, Workflow
+`pypi.yml`, Environment `pypi` bzw. `testpypi` eintragen; im GitHub-Repo unter *Settings →
+Environments* die beiden Environments anlegen (bei `pypi` am besten mit Freigabe durch dich).
+
+Lokal bauen und prüfen:
+
+```sh
+cd clients/python
+python3 -m venv /tmp/lt-build && /tmp/lt-build/bin/pip install build twine
+/tmp/lt-build/bin/python -m build                 # → dist/*.tar.gz, dist/*.whl
+/tmp/lt-build/bin/twine check --strict dist/*
+```
+
+`LICENSE` ist ein Symlink auf die Lizenz im Repo; im Paket landet sie als Datei.
