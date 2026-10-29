@@ -1,7 +1,9 @@
 # The Python client (clients/python) on PyPI, on a tag "py-v*"
-# (git tag py-v0.2.0 && git push origin py-v0.2.0). The tag must match
-# __version__ in clients/python/laptimer_client/__init__.py.
-# Started by hand (Actions → PyPI → Run workflow) it goes to TestPyPI instead.
+# (git tag py-v0.2.0 && git push origin py-v0.2.0). The version comes from
+# the tag and is written into clients/python/laptimer_client/__init__.py
+# before the build; the repository only holds a placeholder.
+# Started by hand (Actions → PyPI → Run workflow) it goes to TestPyPI instead,
+# as <last py-v tag>.dev<run number>, so every run gets a new version.
 #
 # Trusted Publishing, no token: once on pypi.org and test.pypi.org add a
 # "pending publisher" (project laptimer-client, this repository, workflow
@@ -25,9 +27,27 @@ jobs:
         working-directory: clients/python
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # all tags, for the last py-v tag on a manual run
       - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
+
+      - name: Set version
+        run: |
+          pip install --quiet packaging
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=${GITHUB_REF_NAME#py-v}
+          else
+            last=$(git describe --tags --match 'py-v*' --abbrev=0 2>/dev/null || echo py-v0.0.0)
+            version=${last#py-v}.dev$GITHUB_RUN_NUMBER
+          fi
+          # PEP 440, and already in normal form: PyPI would rename e.g. 1.0-rc1 to 1.0rc1.
+          python -c 'import sys; from packaging.version import Version as V; v = sys.argv[1]; sys.exit(0 if str(V(v)) == v else f"Version {v} ist nicht PEP 440 in Normalform ({V(v)})")' "$version"
+          sed -i "s/^__version__ = .*/__version__ = \"$version\"/" laptimer_client/__init__.py
+          grep -q "^__version__ = \"$version\"$" laptimer_client/__init__.py
+          echo "version $version"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
 
       - name: Build
         run: |
@@ -35,14 +55,9 @@ jobs:
           python -m build
           twine check --strict dist/*
 
-      - name: Check version and wheel
+      - name: Check wheel
         run: |
-          version=$(python -c 'import laptimer_client; print(laptimer_client.__version__)')
-          echo "version $version"
-          if [ "$GITHUB_REF_TYPE" = tag ] && [ "${GITHUB_REF_NAME#py-v}" != "$version" ]; then
-            echo "Tag $GITHUB_REF_NAME passt nicht zu __version__ $version" >&2
-            exit 1
-          fi
+          version=$VERSION
           # Import from the installed wheel, not from the source folder.
           python -m venv /tmp/check
           /tmp/check/bin/pip install --quiet dist/*.whl

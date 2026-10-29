@@ -201,17 +201,19 @@ Ohne `websockets` laufen nur die HTTP-Tests, die Event-Tests werden übersprunge
 
 ## Veröffentlichen (PyPI)
 
-Die Version steht nur in `laptimer_client/__init__.py` (`__version__`), `pyproject.toml` liest
-sie von dort. Sie ist unabhängig von der Server-Version. Ablauf:
+Die Version kommt aus dem Git-Tag und ist unabhängig von der Server-Version. Im Repo steht in
+`laptimer_client/__init__.py` nur der Platzhalter `__version__ = "0.0.0.dev0"`; der Workflow
+schreibt vor dem Bauen die echte Version hinein, `pyproject.toml` liest sie von dort. Ablauf:
 
-1. `__version__` erhöhen, committen.
-2. Tag `py-v<version>` pushen, z. B. `git tag py-v0.2.0 && git push origin py-v0.2.0`.
-3. Der Workflow `.github/workflows/pypi.yml` baut sdist und Wheel, prüft sie (`twine check`,
-   Tag = `__version__`, Import aus dem Wheel) und lädt sie per Trusted Publishing (ohne Token)
-   auf PyPI.
+1. Tag `py-v<version>` pushen, z. B. `git tag py-v0.2.0 && git push origin py-v0.2.0`
+   (Version nach PEP 440 in Normalform, also `0.2.0rc1`, nicht `0.2.0-rc1`).
+2. Der Workflow `.github/workflows/pypi.yml` setzt die Version, baut sdist und Wheel, prüft sie
+   (`twine check`, Import aus dem Wheel) und lädt sie per Trusted Publishing (ohne Token) auf
+   PyPI.
 
 Von Hand starten (*Actions → PyPI → Run workflow*) lädt auf **TestPyPI** statt PyPI, zum
-Ausprobieren: `pip install -i https://test.pypi.org/simple/ laptimer-client`.
+Ausprobieren, als `<letzter py-v-Tag>.dev<Laufnummer>` (z. B. `0.2.0.dev14`), damit jeder Lauf
+eine neue Version hat: `pip install --pre -i https://test.pypi.org/simple/ laptimer-client`.
 
 Einmal einrichten: auf pypi.org bzw. test.pypi.org unter *Publishing → Add a new pending
 publisher* das Projekt `laptimer-client`, Owner `bli-blu-bla`, Repo `fpv-laptimer`, Workflow

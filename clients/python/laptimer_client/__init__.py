@@ -41,7 +41,9 @@ import urllib.request
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable
 
-__version__ = "0.1.0"
+# Setzt der Workflow .github/workflows/pypi.yml aus dem Tag py-v<version> ein;
+# im Repo bleibt der Platzhalter (ein lokaler Build heißt dann 0.0.0.dev0).
+__version__ = "0.0.0.dev0"
 
 __all__ = [
     "Laptimer",
