@@ -24,6 +24,12 @@
 //!    the course's highest moments can count as a pass. Once 3 passes give a
 //!    real peak, the early passes that would not have reached the threshold
 //!    are taken back (`Event::Retract`).
+//! 8. **Late first thresholds:** a channel only gets learned thresholds after
+//!    5 s of levels above -46 dBFS. A pilot who is quiet on the course can
+//!    pass the gate before that (session 32, 2026-10-31: R8's holeshot at
+//!    31.0 s, thresholds at 33.2 s). So until then each channel keeps its last
+//!    10 s, and when its first thresholds come, goes through them once: a pass
+//!    found there is reported late, with its real time.
 
 use std::collections::VecDeque;
 
@@ -67,6 +73,8 @@ const MIN_CONTRAST: f32 = 3.0 * 4.0;
 pub const MIN_RISE_DB: f32 = 12.0;
 /// A pass is reported this long after its crossing ended.
 const HOLD_US: i64 = 1_000_000;
+/// Slots a channel keeps until its first learned thresholds (step 8), 10 s.
+const LOOKBACK_SLOTS: usize = 1000;
 /// A board that sent nothing for this long no longer holds the others back.
 const BOARD_TIMEOUT_US: i64 = 500_000;
 
@@ -484,6 +492,9 @@ struct ChannelDetector {
     started: bool,
     /// Fixed (enter, exit) thresholds in codes, instead of learned ones.
     fixed: Option<(f32, f32)>,
+    /// The last slots (time, level) until the first learned thresholds, to
+    /// look back through then (step 8); None once that is done.
+    lookback: Option<VecDeque<(i64, u8)>>,
 }
 
 impl ChannelDetector {
@@ -502,6 +513,7 @@ impl ChannelDetector {
             provisional: Vec::new(),
             started: false,
             fixed: None,
+            lookback: Some(VecDeque::new()),
         }
     }
 
@@ -523,19 +535,47 @@ impl ChannelDetector {
         if time_us.div_euclid(SLOT_US) % 100 == 0 {
             self.update_thresholds();
         }
-        if let (Some(l), Some(enter), Some(exit)) = (level, self.enter, self.exit) {
-            let l_f = l as f32;
-            if self.crossing.is_empty() {
-                if l_f >= enter {
-                    self.crossing.push((time_us, l));
-                }
-            } else if l_f >= exit {
-                self.crossing.push((time_us, l));
-            } else {
-                self.end_crossing(time_us, config);
+        // Step 8: keep the slots until the first learned thresholds, then go
+        // through them (this slot included) instead of only this one.
+        // `take` moves the buffer out, leaving None: it is done only once.
+        if let (Some(buf), Some(l)) = (&mut self.lookback, level) {
+            buf.push_back((time_us, l));
+            if buf.len() > LOOKBACK_SLOTS {
+                buf.pop_front();
             }
         }
+        if self.enter.is_some() && self.lookback.is_some() {
+            let buf = self.lookback.take().unwrap();
+            // Fixed thresholds were there from the start: nothing was missed.
+            if self.fixed.is_none() {
+                for (t, l) in buf {
+                    self.cross(t, l, config);
+                    // As live: a pass whose hold time is over gets reported.
+                    self.finish_pending(t, false, out);
+                }
+                self.finish_pending(time_us, false, out);
+                return;
+            }
+        }
+        if let Some(l) = level {
+            self.cross(time_us, l, config);
+        }
         self.finish_pending(time_us, false, out);
+    }
+
+    /// One slot through the crossing state machine (needs thresholds).
+    fn cross(&mut self, time_us: i64, l: u8, config: &DetectConfig) {
+        let (Some(enter), Some(exit)) = (self.enter, self.exit) else { return };
+        let l_f = l as f32;
+        if self.crossing.is_empty() {
+            if l_f >= enter {
+                self.crossing.push((time_us, l));
+            }
+        } else if l_f >= exit {
+            self.crossing.push((time_us, l));
+        } else {
+            self.end_crossing(time_us, config);
+        }
     }
 
     /// The level fell below exit: turn the crossing into a pass.
@@ -805,6 +845,20 @@ mod tests {
         assert_eq!(found.len(), passes.len(), "found {times:?}");
         for (f, p) in times.iter().zip(passes) {
             // The envelope's delay is taken out: within 30 ms.
+            assert!((f - p).abs() < 0.03, "pass at {p} found at {f}");
+        }
+    }
+
+    #[test]
+    fn a_pass_before_the_first_thresholds() {
+        // Step 8: the first pass at 3 s, before the channel has its 5 s of
+        // levels: found late, with its real time, and kept.
+        let passes = [3.0, 12.0, 21.0, 30.0];
+        let events = simulate_events(&passes, 36.0, |_| -40.0);
+        let found = final_passes(&events);
+        let times: Vec<f64> = found.iter().map(|p| p.time_us as f64 / 1e6).collect();
+        assert_eq!(found.len(), passes.len(), "found {times:?}");
+        for (f, p) in times.iter().zip(passes) {
             assert!((f - p).abs() < 0.03, "pass at {p} found at {f}");
         }
     }
