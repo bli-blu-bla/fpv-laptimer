@@ -29,7 +29,8 @@ const TRIM_AFTER_US = 10e6
  *
  * A pass as shown: `key` is "p<id>" for stored passes, "a…" for added ones.
  * `rejected`: deleted by the server, and why (see `Pass`).
- * @typedef {{key: string, id: number | null, t: number, kind: 'auto' | 'manual' | 'moved' | 'added' | 'deleted', rejected?: string | null}} Marker
+ * @typedef {{key: string, id: number | null, t: number, kind: 'auto' | 'manual' | 'moved' | 'added' | 'deleted', rejected?: string | null, detected?: number | null}} Marker
+ * `detected`: where the detector put the pass (null: added by hand).
  *
  * @typedef {object} Graph
  * @property {number[]} time_us
@@ -51,13 +52,16 @@ function markersOf(passes, d) {
   const out = passes.map((p) => {
     const stillDeleted = p.deleted && !d.restores.includes(p.id)
     const deleted = stillDeleted || d.deletes.includes(p.id)
-    const moved = d.moves[p.id]
+    const t = d.moves[p.id] ?? p.time_us
+    const detected = p.detected_us ?? null
     return {
       key: 'p' + p.id,
       id: p.id,
-      t: moved ?? p.time_us,
-      kind: deleted ? 'deleted' : moved != null ? 'moved' : p.manual ? 'manual' : 'auto',
+      t,
+      // Moved: now (draft) or saved earlier; a pass moved back onto its detected time isn't.
+      kind: deleted ? 'deleted' : detected == null ? 'manual' : t !== detected ? 'moved' : 'auto',
       rejected: stillDeleted ? (p.rejected ?? null) : null,
+      detected,
     }
   })
   for (const a of d.adds) out.push({ key: a.key, id: null, t: a.t, kind: 'added' })
@@ -237,7 +241,10 @@ export default function PassEditor({ detail, onSaved }) {
         <div className="graph-action">
           <span style={{ flex: 1, minWidth: 160 }}>
             Durchflug bei <b className="tnum">{secs(selected.t - t0)} s</b>
-            {selected.kind === 'added' ? ' – neu' : selected.kind === 'moved' ? ' – verschoben' : ''}
+            {selected.kind === 'added' ? ' – neu' : selected.kind === 'manual' ? ' – von Hand' : ''}
+            {selected.kind === 'moved' && selected.detected != null && (
+              <> – verschoben, erkannt bei <span className="tnum">{secs(selected.detected - t0)} s</span></>
+            )}
             {selectedReason && (
               <>
                 {' – zählt nicht: '}
@@ -283,7 +290,7 @@ export default function PassEditor({ detail, onSaved }) {
 
       <p className="muted small" style={{ margin: 0 }}>
         Ziehen verschiebt einen Durchflug (oder den Ausschnitt), Tippen wählt ihn aus, Tippen auf eine freie Stelle fügt einen
-        am nächsten Gipfel ein. Grün: erkannt, blau: von Hand, grau gestrichelt: gelöscht, gelb gepunktet: Freigabe-Gate.
+        am nächsten Gipfel ein. Grün: erkannt, blau: von Hand oder verschoben, grau gestrichelt: gelöscht, gelb gepunktet: Freigabe-Gate.
       </p>
       {tooShort > 0 && (
         <p className="muted small" style={{ margin: 0 }}>

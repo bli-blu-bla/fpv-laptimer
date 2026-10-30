@@ -95,6 +95,7 @@
  * @property {boolean} deleted
  * @property {number} gate   0: finish gate, 1: arming gate
  * @property {'no_arming' | null} [rejected]   deleted by the server, and why (null: by hand)
+ * @property {number | null} [detected_us]   where the detector put it (null: added by hand; differs from time_us: moved)
  *
  * @typedef {object} Lap
  * @property {number} number

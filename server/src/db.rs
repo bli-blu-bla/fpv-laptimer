@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS passes (
     manual INTEGER NOT NULL DEFAULT 0,
     deleted INTEGER NOT NULL DEFAULT 0,
     gate INTEGER NOT NULL DEFAULT 0,  -- 0: the finish gate (laps), 1: the arming gate
-    rejected TEXT                     -- deleted by the server: why ('no_arming')
+    rejected TEXT,                    -- deleted by the server: why ('no_arming')
+    detected_us INTEGER               -- where the detector put it (NULL: added by hand); differs from time_us: moved
 );
 CREATE INDEX IF NOT EXISTS passes_by_session ON passes(session_id);
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -226,6 +227,17 @@ impl Db {
             .exists([])?;
         if !has_rejected {
             conn.execute_batch("ALTER TABLE passes ADD COLUMN rejected TEXT")?;
+        }
+        // Databases from before detected_us: what the detector found keeps its time.
+        // Passes moved back then count as added by hand (moving set `manual`).
+        let has_detected = conn
+            .prepare("SELECT 1 FROM pragma_table_info('passes') WHERE name = 'detected_us'")?
+            .exists([])?;
+        if !has_detected {
+            conn.execute_batch(
+                "ALTER TABLE passes ADD COLUMN detected_us INTEGER;
+                 UPDATE passes SET detected_us = time_us WHERE manual = 0;",
+            )?;
         }
         // Databases from before confirmed_us: their sessions count as confirmed.
         let has_confirmed = conn
@@ -600,10 +612,12 @@ impl Db {
                 let rejected = p.rejected.map(|r| match r {
                     Rejected::NoArming => "no_arming",
                 });
+                // Packages from before `detected_us`: detected passes as they are.
+                let detected_us = p.detected_us.or((!p.manual).then_some(p.time_us));
                 self.conn.execute(
-                    "INSERT INTO passes (session_id, channel, time_us, peak_db, manual, deleted, gate, rejected)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                    params![id, p.channel, p.time_us, p.peak_db, p.manual, p.deleted, p.gate, rejected],
+                    "INSERT INTO passes (session_id, channel, time_us, peak_db, manual, deleted, gate, rejected, detected_us)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                    params![id, p.channel, p.time_us, p.peak_db, p.manual, p.deleted, p.gate, rejected, detected_us],
                 )?;
             }
             Ok(id)
@@ -694,7 +708,7 @@ impl Db {
     // --- passes ---
 
     /// Several corrections of one channel at once, all or none: passes moved
-    /// (they count as edited by hand from then on), deleted, restored, added.
+    /// (`detected_us` keeps where the detector had them), deleted, restored, added.
     pub fn edit_passes(&self, session_id: i64, channel: u8, e: &PassEdit) -> Result<()> {
         self.conn.execute_batch("BEGIN")?;
         // The closure runs the changes; `?` inside it ends it early with the
@@ -704,7 +718,7 @@ impl Db {
             let ids = "WHERE id = ?1 AND session_id = ?2 AND channel = ?3 AND gate = 0";
             for &(id, time_us) in &e.moves {
                 self.conn.execute(
-                    &format!("UPDATE passes SET time_us = ?4, manual = 1 {ids}"),
+                    &format!("UPDATE passes SET time_us = ?4 {ids}"),
                     params![id, session_id, channel, time_us],
                 )?;
             }
@@ -739,16 +753,18 @@ impl Db {
     /// A pass of the arming gate (it doesn't make laps; see `core.rs`).
     pub fn add_arming_pass(&self, session_id: i64, channel: u8, time_us: i64, peak_db: f32) -> Result<i64> {
         self.conn.execute(
-            "INSERT INTO passes (session_id, channel, time_us, peak_db, gate) VALUES (?1, ?2, ?3, ?4, 1)",
+            "INSERT INTO passes (session_id, channel, time_us, peak_db, gate, detected_us) VALUES (?1, ?2, ?3, ?4, 1, ?3)",
             params![session_id, channel, time_us, peak_db],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// `manual`: added by hand; else found by the detector (`detected_us` = `time_us`).
     pub fn add_pass(&self, session_id: i64, channel: u8, time_us: i64, peak_db: f32, manual: bool) -> Result<i64> {
+        let detected_us = (!manual).then_some(time_us);
         self.conn.execute(
-            "INSERT INTO passes (session_id, channel, time_us, peak_db, manual) VALUES (?1, ?2, ?3, ?4, ?5)",
-            params![session_id, channel, time_us, peak_db, manual],
+            "INSERT INTO passes (session_id, channel, time_us, peak_db, manual, detected_us) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![session_id, channel, time_us, peak_db, manual, detected_us],
         )?;
         Ok(self.conn.last_insert_rowid())
     }
@@ -788,10 +804,11 @@ impl Db {
     }
 
     /// For the detector taking a pass back: removed for good (it was never a
-    /// decision of the user).
+    /// decision of the user). Not if the user moved it meanwhile.
     pub fn remove_auto_pass(&self, session_id: i64, channel: u8, time_us: i64) -> Result<()> {
         self.conn.execute(
-            "DELETE FROM passes WHERE session_id = ?1 AND channel = ?2 AND time_us = ?3 AND manual = 0",
+            "DELETE FROM passes WHERE session_id = ?1 AND channel = ?2 AND time_us = ?3 AND manual = 0
+             AND detected_us = time_us",
             params![session_id, channel, time_us],
         )?;
         Ok(())
@@ -799,7 +816,7 @@ impl Db {
 
     pub fn passes(&self, session_id: i64) -> Result<Vec<PassRecord>> {
         let mut st = self.conn.prepare(
-            "SELECT id, channel, time_us, peak_db, manual, deleted, gate, rejected FROM passes WHERE session_id = ?1 ORDER BY time_us",
+            "SELECT id, channel, time_us, peak_db, manual, deleted, gate, rejected, detected_us FROM passes WHERE session_id = ?1 ORDER BY time_us",
         )?;
         let rows = st.query_map([session_id], |r| {
             Ok(PassRecord {
@@ -814,6 +831,7 @@ impl Db {
                     Some("no_arming") => Some(Rejected::NoArming),
                     _ => None,
                 },
+                detected_us: r.get(8)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -899,6 +917,18 @@ mod tests {
             times,
             vec![(6_000_000, false), (21_000_000, false), (30_000_000, false)]
         );
+        // How each came about: detected, moved (detected time kept), by hand.
+        let sources: Vec<(&str, Option<i64>)> = db.passes(id).unwrap().iter().map(|p| (p.source(), p.detected_us)).collect();
+        assert_eq!(
+            sources,
+            vec![("erkannt", Some(6_000_000)), ("verschoben", Some(20_000_000)), ("von Hand", None)]
+        );
+        // The detector can't take back a moved pass; deleting it only marks it.
+        db.remove_auto_pass(id, 1, 20_000_000).unwrap();
+        db.set_pass_deleted(p2, true).unwrap();
+        let p = db.passes(id).unwrap().into_iter().find(|p| p.id == p2).unwrap();
+        assert!(p.deleted && p.source() == "verschoben");
+        db.set_pass_deleted(p2, false).unwrap();
         db.delete_pilot(pilot).unwrap();
         assert_eq!(db.session(id).unwrap().unwrap().seats[0].pilot_id, None);
         db.set_setting("x", &vec![1, 2]).unwrap();
@@ -912,6 +942,30 @@ mod tests {
         db.create_session(&config, 200, 200, &seats, None).unwrap();
         assert_eq!(db.delete_all_sessions().unwrap(), 2);
         assert_eq!(db.create_session(&config, 300, 300, &seats, None).unwrap(), id + 3);
+    }
+
+    #[test]
+    fn detected_time_added_to_old_databases() {
+        // A database from before `detected_us`: one detected pass, one moved
+        // back then (`manual` set), one added by hand.
+        let path = std::env::temp_dir().join(format!("laptimer_test_{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE passes (id INTEGER PRIMARY KEY, session_id INTEGER NOT NULL, channel INTEGER NOT NULL,
+                   time_us INTEGER NOT NULL, peak_db REAL NOT NULL, manual INTEGER NOT NULL DEFAULT 0,
+                   deleted INTEGER NOT NULL DEFAULT 0, gate INTEGER NOT NULL DEFAULT 0, rejected TEXT);
+                 INSERT INTO passes (session_id, channel, time_us, peak_db, manual) VALUES
+                   (1, 0, 1000, -20, 0), (1, 0, 2000, -21, 1), (1, 0, 3000, 0, 1);",
+            )
+            .unwrap();
+        }
+        let db = Db::open(path.to_str().unwrap()).unwrap();
+        let sources: Vec<&str> = db.passes(1).unwrap().iter().map(|p| p.source()).collect();
+        assert_eq!(sources, vec!["erkannt", "von Hand", "von Hand"]);
+        drop(db);
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]

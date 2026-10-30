@@ -36,7 +36,7 @@ use serde_json::{Value, json};
 
 use crate::core::{results, standings};
 use crate::db::SessionRow;
-use crate::laps::{EndRule, PilotResult};
+use crate::laps::{EndRule, PassRecord, PilotResult};
 use crate::server::App;
 
 pub fn routes() -> Router<Arc<App>> {
@@ -89,6 +89,8 @@ pub struct Exported {
     pub row: SessionRow,
     pub results: Vec<PilotResult>,
     pub seats: Vec<usize>,
+    /// All passes, for how each lap came about (`PassRecord::source`).
+    pub passes: Vec<PassRecord>,
 }
 
 /// "3,5" → [3, 5].
@@ -126,7 +128,7 @@ fn build_export(app: &App, q: &ExportQuery) -> Result<(String, &'static str, Vec
             let seats = (0..row.seats.len())
                 .filter(|&i| channels.is_empty() || channels.contains(&(row.seats[i].channel as i64)))
                 .collect();
-            list.push(Exported { row, results, seats });
+            list.push(Exported { row, results, seats, passes });
         }
     }
     // Oldest first, like a logbook.
@@ -222,12 +224,16 @@ pub fn laps_csv(list: &[Exported]) -> String {
     let mut out = String::new();
     let head = [
         "Session", "Datum", "Art", "Format", "Kanal", "Frequenz (MHz)", "Pilot", "Runde", "Rundenzeit (s)", "Zeit seit Start (s)", "Uhrzeit",
+        "Erfassung", "Verschoben um (s)",
     ];
     csv_line(&mut out, &head.map(String::from));
     for e in list {
         for &i in &e.seats {
             let seat = &e.row.seats[i];
             for lap in &e.results[i].laps {
+                // The pass that ended the lap: detected, moved or added by hand.
+                let pass = e.passes.iter().find(|p| p.id == lap.pass_id);
+                let moved_by = pass.and_then(|p| p.detected_us.filter(|&d| d != p.time_us).map(|d| p.time_us - d));
                 csv_line(
                     &mut out,
                     &[
@@ -242,6 +248,8 @@ pub fn laps_csv(list: &[Exported]) -> String {
                         secs(Some(lap.duration_us)),
                         secs(Some(lap.end_us - start_of(&e.row))),
                         local_time(lap.end_us),
+                        pass.map_or("", |p| p.source()).into(),
+                        secs(moved_by),
                     ],
                 );
             }
@@ -307,10 +315,32 @@ fn export_json(list: &[Exported]) -> Value {
                 "ended_us": e.row.ended_us,
                 "confirmed_us": e.row.confirmed_us,
                 "results": results,
+                "passes": passes_json(e),
             })
         })
         .collect();
     json!({ "exported_us": crate::core::unix_now_us(), "sessions": sessions })
+}
+
+/// The finish-gate passes of the chosen channels, with how each came about
+/// (`source`: erkannt / verschoben / von Hand; `detected_us`: where the detector had it).
+fn passes_json(e: &Exported) -> Vec<Value> {
+    let channels: Vec<u8> = e.seats.iter().map(|&i| e.row.seats[i].channel).collect();
+    e.passes
+        .iter()
+        .filter(|p| p.gate == 0 && channels.contains(&p.channel))
+        .map(|p| {
+            json!({
+                "id": p.id,
+                "channel": p.channel,
+                "time_us": p.time_us,
+                "deleted": p.deleted,
+                "rejected": p.rejected,
+                "source": p.source(),
+                "detected_us": p.detected_us,
+            })
+        })
+        .collect()
 }
 
 // --- backups ---
@@ -434,7 +464,7 @@ async fn reset(State(app): St) -> Response {
 mod tests {
     use super::*;
     use crate::db::{Seat, SessionConfig};
-    use crate::laps::{PassRecord, StartMode};
+    use crate::laps::StartMode;
 
     fn session(id: i64, race: bool) -> SessionRow {
         let seat = |channel: u8, name: &str, label: &str| Seat {
@@ -474,12 +504,13 @@ mod tests {
             deleted: false,
             gate: 0,
             rejected: None,
+            detected_us: Some(time_us),
         }
     }
 
     fn exported(row: SessionRow, passes: &[PassRecord], seats: Vec<usize>) -> Exported {
         let results = results(&row, passes);
-        Exported { row, results, seats }
+        Exported { row, results, seats, passes: passes.to_vec() }
     }
 
     #[test]
@@ -495,6 +526,14 @@ mod tests {
         assert!(lines[1].contains(";Rennen;2 Runden;R1;5658;NITRO;1;5,000;5,000;"));
         assert!(lines[2].contains(";NITRO;2;4,500;9,500;"));
         assert!(lines[3].contains(";\"A;B\";1;6,000;6,000;"));
+        assert!(lines[1].ends_with(";erkannt;"), "{}", lines[1]);
+
+        // A lap ending in a moved pass says so, with how far.
+        let mut moved = passes;
+        moved[1].time_us = 10_250_000;
+        let e2 = exported(session(7, true), &moved, vec![0]);
+        let laps2 = laps_csv(std::slice::from_ref(&e2));
+        assert!(laps2.lines().nth(2).unwrap().ends_with(";verschoben;-0,250"), "{laps2}");
 
         let res = results_csv(std::slice::from_ref(&e));
         let lines: Vec<&str> = res.lines().collect();

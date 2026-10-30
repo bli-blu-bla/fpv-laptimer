@@ -48,9 +48,11 @@
  * @property {number} channel
  * @property {number} time_us
  * @property {number} peak_db
- * @property {boolean} manual
+ * @property {boolean} manual    added by hand
  * @property {boolean} deleted
  * @property {number} gate        0 = finish, 1 = arming gate
+ * @property {'no_arming' | null} [rejected]   deleted by the server, and why
+ * @property {number | null} [detected_us]   where the detector put it (null: added by hand; differs from time_us: moved by hand)
  */
 
 /** @typedef {'holeshot' | 'from_start' | 'flying'} StartMode */

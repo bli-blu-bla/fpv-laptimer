@@ -29,6 +29,23 @@ Seite anzeigt.
  "total_us": 44100000, "holeshot_us": 2336000, "finished": true}
 ```
 
+## Durchflug
+
+In `passes` von `sessions.get`:
+
+```json
+{"id": 17, "channel": 0, "time_us": …, "peak_db": -21.5, "manual": false,
+ "deleted": false, "gate": 0, "rejected": null, "detected_us": …}
+```
+
+| Feld | Bedeutung |
+|---|---|
+| `manual` | von Hand eingefügt (Taster über `passes.add` oder Editor) |
+| `deleted` | zählt nicht (gelöscht oder vom Server abgelehnt) |
+| `gate` | 0 = Ziel, 1 = Freigabe-Gate (macht keine Runden) |
+| `rejected` | vom Server abgelehnt, und warum (`no_arming`); `null` = nicht oder von Hand gelöscht |
+| `detected_us` | wo die Erkennung ihn gesetzt hat; `null` = von Hand eingefügt. Anders als `time_us`: von Hand verschoben |
+
 ## state
 
 ```json

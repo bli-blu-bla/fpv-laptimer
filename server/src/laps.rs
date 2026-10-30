@@ -55,6 +55,21 @@ pub struct PassRecord {
     /// Deleted by the server, and why (None: by hand, or not deleted).
     #[serde(default)]
     pub rejected: Option<Rejected>,
+    /// Where the detector put it; None: added by hand. Not `time_us`: moved by hand.
+    #[serde(default)]
+    pub detected_us: Option<i64>,
+}
+
+impl PassRecord {
+    /// How the pass came about, for exports and the debug package:
+    /// "erkannt", "verschoben" (detected, then moved by hand) or "von Hand".
+    pub fn source(&self) -> &'static str {
+        match self.detected_us {
+            Some(t) if t == self.time_us => "erkannt",
+            Some(_) => "verschoben",
+            None => "von Hand",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -189,6 +204,7 @@ mod tests {
                 time_us: (s * 1e6) as i64,
                 peak_db: -20.0,
                 manual: false,
+                detected_us: None,
                 deleted: false,
                 gate: 0,
                 rejected: None,
