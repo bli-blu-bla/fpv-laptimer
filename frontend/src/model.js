@@ -73,28 +73,56 @@ export function standings(s, results) {
  * @property {import('./types').Seat} seat
  * @property {string} color
  * @property {string} what     "Runde 3", "Holeshot", "Start", "zählt nicht"
+ * @property {string} reason   why it doesn't count ("Vor dem Start" …), "" if it does
+ * @property {boolean} rejected   rejected by the server (arming rule): restore instead of delete
  * @property {string} time     the lap time (or holeshot), "" if none
  * @property {string} delta    "Bestzeit", "+0.42" or ""
  * @property {boolean} best
  */
 
-/** Every pass of a session that is not deleted, newest first.
+/** Why a finish-gate pass counts for nothing, in a few words; "" if it counts.
+ * `ignored`: the ids the lap computation ignored, `finishedUs`: the
+ * finishing pass (both from a `PilotResult` or `computeLaps`).
+ * @param {{id: number | string, time_us: number, deleted?: boolean, rejected?: string | null}} p
+ * @param {{ignored: (number | string)[], finished_us: number | null}} r */
+export function notCountedReason(p, r) {
+  if (p.deleted) return p.rejected === 'no_arming' ? 'Keine Freigabe' : 'Gelöscht'
+  if (!r.ignored.includes(p.id)) return ''
+  return r.finished_us != null && p.time_us > r.finished_us ? 'Nach dem Ziel' : 'Vor dem Start'
+}
+
+/** What `notCountedReason` means, as a sentence (hint on the page). @param {string} reason */
+export function reasonHelp(reason) {
+  return (
+    {
+      'Keine Freigabe': 'Seit dem letzten gezählten Durchflug kam keiner durchs Freigabe-Gate. Wiederherstellen, wenn er zählen soll.',
+      Gelöscht: 'Von der Rennleitung gelöscht. Wiederherstellen, wenn er zählen soll.',
+      'Nach dem Ziel': 'Der Pilot war schon im Ziel.',
+      'Vor dem Start': 'Vor dem Startsignal (im Training: vor dem Start der Session).',
+    }[reason] ?? ''
+  )
+}
+
+/** Every pass of a session that is not deleted by hand, newest first (with
+ * the ones the arming rule rejected, so the log says why they don't count).
  * @param {import('./types').SessionDetail} d @returns {LogEntry[]} */
 export function passLog(d) {
   const out = []
   for (const p of d.passes ?? []) {
-    if (p.deleted || p.gate) continue // arming-gate passes make no laps
+    if (p.gate) continue // arming-gate passes make no laps
+    if (p.deleted && p.rejected !== 'no_arming') continue
     const i = d.session.seats.findIndex((s) => s.channel === p.channel)
     if (i < 0) continue
     const r = d.results[i]
     const lap = r.laps.find((l) => l.pass_id === p.id)
     const best = lap != null && lap.duration_us === r.best_lap_us
+    const reason = notCountedReason(p, r)
     let what = 'Start'
     let time = ''
     if (lap) {
       what = `Runde ${lap.number}`
       time = secs(lap.duration_us)
-    } else if (r.ignored.includes(p.id)) {
+    } else if (reason) {
       what = 'zählt nicht'
     } else if (r.holeshot_us != null) {
       what = 'Holeshot'
@@ -105,6 +133,8 @@ export function passLog(d) {
       seat: d.session.seats[i],
       color: slotColor(p.channel),
       what,
+      reason,
+      rejected: p.deleted,
       time,
       best,
       delta: lap ? (best ? 'Bestzeit' : '+' + secs(lap.duration_us - (r.best_lap_us ?? lap.duration_us))) : '',

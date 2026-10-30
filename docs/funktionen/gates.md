@@ -28,9 +28,10 @@ sequenceDiagram
     Note over Z: Durchflug → zählt (Runde 1)
 ```
 
-Abgelehnte Durchflüge gehen nicht verloren: Sie werden als gelöscht gespeichert und lassen
-sich im [Editor](korrigieren.md) mit einem Tipp wiederherstellen, falls das Freigabe-Board
-den Piloten einmal nicht gesehen hat.
+Abgelehnte Durchflüge gehen nicht verloren: Sie werden als gelöscht gespeichert, mit dem Grund.
+Die Durchflug-Liste der Rennleitung zeigt sie als „zählt nicht · Keine Freigabe“; dort oder im
+[Editor](korrigieren.md) lassen sie sich mit einem Tipp wiederherstellen, falls das
+Freigabe-Board den Piloten einmal nicht gesehen hat.
 
 ## Wo das Freigabe-Gate hinkommt
 

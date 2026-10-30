@@ -231,8 +231,8 @@ export const EVENTS = [
   { name: 'start_signal', desc: 'Startsignal (Training: sofort nach dem Start).', fields: 'session_id, race, start_us' },
   {
     name: 'pilot_pass',
-    desc: 'Ein Pilot fliegt durchs Ziel. kind: lap (beendet Runde lap), holeshot, start (erster Durchflug im Training), ignored (vor dem Start/nach dem Ziel).',
-    fields: `${SEAT}, session_id, race, pass_id, time_us, manual, kind, lap, lap_time_us, lap_time_s, laps, best_lap_us, best_lap_s, personal_best, session_best, holeshot_us, finished, position`,
+    desc: 'Ein Pilot fliegt durchs Ziel. kind: lap (beendet Runde lap), holeshot, start (erster Durchflug im Training), ignored (zählt nicht; reason: before_start/after_finish).',
+    fields: `${SEAT}, session_id, race, pass_id, time_us, manual, kind, reason, lap, lap_time_us, lap_time_s, laps, best_lap_us, best_lap_s, personal_best, session_best, holeshot_us, finished, position`,
   },
   {
     name: 'pilot_finished',

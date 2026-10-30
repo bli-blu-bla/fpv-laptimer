@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ArrowCounterClockwiseIcon, CaretLeftIcon, CaretRightIcon, CrosshairIcon, FloppyDiskIcon, MagnifyingGlassMinusIcon, MagnifyingGlassPlusIcon, ScissorsIcon, TrashIcon } from '@phosphor-icons/react'
 import { api } from '../api.js'
 import { secs, slotColor } from '../format.js'
-import { computeLaps } from '../model.js'
+import { computeLaps, notCountedReason, reasonHelp } from '../model.js'
 
 const HEIGHT = 340
 const OVERVIEW_HEIGHT = 44
@@ -28,7 +28,8 @@ const TRIM_AFTER_US = 10e6
  * @typedef {{moves: Record<number, number>, deletes: number[], restores: number[], adds: {key: string, t: number}[]}} Draft
  *
  * A pass as shown: `key` is "p<id>" for stored passes, "a…" for added ones.
- * @typedef {{key: string, id: number | null, t: number, kind: 'auto' | 'manual' | 'moved' | 'added' | 'deleted'}} Marker
+ * `rejected`: deleted by the server, and why (see `Pass`).
+ * @typedef {{key: string, id: number | null, t: number, kind: 'auto' | 'manual' | 'moved' | 'added' | 'deleted', rejected?: string | null}} Marker
  *
  * @typedef {object} Graph
  * @property {number[]} time_us
@@ -48,13 +49,15 @@ const changes = (d) => (d ? Object.keys(d.moves).length + d.deletes.length + d.r
 function markersOf(passes, d) {
   /** @type {Marker[]} */
   const out = passes.map((p) => {
-    const deleted = (p.deleted && !d.restores.includes(p.id)) || d.deletes.includes(p.id)
+    const stillDeleted = p.deleted && !d.restores.includes(p.id)
+    const deleted = stillDeleted || d.deletes.includes(p.id)
     const moved = d.moves[p.id]
     return {
       key: 'p' + p.id,
       id: p.id,
       t: moved ?? p.time_us,
       kind: deleted ? 'deleted' : moved != null ? 'moved' : p.manual ? 'manual' : 'auto',
+      rejected: stillDeleted ? (p.rejected ?? null) : null,
     }
   })
   for (const a of d.adds) out.push({ key: a.key, id: null, t: a.t, kind: 'added' })
@@ -95,6 +98,10 @@ export default function PassEditor({ detail, onSaved }) {
     t0,
   )
   const selected = markers.find((m) => m.key === sel) ?? null
+  // Why the selected pass doesn't count ("" if it does), as in the pass log.
+  const selectedReason = selected
+    ? notCountedReason({ id: selected.key, time_us: selected.t, deleted: selected.kind === 'deleted', rejected: selected.rejected }, preview)
+    : ''
   // Laps under the minimum lap: only a hint, a pass set by hand counts anyway.
   const minLapUs = s.config.min_lap_s * 1e6
   const tooShort = preview.laps.filter((l) => l.duration_us < minLapUs).length
@@ -230,7 +237,16 @@ export default function PassEditor({ detail, onSaved }) {
         <div className="graph-action">
           <span style={{ flex: 1, minWidth: 160 }}>
             Durchflug bei <b className="tnum">{secs(selected.t - t0)} s</b>
-            {selected.kind === 'deleted' ? ' – gelöscht' : selected.kind === 'added' ? ' – neu' : selected.kind === 'moved' ? ' – verschoben' : ''}
+            {selected.kind === 'added' ? ' – neu' : selected.kind === 'moved' ? ' – verschoben' : ''}
+            {selectedReason && (
+              <>
+                {' – zählt nicht: '}
+                <b>{selectedReason}</b>
+                <span className="muted small" style={{ display: 'block' }}>
+                  {reasonHelp(selectedReason)}
+                </span>
+              </>
+            )}
           </span>
           {selected.kind !== 'deleted' && (
             <button className="btn btn-secondary" onClick={async () => move(selected.key, await snap(selected.t))}>

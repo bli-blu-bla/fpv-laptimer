@@ -30,6 +30,11 @@ Darunter rechnet die **Runden-Vorschau** sofort mit: Rundenzeiten, Bestzeit, Pla
 kurze Runden sind rot markiert. Erst **Speichern** schreibt die Änderungen; bis dahin bleibt
 der Entwurf im Browser.
 
+Ein ausgewählter Durchflug, der nicht zählt, sagt warum: **Keine Freigabe** (von der
+[Freigabe-Regel](gates.md) abgelehnt), **Gelöscht**, **Vor dem Start** (vor dem Startsignal,
+im Training vor dem Start der Session) oder **Nach dem Ziel** (der Pilot war schon fertig).
+Dieselben Gründe stehen während des Laufs in der Durchflug-Liste der Rennleitung.
+
 ## Was dabei passiert
 
 - Gelöschte Durchflüge sind nur markiert und lassen sich wiederherstellen; von Hand gesetzte

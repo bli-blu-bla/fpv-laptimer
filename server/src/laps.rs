@@ -29,6 +29,14 @@ pub enum EndRule {
     Seconds(u32),
 }
 
+/// Why the server deleted a pass on its own (not the user).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Rejected {
+    /// The arming rule: no arming-gate pass since the last counted one.
+    NoArming,
+}
+
 /// One pass as stored, possibly corrected.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PassRecord {
@@ -44,6 +52,9 @@ pub struct PassRecord {
     /// 0: the finish gate; 1: the arming gate (no laps of its own).
     #[serde(default)]
     pub gate: u8,
+    /// Deleted by the server, and why (None: by hand, or not deleted).
+    #[serde(default)]
+    pub rejected: Option<Rejected>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
@@ -70,8 +81,21 @@ pub struct PilotResult {
     pub best_lap_us: Option<i64>,
     /// The fastest `consecutive` laps in a row: (sum, number of the first lap).
     pub best_consecutive: Option<(i64, u32)>,
-    /// Passes that count for nothing: before the start or after finishing.
+    /// Passes that count for nothing: before the start or after finishing
+    /// (`ignored_reason` tells which).
     pub ignored: Vec<i64>,
+}
+
+impl PilotResult {
+    /// Why an ignored pass counts for nothing: "after_finish" if it came
+    /// after the finishing pass, else "before_start".
+    pub fn ignored_reason(&self, time_us: i64) -> &'static str {
+        if self.finished_us.is_some_and(|f| time_us > f) {
+            "after_finish"
+        } else {
+            "before_start"
+        }
+    }
 }
 
 /// Laps of one channel. `passes`: that channel's passes in any order (deleted
@@ -167,6 +191,7 @@ mod tests {
                 manual: false,
                 deleted: false,
                 gate: 0,
+                rejected: None,
             })
             .collect()
     }
@@ -181,6 +206,8 @@ mod tests {
         let r = compute(0, &p, StartMode::Holeshot, EndRule::Laps(3), 10 * S, 2);
         // 5 s is before the start, 45 s after finishing: ignored. 12 s is the holeshot.
         assert_eq!(r.ignored, vec![1, 6]);
+        assert_eq!(r.ignored_reason(5 * S), "before_start");
+        assert_eq!(r.ignored_reason(45 * S), "after_finish");
         assert_eq!(r.holeshot_us, Some(2 * S));
         assert_eq!(durations(&r), vec![8.0, 7.0, 13.0]);
         assert_eq!(r.finished_us, Some(40 * S));

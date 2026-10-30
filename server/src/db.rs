@@ -7,7 +7,7 @@ use anyhow::Result;
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::{Deserialize, Serialize};
 
-use crate::laps::{EndRule, PassRecord, StartMode};
+use crate::laps::{EndRule, PassRecord, Rejected, StartMode};
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS pilots (
@@ -48,7 +48,8 @@ CREATE TABLE IF NOT EXISTS passes (
     peak_db REAL NOT NULL,
     manual INTEGER NOT NULL DEFAULT 0,
     deleted INTEGER NOT NULL DEFAULT 0,
-    gate INTEGER NOT NULL DEFAULT 0   -- 0: the finish gate (laps), 1: the arming gate
+    gate INTEGER NOT NULL DEFAULT 0,  -- 0: the finish gate (laps), 1: the arming gate
+    rejected TEXT                     -- deleted by the server: why ('no_arming')
 );
 CREATE INDEX IF NOT EXISTS passes_by_session ON passes(session_id);
 CREATE TABLE IF NOT EXISTS api_keys (
@@ -219,6 +220,12 @@ impl Db {
             .exists([])?;
         if !has_gate {
             conn.execute_batch("ALTER TABLE passes ADD COLUMN gate INTEGER NOT NULL DEFAULT 0")?;
+        }
+        let has_rejected = conn
+            .prepare("SELECT 1 FROM pragma_table_info('passes') WHERE name = 'rejected'")?
+            .exists([])?;
+        if !has_rejected {
+            conn.execute_batch("ALTER TABLE passes ADD COLUMN rejected TEXT")?;
         }
         // Databases from before confirmed_us: their sessions count as confirmed.
         let has_confirmed = conn
@@ -659,13 +666,13 @@ impl Db {
             }
             for &id in &e.restores {
                 self.conn.execute(
-                    &format!("UPDATE passes SET deleted = 0 {ids}"),
+                    &format!("UPDATE passes SET deleted = 0, rejected = NULL {ids}"),
                     params![id, session_id, channel],
                 )?;
             }
             for &id in &e.deletes {
                 self.conn.execute(
-                    &format!("UPDATE passes SET deleted = 1 {ids}"),
+                    &format!("UPDATE passes SET deleted = 1, rejected = NULL {ids}"),
                     params![id, session_id, channel],
                 )?;
                 self.conn.execute(
@@ -707,12 +714,25 @@ impl Db {
     pub fn set_pass_deleted(&self, id: i64, deleted: bool) -> Result<Option<i64>> {
         let session = self.pass_session(id)?;
         self.conn
-            .execute("UPDATE passes SET deleted = ?2 WHERE id = ?1", params![id, deleted])?;
+            .execute("UPDATE passes SET deleted = ?2, rejected = NULL WHERE id = ?1", params![id, deleted])?;
         if deleted {
             self.conn
                 .execute("DELETE FROM passes WHERE id = ?1 AND manual = 1", [id])?;
         }
         Ok(session)
+    }
+
+    /// A pass the server doesn't count (see `Rejected`): marked deleted with
+    /// the reason, so the page can say why and the user can restore it.
+    pub fn reject_pass(&self, id: i64, why: Rejected) -> Result<()> {
+        let why = match why {
+            Rejected::NoArming => "no_arming",
+        };
+        self.conn.execute(
+            "UPDATE passes SET deleted = 1, rejected = ?2 WHERE id = ?1",
+            params![id, why],
+        )?;
+        Ok(())
     }
 
     /// The session a pass belongs to.
@@ -735,7 +755,7 @@ impl Db {
 
     pub fn passes(&self, session_id: i64) -> Result<Vec<PassRecord>> {
         let mut st = self.conn.prepare(
-            "SELECT id, channel, time_us, peak_db, manual, deleted, gate FROM passes WHERE session_id = ?1 ORDER BY time_us",
+            "SELECT id, channel, time_us, peak_db, manual, deleted, gate, rejected FROM passes WHERE session_id = ?1 ORDER BY time_us",
         )?;
         let rows = st.query_map([session_id], |r| {
             Ok(PassRecord {
@@ -746,6 +766,10 @@ impl Db {
                 manual: r.get(4)?,
                 deleted: r.get(5)?,
                 gate: r.get(6)?,
+                rejected: match r.get::<_, Option<String>>(7)?.as_deref() {
+                    Some("no_arming") => Some(Rejected::NoArming),
+                    _ => None,
+                },
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -806,6 +830,14 @@ mod tests {
         let passes = db.passes(id).unwrap();
         assert_eq!(passes.len(), 1);
         assert!(passes[0].deleted);
+        assert_eq!(passes[0].rejected, None);
+        // Rejected by the server: the reason is kept until the user decides.
+        db.reject_pass(p1, Rejected::NoArming).unwrap();
+        assert_eq!(db.passes(id).unwrap()[0].rejected, Some(Rejected::NoArming));
+        db.set_pass_deleted(p1, false).unwrap();
+        let p = db.passes(id).unwrap()[0];
+        assert!(!p.deleted && p.rejected.is_none());
+        db.set_pass_deleted(p1, true).unwrap();
         let s = db.session(id).unwrap().unwrap();
         assert_eq!(s.config, config);
         assert_eq!(s.seats, seats);

@@ -104,7 +104,8 @@ neu (`sessions.get`). Deshalb:
   Durchsicht der Rennleitung.
 
 Durchflüge, die die Freigabe-Regel ablehnt ([Zwei Gates](../funktionen/gates.md)), erscheinen
-gar nicht als `pilot_pass`; sie sind als gelöscht gespeichert. Durchflüge am Freigabe-Gate
+gar nicht als `pilot_pass`; sie sind als gelöscht gespeichert, mit `rejected: "no_arming"` in
+den `passes` von `sessions.get` (von Hand gelöschte haben `rejected: null`). Durchflüge am Freigabe-Gate
 selbst sind keine Events.
 
 ## Alle Events
@@ -132,7 +133,7 @@ selbst sind keine Events.
 
 | Event | wann | data |
 |---|---|---|
-| `pilot_pass` | ein Pilot fliegt durchs Ziel (erkannt oder von Hand) | [Sitz](#sitz), `session_id`, `race`, `pass_id`, `time_us`, `manual`, `kind`, `lap`, `lap_time_us`, `lap_time_s`, `laps`, `best_lap_us`, `best_lap_s`, `personal_best`, `session_best`, `holeshot_us`, `finished`, `position` |
+| `pilot_pass` | ein Pilot fliegt durchs Ziel (erkannt oder von Hand) | [Sitz](#sitz), `session_id`, `race`, `pass_id`, `time_us`, `manual`, `kind`, `reason`, `lap`, `lap_time_us`, `lap_time_s`, `laps`, `best_lap_us`, `best_lap_s`, `personal_best`, `session_best`, `holeshot_us`, `finished`, `position` |
 | `pilot_finished` | ein Pilot hat das Rennende erreicht | [Sitz](#sitz), `session_id`, `laps`, `total_us`, `total_s`, `best_lap_us`, `best_lap_s`, `position` |
 | `passes_changed` | Durchflüge korrigiert ([oben](#korrekturen)) | `session_id` |
 
@@ -143,7 +144,8 @@ selbst sind keine Events.
 | `pass_id` | ID des Durchflugs (für `passes.delete`) |
 | `time_us` | Zeit des Durchflugs |
 | `manual` | von Hand: Taster über `passes.add` oder Editor |
-| `kind` | `lap`: beendet Runde `lap`. `holeshot`: erster Durchflug bei Holeshot-Start. `start`: erster Durchflug im Training oder bei fliegendem Start, startet die erste Runde. `ignored`: zählt nicht (vor dem Startsignal, oder der Pilot ist schon im Ziel) |
+| `kind` | `lap`: beendet Runde `lap`. `holeshot`: erster Durchflug bei Holeshot-Start. `start`: erster Durchflug im Training oder bei fliegendem Start, startet die erste Runde. `ignored`: zählt nicht (Grund in `reason`) |
+| `reason` | nur bei `kind: "ignored"`, sonst `null`: `before_start` (vor dem Startsignal; im Training vor dem Start der Session) oder `after_finish` (der Pilot ist schon im Ziel) |
 | `lap`, `lap_time_us`, `lap_time_s` | Nummer und Dauer der Runde, nur bei `kind: "lap"`, sonst `null` |
 | `laps` | fertige Runden des Piloten bis jetzt |
 | `best_lap_us`, `best_lap_s` | seine beste Runde in dieser Session |
@@ -159,7 +161,7 @@ Beispiel:
 {"type": "event", "event": "pilot_pass", "seq": 23, "time_us": 1792697174751210, "data": {
   "session_id": 1, "race": true, "pass_id": 6, "time_us": 1792697173739494, "manual": false,
   "channel": 1, "channel_name": "R3", "mhz": 5732, "pilot_id": 2, "pilot": "ACE",
-  "kind": "lap", "lap": 2, "lap_time_us": 13712000, "lap_time_s": 13.712, "laps": 2,
+  "kind": "lap", "reason": null, "lap": 2, "lap_time_us": 13712000, "lap_time_s": 13.712, "laps": 2,
   "best_lap_us": 13104106, "best_lap_s": 13.104, "personal_best": false, "session_best": false,
   "holeshot_us": 2303763, "finished": false, "position": 1}}
 ```

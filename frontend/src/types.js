@@ -94,6 +94,7 @@
  * @property {boolean} manual
  * @property {boolean} deleted
  * @property {number} gate   0: finish gate, 1: arming gate
+ * @property {'no_arming' | null} [rejected]   deleted by the server, and why (null: by hand)
  *
  * @typedef {object} Lap
  * @property {number} number

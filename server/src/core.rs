@@ -21,7 +21,7 @@ use crate::db::{Db, Pilot, Preset, PresetValues, Seat, SessionConfig, SessionRow
 use crate::detect::{ChannelStatus, DetectConfig, DetectionSettings, Detector, Event as DetectEvent, Thresholds};
 use crate::esp::board::{Event as BoardEvent, Level, LinkStats};
 use crate::events::Events;
-use crate::laps::{self, EndRule, PassRecord, PilotResult, StartMode};
+use crate::laps::{self, EndRule, PassRecord, PilotResult, Rejected, StartMode};
 use crate::sound::{Part, Sounds};
 use crate::stats;
 
@@ -518,8 +518,9 @@ impl Core {
                 let counts = !self.has_arming() || last.is_none() || armed.is_some_and(|a| Some(a) > last);
                 let id = self.db.add_pass(session_id, p.channel, time_us, p.peak_db, false)?;
                 if !counts {
-                    // Kept as deleted: the pass editor can restore it.
-                    self.db.set_pass_deleted(id, true)?;
+                    // Kept as deleted, with the reason: the page says why,
+                    // and the pass editor can restore it.
+                    self.db.reject_pass(id, Rejected::NoArming)?;
                 } else if time_us >= t0
                     && let Some(l) = self.last_counted.get_mut(c)
                 {
@@ -1464,9 +1465,10 @@ fn report_passes(a: &mut Active, new: &[PilotResult], events: &Events) {
         };
         let r = &new[i];
         let lap = r.laps.iter().find(|l| l.pass_id == p.id);
+        let ignored = r.ignored.contains(&p.id);
         let kind = if lap.is_some() {
             "lap"
-        } else if r.ignored.contains(&p.id) {
+        } else if ignored {
             "ignored"
         } else if a.row.config.start_mode == StartMode::Holeshot {
             "holeshot"
@@ -1483,6 +1485,7 @@ fn report_passes(a: &mut Active, new: &[PilotResult], events: &Events) {
             ("time_us", json!(p.time_us)),
             ("manual", json!(p.manual)),
             ("kind", json!(kind)),
+            ("reason", json!(ignored.then(|| r.ignored_reason(p.time_us)))),
             ("lap", json!(lap.map(|l| l.number))),
             ("lap_time_us", json!(lap_us)),
             ("lap_time_s", json!(lap_us.map(seconds))),

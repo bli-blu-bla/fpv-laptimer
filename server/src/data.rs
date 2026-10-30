@@ -473,6 +473,7 @@ mod tests {
             manual: false,
             deleted: false,
             gate: 0,
+            rejected: None,
         }
     }
 

@@ -154,7 +154,12 @@ Einstellungen.
 mehrere Boards pro Gate werden kombiniert (Maximum). Freigabe-Regel: Gibt es ein
 funktionierendes Freigabe-Board, zählt ein Ziel-Durchflug nur, wenn seit dem letzten
 gezählten Durchflug des Kanals ein Freigabe-Durchflug kam; der erste nach dem Start zählt
-immer. Abgelehnte werden als `deleted` gespeichert (im Editor wiederherstellbar).
+immer. Abgelehnte werden als `deleted` mit `rejected = 'no_arming'` gespeichert (Spalte wird
+in alten Datenbanken ergänzt; Löschen/Wiederherstellen von Hand setzt sie auf `NULL`), stehen
+in der Durchflug-Liste der Rennleitung als „Keine Freigabe“ und sind dort und im Editor
+wiederherstellbar. Nicht gezählte Durchflüge nennen ihren Grund (`model.js::notCountedReason`:
+Keine Freigabe, Gelöscht, Vor dem Start, Nach dem Ziel; `pilot_pass` hat `reason`
+`before_start`/`after_finish` aus `PilotResult::ignored_reason`).
 Freigabe-Durchflüge stehen mit `gate = 1` in `passes` (Spalte wird in alten Datenbanken
 ergänzt), machen keine Runden (`laps::compute` filtert `gate == 0`) und erscheinen im
 Editor als gelbe Punktlinien. Die Pegel-Datei einer Session hat `# roles: 0=finish 1=arming`;
