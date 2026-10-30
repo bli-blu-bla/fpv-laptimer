@@ -265,6 +265,18 @@ und die Query-Parameter sind `i64` (sonst 400 Bad Request beim Verschieben des G
 Dialog schließt nur bei einem Tipp, der auf dem Hintergrund *begonnen* hat (ein Ziehen, das
 außerhalb endet, klickt sonst den Hintergrund).
 
+Verbindung (`api.js::useServer`): Nach Bildschirmsperre/Ruhezustand bleibt der WebSocket oft
+„offen“, ohne dass etwas kommt (die Seite zeigte dann Rennen, die längst vorbei waren). Der
+Server schickt `live` mit 10 Hz, also: 3 s still oder Seite wieder sichtbar (`visibilitychange`,
+`pageshow`, `online`) ohne frische Nachricht in der letzten Sekunde → sofort neu verbinden,
+ohne aufs `close` der alten zu warten (deren Nachrichten werden ignoriert). Verbunden gilt erst
+ab dem ersten `state`; jedes Neuverbinden zählt `changed` hoch (verpasste `session_changed`).
+Uhrabgleich: größter Wert von `now_us − Browserzeit` der letzten 100 Nachrichten (jede ist
+höchstens zu spät, nie zu früh), nicht der letzte: ein Rückstau alter Nachrichten verstellte
+sonst Countdown und Rennuhr. Mehr als 2 s verspätete `announce` werden nicht gespielt.
+Getestet 2026-10-30 in Node gegen den Server, eingefroren per `SIGSTOP` (neu nach 3–4 s bzw.
+sofort bei `visibilitychange`); nicht in einem echten Browser.
+
 `npm run dev` proxied `/api` und `/ws` auf Port 5800. Geprüft mit puppeteer-core und dem
 installierten Chrome, Desktop 1280 px und Handy 390 px (Emulation; ohne sie wird Chrome
 headless nicht schmaler als ~500 px). Achtung: CSS-Klassennamen sind global; `.main` ist
