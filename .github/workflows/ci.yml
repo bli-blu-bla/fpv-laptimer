@@ -1,6 +1,6 @@
 # Tests on every push: server (cargo test), web page (JSDoc types, build),
-# the install script's syntax, the Python client's package (publishing:
-# pypi.yml). The release (firmware, packages, signature) is release.yml.
+# the install script's syntax, the Python and JS clients' packages
+# (publishing: pypi.yml, npm.yml). The release (firmware, packages, signature) is release.yml.
 name: CI
 
 on:
@@ -45,6 +45,12 @@ jobs:
         run: |
           pipx run build
           pipx run twine check --strict dist/*
+
+      - name: JS client (types, package)
+        working-directory: clients/js
+        run: |
+          npm run check
+          npm pack --dry-run
 
       - name: Scripts
         run: bash -n deploy/install.sh tools/build_release.sh && sh -n deploy/update-check.sh

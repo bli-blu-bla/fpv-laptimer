@@ -1,4 +1,4 @@
-# laptimer-client (JavaScript)
+# fpv-laptimer-client (JavaScript)
 
 Client für die API des Laptimers (`/api/v1`, ausführlich in [`docs/api/`](../../docs/api/index.md)):
 jeder Befehl als Methode, Events live über den WebSocket, mit automatischem Neuverbinden.
@@ -9,14 +9,13 @@ jeder Befehl als Methode, Events live über den WebSocket, mit automatischem Neu
 
 ## Einbinden
 
-Den Ordner kopieren oder ins eigene Projekt installieren:
-
 ```sh
-npm install ../pfad/zu/fpv-laptimer/clients/js
+npm install fpv-laptimer-client
+# oder aus dem Repo: npm install ../pfad/zu/fpv-laptimer/clients/js
 ```
 
 ```js
-import { Laptimer, LaptimerError } from 'laptimer-client'
+import { Laptimer, LaptimerError } from 'fpv-laptimer-client'
 // oder ohne npm, mit dem Pfad: import { Laptimer } from './clients/js/src/index.js'
 
 const lt = new Laptimer({ url: 'http://pi:5800', key: 'lt_…' })
@@ -178,3 +177,41 @@ cd clients/js && LAPTIMER_URL=http://localhost:5801 LAPTIMER_KEY=lt_… npm test
 
 Ohne die beiden Variablen werden die Tests übersprungen. Typprüfung: `npm run check` (lädt
 TypeScript nur als Prüfer).
+
+## Veröffentlichen (npm)
+
+Die Version kommt aus dem Git-Tag und ist unabhängig von Server und Python-Client. Im Repo
+steht in `package.json` nur der Platzhalter `0.0.0-dev`; der Workflow schreibt vor dem Packen
+die echte Version hinein. Ablauf:
+
+1. Tag `js-v<version>` pushen, z. B. `git tag js-v0.2.0 && git push origin js-v0.2.0`
+   (SemVer, Vorabversionen wie `0.2.0-rc.1`).
+2. Der Workflow `.github/workflows/npm.yml` setzt die Version, prüft die Typen, packt das Paket
+   (`prepack` erzeugt dabei `types/*.d.ts` aus dem JSDoc, damit auch TypeScript-Projekte die
+   Typen bekommen), installiert es testweise und lädt es per Trusted Publishing (ohne Token,
+   mit Herkunftsnachweis) auf npm. Vorabversionen bekommen das Dist-Tag `next`, damit
+   `npm install` weiter die letzte richtige Version holt.
+
+Von Hand starten (*Actions → npm → Run workflow*) packt und prüft nur
+(`npm publish --dry-run`); npm hat kein Test-Register wie TestPyPI.
+
+Einmal einrichten: npm bietet Trusted Publishing nur für ein Paket an, das es schon gibt. Die
+erste Version deshalb von Hand:
+
+```sh
+cd clients/js
+npm login
+npm version 0.1.0 --no-git-tag-version
+npm publish --access public
+git checkout package.json        # zurück auf den Platzhalter
+```
+
+Diese erste Version bekommt keinen Tag (der Workflow würde sie noch einmal hochladen wollen und
+scheitern); die nächste kommt dann über `js-v0.2.0`.
+
+Danach auf npmjs.com unter *Package → Settings → Trusted Publisher* GitHub Actions wählen:
+Owner `bli-blu-bla`, Repo `fpv-laptimer`, Workflow `npm.yml`, Environment `npm`; im
+GitHub-Repo unter *Settings → Environments* das Environment `npm` anlegen (am besten mit
+Freigabe durch dich). Ab dann gehen alle Versionen über den Tag.
+
+Lokal packen und ansehen: `npm pack --dry-run` (bzw. `npm pack` für die Datei).

@@ -1,21 +1,37 @@
 {
-  "name": "laptimer-client",
-  "version": "0.1.0",
+  "name": "fpv-laptimer-client",
+  "version": "0.0.0-dev",
   "description": "JavaScript-Client für die API des FPV-Laptimers (/api/v1): Befehle per HTTP oder WebSocket, Events live",
+  "keywords": ["fpv", "drone", "racing", "laptimer", "lap timer"],
   "type": "module",
   "main": "./src/index.js",
+  "types": "./types/index.d.ts",
   "exports": {
-    ".": "./src/index.js"
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./src/index.js"
+    }
   },
   "files": [
-    "src"
+    "src",
+    "types"
   ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "test": "node --test",
-    "check": "npx -y -p typescript@5.9.3 tsc -p jsconfig.json"
+    "check": "npx -y -p typescript@5.9.3 tsc -p jsconfig.json",
+    "types": "npx -y -p typescript@5.9.3 tsc -p jsconfig.json --noEmit false --declaration --emitDeclarationOnly --outDir types",
+    "prepack": "npm run types"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bli-blu-bla/fpv-laptimer.git",
+    "directory": "clients/js"
+  },
+  "homepage": "https://bli-blu-bla.github.io/fpv-laptimer/api/clients/",
+  "bugs": "https://github.com/bli-blu-bla/fpv-laptimer/issues",
+  "author": "bli-blu-bla",
   "license": "GPL-3.0-or-later"
 }

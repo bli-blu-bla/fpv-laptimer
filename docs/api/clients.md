@@ -36,10 +36,14 @@ eigenen Script, etwa in einem [Hook](hooks.md). Alles Weitere im
 
 [`clients/js`](https://github.com/bli-blu-bla/fpv-laptimer/tree/main/clients/js), für Node ≥ 22
 und den Browser, ohne Abhängigkeiten, mit JSDoc-Typen (der Editor ergänzt Befehle und
-Event-Felder).
+Event-Felder; für TypeScript liegen `.d.ts` bei).
+
+```sh
+npm install fpv-laptimer-client
+```
 
 ```js
-import { Laptimer } from 'laptimer-client'
+import { Laptimer } from 'fpv-laptimer-client'
 
 const lt = new Laptimer({ url: 'http://pi:5800', key: 'lt_…' })
 lt.on('pilot_pass', (d) => {

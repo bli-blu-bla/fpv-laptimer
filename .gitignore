@@ -15,6 +15,10 @@ server/target/
 frontend/node_modules/
 frontend/dist/
 
+# JS client: dependencies, type files (npm run types, built on publish)
+clients/js/node_modules/
+clients/js/types/
+
 # Python tools
 tools/.venv*/
 __pycache__/

@@ -1,0 +1,83 @@
+# The JavaScript client (clients/js) on npm, on a tag "js-v*"
+# (git tag js-v0.2.0 && git push origin js-v0.2.0). The version comes from
+# the tag and is written into clients/js/package.json before packing; the
+# repository only holds a placeholder. A prerelease (js-v0.2.0-rc.1) goes to
+# the dist-tag "next", so `npm install` still gets the last real release.
+# Started by hand (Actions → npm → Run workflow) it only packs and checks
+# (npm publish --dry-run): npm has no test registry like TestPyPI.
+#
+# Trusted Publishing, no token. npm only offers it for a package that already
+# exists, so the very first version is published by hand; afterwards on
+# npmjs.com add the trusted publisher (this repository, workflow npm.yml,
+# environment npm) and create the environment in the repository settings.
+# Details: clients/js/README.md.
+name: npm
+
+on:
+  push:
+    tags: ['js-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'push' && 'npm' || '' }}
+    permissions:
+      id-token: write # Trusted Publishing, provenance
+    defaults:
+      run:
+        working-directory: clients/js
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # all tags, for the last js-v tag on a manual run
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24 # npm ≥ 11.5.1 for Trusted Publishing
+          registry-url: https://registry.npmjs.org
+
+      - name: Set version
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=${GITHUB_REF_NAME#js-v}
+          else
+            last=$(git describe --tags --match 'js-v*' --abbrev=0 2>/dev/null || echo js-v0.0.0)
+            version=${last#js-v}-dev.$GITHUB_RUN_NUMBER
+          fi
+          # npm version refuses anything that is not semver and prints "v<version>";
+          # it must come back unchanged (no "v" in front, no leading zeros).
+          set_to=$(npm version "$version" --no-git-tag-version --allow-same-version)
+          if [ "$set_to" != "v$version" ]; then
+            echo "Version $version ist kein SemVer in Normalform ($set_to)" >&2
+            exit 1
+          fi
+          case $version in
+            *-*) tag=next ;;
+            *) tag=latest ;;
+          esac
+          echo "version $version, dist-tag $tag"
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "DIST_TAG=$tag" >> "$GITHUB_ENV"
+
+      - name: Check
+        run: |
+          npm run check
+          npm pack # runs prepack: types/ from the JSDoc
+          tar -tzf fpv-laptimer-client-$VERSION.tgz
+          # Import from the packed tarball, not from the source folder.
+          mkdir /tmp/check && cd /tmp/check
+          npm init -y > /dev/null
+          npm install --no-audit --no-fund "$GITHUB_WORKSPACE/clients/js/fpv-laptimer-client-$VERSION.tgz"
+          test -f node_modules/fpv-laptimer-client/types/index.d.ts
+          node -e "import('fpv-laptimer-client').then(m => { if (typeof m.Laptimer !== 'function') process.exit(1) })"
+          node -p "require('./node_modules/fpv-laptimer-client/package.json').version" | grep -qx "$VERSION"
+
+      - name: Publish
+        run: |
+          dry=--dry-run
+          [ "$GITHUB_REF_TYPE" = tag ] && dry=
+          rm fpv-laptimer-client-$VERSION.tgz
+          npm publish --access public --tag "$DIST_TAG" $dry

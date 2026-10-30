@@ -1,5 +1,5 @@
 // @ts-check
-// laptimer-client: everything in one import.
+// fpv-laptimer-client: everything in one import.
 export { Laptimer, LaptimerError } from './laptimer.js'
 
 /** @typedef {import('./types.js').Channel} Channel */
