@@ -1339,6 +1339,20 @@ body {
   .lf-act {
     align-self: center;
   }
+  /* The button only as its icon, round. */
+  .lf-act .btn-secondary {
+    width: 40px;
+    min-height: 40px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 50%;
+  }
+  .lf-act-label {
+    display: none;
+  }
+  .lf-playing {
+    padding: 0 4px;
+  }
 }
 .session-item .t {
   flex: 1;

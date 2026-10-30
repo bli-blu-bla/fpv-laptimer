@@ -8,7 +8,7 @@
 // details; below 720 px of width each entry is a tile (container query in
 // index.css). Design: "Aufnahme-Auswahl" on Claude Design.
 
-import { FilmStripIcon, FlagCheckeredIcon, InfinityIcon, MagnifyingGlassIcon, PlayIcon } from '@phosphor-icons/react'
+import { FilmStripIcon, FlagCheckeredIcon, FolderOpenIcon, InfinityIcon, MagnifyingGlassIcon, PlayIcon } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
 import { api } from '../api.js'
 import { dateTime, secs, sessionKind, slotColor, time } from '../format.js'
@@ -158,7 +158,8 @@ export default function LevelFileList({ action, current = null, disabled, withRu
                         aria-label={`${action}: ${e.kind} ${e.id}, ${time(e.at_us)}`}
                         onClick={() => onPick(e.source, e.label)}
                       >
-                        {action === 'Abspielen' && <PlayIcon size={14} weight="fill" />} {action}
+                        {action === 'Abspielen' ? <PlayIcon size={14} weight="fill" /> : <FolderOpenIcon size={16} />}
+                        <span className="lf-act-label">{action}</span>
                       </button>
                     )}
                   </span>
