@@ -4,10 +4,11 @@
 // (`PUT /api/source`). Either or: while a recording plays, the boards are
 // stopped. A restart of the laptimer goes back to the boards.
 
-import { FilmStripIcon, PlayIcon, StopIcon } from '@phosphor-icons/react'
-import { useEffect, useState } from 'react'
+import { FilmStripIcon, StopIcon } from '@phosphor-icons/react'
+import { useState } from 'react'
 import { api } from '../api.js'
-import { dateTime, recLabel } from '../format.js'
+import { recLabel } from '../format.js'
+import LevelFileList from './LevelFileList.jsx'
 
 /** @param {{state: import('../types').State}} props */
 export default function SourcePanel({ state }) {
@@ -78,53 +79,9 @@ export default function SourcePanel({ state }) {
               )}
             </>
           )}
-          {picking && <FilePicker disabled={busy || locked} current={replay?.source ?? null} onPlay={play} />}
+          {picking && <LevelFileList action="Abspielen" disabled={busy || locked} current={replay?.source ?? null} onPick={(source) => play(source)} />}
         </div>
       )}
     </div>
-  )
-}
-
-/**
- * Recordings (Boards → Debug → Aufnehmen) and sessions with their levels.
- * @param {{disabled: boolean, current: string | null, onPlay: (source: string) => void}} props
- */
-function FilePicker({ disabled, current, onPlay }) {
-  const [recs, setRecs] = useState(/** @type {{name: string, size: number, recording: boolean}[] | null} */ (null))
-  const [sessions, setSessions] = useState(/** @type {{session: import('../types').Session}[]} */ ([]))
-  const [error, setError] = useState('')
-
-  useEffect(() => {
-    api('/debug/recordings')
-      .then((r) => setRecs(r.recordings))
-      .catch((e) => setError(e.message))
-    api('/sessions')
-      .then(setSessions)
-      .catch(() => {})
-  }, [])
-
-  /** @param {string} source @param {string} label @param {string} note */
-  const row = (source, label, note) => (
-    <div key={source} className="debug-file">
-      <span style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ fontWeight: 600 }}>{label}</span>
-        <span className="muted small"> · {note}</span>
-      </span>
-      <button className="btn btn-secondary" disabled={disabled || source === current} onClick={() => onPlay(source)}>
-        <PlayIcon size={16} /> {source === current ? 'Läuft' : 'Abspielen'}
-      </button>
-    </div>
-  )
-
-  return (
-    <>
-      {error && <div className="error small">{error}</div>}
-      <div className="kicker">Aufnahmen</div>
-      {recs && !recs.filter((r) => !r.recording).length && <div className="muted small">Noch keine – unter Debug → Live auf „Aufnehmen“ tippen.</div>}
-      {recs?.filter((r) => !r.recording).map((r) => row('rec:' + r.name, recLabel(r.name), `${(r.size / 1e6).toFixed(1).replace('.', ',')} MB`))}
-      <div className="kicker" style={{ marginTop: 8 }}>Sessions</div>
-      {!sessions.length && <div className="muted small">Noch keine Sessions.</div>}
-      {sessions.slice(0, 12).map(({ session: s }) => row('session:' + s.id, `#${s.id} ${s.config.race ? 'Rennen' : 'Training'}`, dateTime(s.created_us)))}
-    </>
   )
 }

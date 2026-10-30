@@ -1,7 +1,8 @@
 // @ts-check
 // A session's result: one row per pilot, in finishing order, with a place
 // badge (1–3 highlighted), status (laps, in the finish or not), every lap
-// time (the session's fastest marked), total and gap. In a race, pilots
+// time with its label (the holeshot first, set apart; the session's fastest
+// lap marked), total and gap. In a race, pilots
 // still out on the course come after a "Nicht im Ziel" line. Design:
 // "Rennergebnis Tabelle" on Claude Design. Below 640 px of width each row
 // becomes a card (container query in index.css).
@@ -71,9 +72,16 @@ export default function Ranking({ detail }) {
                   <span className={`rk-status ${hasFinish ? (done ? 'rk-ok' : 'rk-warn') : ''}`}>{status(r)}</span>
                 </span>
               </span>
-              <span className="lap-chips">
+              <span className="lap-chips labeled">
+                {r.holeshot_us != null && (
+                  <span className="holeshot">
+                    <small>Holeshot</small>
+                    {secs(r.holeshot_us)}
+                  </span>
+                )}
                 {r.laps.map((l) => (
                   <span key={l.pass_id} className={l.duration_us === overallBest ? 'best' : ''}>
+                    <small>Runde {l.number}</small>
                     {secs(l.duration_us)}
                   </span>
                 ))}

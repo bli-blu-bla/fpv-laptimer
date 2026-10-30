@@ -85,6 +85,7 @@
  * @property {number | null} ended_us
  * @property {number | null} confirmed_us   result confirmed (races; null: not yet)
  * @property {Seat[]} seats
+ * @property {string | null} [levels_file]   the raw levels on the server (null: none recorded)
  *
  * @typedef {object} Pass
  * @property {number} id

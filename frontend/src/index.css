@@ -22,6 +22,7 @@
   --bad: #ff6b6b;
   --warn: #ffb347;
   --manual: #7b9cff;
+  --holeshot: #c792ea;
   --r-sm: 4px;
   --r-md: 8px;
   --r-lg: 14px;
@@ -1015,6 +1016,26 @@ body {
 .ranking .lap-chips span.best {
   box-shadow: inset 0 0 0 1px var(--accent-800);
 }
+/* Each time with its label above: "Holeshot", "Runde 1", … */
+.lap-chips.labeled span {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.lap-chips.labeled small {
+  font-size: 10.5px;
+  color: var(--n500);
+}
+.lap-chips.labeled span.best small {
+  color: var(--accent-300);
+}
+.lap-chips.labeled span.holeshot {
+  background: color-mix(in srgb, var(--holeshot) 14%, transparent);
+  color: var(--holeshot);
+}
+.lap-chips.labeled span.holeshot small {
+  color: var(--holeshot);
+}
 .ranking .rk-total {
   font-size: 17px;
   font-weight: 600;
@@ -1133,6 +1154,191 @@ body {
 }
 .session-item.on {
   box-shadow: 0 0 0 1px var(--accent);
+}
+.session-item:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+/* — recordings and sessions to play or open (components/LevelFileList.jsx),
+   after the design "Aufnahme-Auswahl": a compact list, tiles below 720 px — */
+.lf {
+  container-type: inline-size;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.lf-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.lf-filters {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+}
+.lf-filters .chip-btn {
+  flex: none;
+}
+.lf-count {
+  color: var(--n500);
+  margin-left: 2px;
+}
+.lf-search {
+  margin-left: auto;
+  min-height: 40px;
+  width: min(100%, 260px);
+}
+.lf-search input {
+  font-size: 14px;
+}
+.lf-scroll {
+  max-height: 520px;
+  overflow-y: auto;
+}
+.lf-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 6px 10px;
+  border-radius: var(--r-md);
+}
+.lf-row:hover {
+  background: var(--surface-2);
+}
+.lf-row.on {
+  background: var(--accent-900);
+  box-shadow: inset 0 0 0 1px var(--accent-800);
+}
+.lf-row.off {
+  opacity: 0.55;
+}
+.lf-icon {
+  display: flex;
+  flex: none;
+  width: 20px;
+  justify-content: center;
+}
+.lf-time {
+  flex: none;
+  width: 44px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+/* Title line (kind bold, id and format grey) over the details. */
+.lf-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
+}
+.lf-title {
+  color: var(--n500);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.lf-kind {
+  color: var(--text);
+  font-weight: 600;
+}
+.lf-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px 0;
+  color: var(--n400);
+  font-size: 12px;
+}
+/* Details separated by a dot. */
+.lf-meta > * + *::before {
+  content: '·';
+  margin: 0 6px;
+  color: var(--n700);
+}
+.lf-chans,
+.lf-boards,
+.lf-gate {
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+.lf-dots {
+  display: inline-flex;
+  gap: 3px;
+  margin-right: 6px;
+}
+.lf-dots .dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.lf-boards {
+  gap: 10px;
+}
+.lf-gate {
+  gap: 5px;
+}
+/* A gate drawn small: green solid = finish, yellow dashed = arming. */
+.lf-gate-mark {
+  width: 11px;
+  height: 10px;
+  border: 2px solid var(--ok);
+  border-bottom: 0;
+  border-radius: 2px 2px 0 0;
+}
+.lf-gate-mark.arming {
+  border-color: var(--warn);
+  border-style: dashed;
+}
+.lf-dim {
+  color: var(--n600);
+}
+.lf-dur {
+  font-variant-numeric: tabular-nums;
+}
+.lf-act {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.lf-act .btn-secondary {
+  min-height: 36px;
+  padding: 0 12px;
+}
+.lf-playing {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 10px;
+  color: var(--accent);
+  font-weight: 600;
+  font-size: 13px;
+}
+/* Narrow: a tile per entry, without the icon. */
+@container (max-width: 720px) {
+  .lf-search {
+    margin-left: 0;
+    width: 100%;
+  }
+  .lf-row {
+    align-items: flex-start;
+    padding: 10px;
+    margin-bottom: 4px;
+    background: var(--surface-2);
+  }
+  .lf-icon {
+    display: none;
+  }
+  .lf-act {
+    align-self: center;
+  }
 }
 .session-item .t {
   flex: 1;

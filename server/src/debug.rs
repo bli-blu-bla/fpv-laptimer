@@ -372,6 +372,70 @@ pub fn file_channels(path: &Path) -> Result<Vec<String>> {
     Ok(Vec::new())
 }
 
+/// What a level file holds, from its header and its first and last line
+/// (for the lists to pick one; nothing is worked through).
+#[derive(Debug, Clone, Serialize)]
+pub struct FileInfo {
+    /// "R1@5658", …
+    pub channels: Vec<String>,
+    /// The boards with their role and name (`# board` lines; older session
+    /// files only have `# roles:`, then without names; neither: none).
+    pub boards: Vec<DebugBoard>,
+    /// From the first to the last level, seconds.
+    pub duration_s: Option<f64>,
+}
+
+pub fn file_info(path: &Path) -> Result<FileInfo> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = File::open(path).with_context(|| format!("{}", path.display()))?;
+    let mut channels = Vec::new();
+    let mut roles = Vec::new();
+    let mut boards: Vec<DebugBoard> = Vec::new();
+    let mut first_us = None;
+    for line in BufReader::new(&mut file).lines() {
+        let line = line?;
+        if let Some(rest) = line.strip_prefix("# channels:") {
+            channels = parse_channels(rest);
+        } else if let Some(rest) = line.strip_prefix("# roles:") {
+            roles = parse_roles(rest);
+        } else if let Some((_, j)) = line.strip_prefix("# board ").and_then(|r| r.split_once(' ')) {
+            if let Ok(b) = serde_json::from_str::<DebugBoard>(j) {
+                boards.push(b);
+            }
+        } else if !line.starts_with('#') && !line.starts_with("board") {
+            first_us = host_us(&line);
+            break;
+        }
+    }
+    // Boards without a "# board" line (session files): their number and role.
+    for (i, role) in roles.iter().enumerate() {
+        if !boards.iter().any(|b| b.index == i) {
+            boards.push(DebugBoard { index: i, id: format!("{}", i + 1), name: None, role: *role });
+        }
+    }
+    boards.sort_by_key(|b| b.index);
+    // The last whole line: in the last 4 KB.
+    let len = file.seek(SeekFrom::End(0))?;
+    file.seek(SeekFrom::Start(len.saturating_sub(4096)))?;
+    let mut tail = String::new();
+    file.read_to_string(&mut tail).ok();
+    let last_us = tail.lines().rev().find_map(host_us);
+    let duration_s = match (first_us, last_us) {
+        (Some(a), Some(b)) if b > a => Some((b - a) as f64 / 1e6),
+        _ => None,
+    };
+    Ok(FileInfo { channels, boards, duration_s })
+}
+
+/// `host_us` of a level line ("board,channel,host_us,…"); None for anything else.
+fn host_us(line: &str) -> Option<i64> {
+    let f: Vec<&str> = line.split(',').collect();
+    if f.len() < 6 {
+        return None;
+    }
+    f[2].parse().ok()
+}
+
 /// "0=R1@5658 1=R3@5732" (after the colon) → "R1@5658", "R3@5732" (what
 /// follows the "="; the first recordings of `laptimer record` wrote
 /// "R1=5658", that gives just the frequency).
@@ -548,6 +612,7 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/debug/record", post(start_recording))
         .route("/debug/record/stop", post(stop_recording))
         .route("/debug/recordings", get(list_recordings))
+        .route("/debug/session-files", get(session_files))
         .route("/debug/recordings/{name}", get(download_recording).delete(delete_recording))
         .route("/debug/graph", get(graph))
 }
@@ -624,12 +689,40 @@ async fn list_recordings(State(app): St) -> Response {
             if check_name(&name).is_err() || !meta.is_file() {
                 continue;
             }
-            list.push(json!({ "name": name, "size": meta.len(), "recording": current.as_deref() == Some(&name) }));
+            let info = file_info(&entry.path()).ok();
+            list.push(json!({ "name": name, "size": meta.len(), "recording": current.as_deref() == Some(&name), "info": info }));
         }
     }
     // The names hold date and time: sorting by name sorts by time.
     list.sort_by(|a, b| b["name"].as_str().cmp(&a["name"].as_str()));
     Json(json!({ "recordings": list })).into_response()
+}
+
+/// For each session with a level file: what it holds (`FileInfo`), by id.
+/// Sessions without one are missing.
+async fn session_files(State(app): St) -> Response {
+    let files: Vec<(i64, String)> = {
+        let core = app.core.lock().unwrap();
+        match core.db.sessions(u32::MAX) {
+            Ok(list) => list.into_iter().filter_map(|s| Some((s.id, s.levels_file?))).collect(),
+            Err(e) => return bad(e),
+        }
+    };
+    // Reading the files: not under the core lock, not on the async threads.
+    let result = tokio::task::spawn_blocking(move || {
+        let mut out = serde_json::Map::new();
+        for (id, path) in files {
+            if let Ok(info) = file_info(Path::new(&path)) {
+                out.insert(id.to_string(), json!(info));
+            }
+        }
+        out
+    })
+    .await;
+    match result {
+        Ok(map) => Json(Value::Object(map)).into_response(),
+        Err(e) => bad(e.into()),
+    }
 }
 
 async fn download_recording(State(app): St, UrlPath(name): UrlPath<String>) -> Response {
@@ -752,6 +845,25 @@ pub fn source_file(app: &App, source: &str) -> Result<(PathBuf, Option<DetectSet
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn info_from_the_header() {
+        let path = std::env::temp_dir().join(format!("laptimer_info_{}.csv", std::process::id()));
+        fs::write(
+            &path,
+            "# laptimer session 3\n# channels: 0=R1@5658 1=R3@5732\n# gain: 30; host_us + 5 = wall clock µs\n\
+             # roles: 0=finish 1=arming\n# board 0 {\"index\":0,\"id\":\"AA\",\"name\":\"S1\",\"role\":\"finish\"}\n\
+             board,channel,host_us,board_us,rssi,flags\n0,0,1000000,1,40,0\n1,1,3500000,2,41,0\n0,1,3",
+        )
+        .unwrap();
+        let info = file_info(&path).unwrap();
+        let _ = fs::remove_file(&path);
+        assert_eq!(info.channels, vec!["R1@5658", "R3@5732"]);
+        let boards: Vec<(Option<&str>, BoardRole)> = info.boards.iter().map(|b| (b.name.as_deref(), b.role)).collect();
+        assert_eq!(boards, vec![(Some("S1"), BoardRole::Finish), (None, BoardRole::Arming)]);
+        // The cut-off last line doesn't count.
+        assert_eq!(info.duration_s, Some(2.5));
+    }
 
     /// Two boards: board 0 sees a pass every 5 s, board 1 only noise.
     fn levels(board: usize, t0: i64, seconds: i64) -> Vec<Level> {

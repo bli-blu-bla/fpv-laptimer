@@ -10,7 +10,6 @@ import {
   CaretLeftIcon,
   CaretRightIcon,
   DownloadSimpleIcon,
-  FolderOpenIcon,
   MagnifyingGlassMinusIcon,
   MagnifyingGlassPlusIcon,
   PauseIcon,
@@ -21,7 +20,8 @@ import {
 } from '@phosphor-icons/react'
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api.js'
-import { dateTime, recLabel } from '../format.js'
+import LevelFileList from './LevelFileList.jsx'
+import { recLabel } from '../format.js'
 
 /**
  * @typedef {object} DebugBoard
@@ -306,31 +306,19 @@ function useLiveDebug(channels) {
 
 // --- files ---
 
-/** Recordings and sessions to open. @param {{onOpen: (s: {key: string, label: string}) => void}} props */
+/** Recordings and sessions to open; recordings can also be downloaded and deleted.
+ * @param {{onOpen: (s: {key: string, label: string}) => void}} props */
 function FileList({ onOpen }) {
-  const [recs, setRecs] = useState(/** @type {{name: string, size: number, recording: boolean}[] | null} */ (null))
-  const [sessions, setSessions] = useState(/** @type {{session: import('../types').Session}[]} */ ([]))
   const [confirm, setConfirm] = useState('')
   const [error, setError] = useState('')
 
-  const load = () =>
-    api('/debug/recordings')
-      .then((r) => setRecs(r.recordings))
-      .catch((e) => setError(e.message))
-  useEffect(() => {
-    load()
-    api('/sessions')
-      .then(setSessions)
-      .catch(() => {})
-  }, [])
-
-  /** @param {string} name */
-  async function remove(name) {
+  /** @param {string} name @param {() => void} reload */
+  async function remove(name, reload) {
     if (confirm !== name) return setConfirm(name)
     setConfirm('')
     try {
       await api(`/debug/recordings/${encodeURIComponent(name)}`, { method: 'DELETE' })
-      load()
+      reload()
     } catch (e) {
       setError(/** @type {Error} */ (e).message)
     }
@@ -339,41 +327,28 @@ function FileList({ onOpen }) {
   return (
     <>
       {error && <div className="error small">{error}</div>}
-      <div className="kicker" style={{ marginTop: 8 }}>Aufnahmen</div>
-      {recs && !recs.length && <div className="muted small">Noch keine – unter „Live“ auf „Aufnehmen“ tippen.</div>}
-      {recs?.map((r) => (
-        <div key={r.name} className="debug-file">
-          <span style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ fontWeight: 600 }}>{recLabel(r.name)}</span>
-            <span className="muted small"> · {(r.size / 1e6).toFixed(1).replace('.', ',')} MB{r.recording ? ' · läuft' : ''}</span>
-          </span>
-          <button className="btn btn-secondary" onClick={() => onOpen({ key: 'rec:' + r.name, label: recLabel(r.name) })}>
-            <FolderOpenIcon size={16} /> Öffnen
-          </button>
-          <a className="btn btn-ghost btn-icon" title="Herunterladen (CSV, auch für laptimer replay)" href={`/api/debug/recordings/${encodeURIComponent(r.name)}`} download>
-            <DownloadSimpleIcon size={16} />
-          </a>
-          <button className={confirm === r.name ? 'btn btn-danger' : 'btn btn-ghost btn-icon'} disabled={r.recording} title="Löschen" onClick={() => remove(r.name)}>
-            <TrashIcon size={16} />
-            {confirm === r.name && ' Wirklich löschen?'}
-          </button>
-        </div>
-      ))}
-      <div className="kicker" style={{ marginTop: 8 }}>Sessions</div>
-      {!sessions.length && <div className="muted small">Noch keine Sessions.</div>}
-      {sessions.slice(0, 12).map(({ session: s }) => (
-        <div key={s.id} className="debug-file">
-          <span style={{ flex: 1, minWidth: 0 }}>
-            <span style={{ fontWeight: 600 }}>
-              #{s.id} {s.config.race ? 'Rennen' : 'Training'}
-            </span>
-            <span className="muted small"> · {dateTime(s.created_us)}</span>
-          </span>
-          <button className="btn btn-secondary" onClick={() => onOpen({ key: 'session:' + s.id, label: `Session #${s.id} · ${dateTime(s.created_us)}` })}>
-            <FolderOpenIcon size={16} /> Öffnen
-          </button>
-        </div>
-      ))}
+      <LevelFileList
+        action="Öffnen"
+        withRunning
+        onPick={(key, label) => onOpen({ key, label: key.startsWith('rec:') ? recLabel(label) : label })}
+        recActions={(r, reload) => (
+          <>
+            <a className="btn btn-ghost btn-icon" title="Herunterladen (CSV, auch für laptimer replay)" href={`/api/debug/recordings/${encodeURIComponent(r.name)}`} download>
+              <DownloadSimpleIcon size={16} />
+            </a>
+            <button
+              className={confirm === r.name ? 'btn btn-danger' : 'btn btn-ghost btn-icon'}
+              disabled={r.recording}
+              title="Löschen"
+              onClick={() => remove(r.name, reload)}
+              onBlur={() => setConfirm('')}
+            >
+              <TrashIcon size={16} />
+              {confirm === r.name && ' Löschen?'}
+            </button>
+          </>
+        )}
+      />
     </>
   )
 }

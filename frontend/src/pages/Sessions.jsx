@@ -5,16 +5,16 @@
 // laptimer ("Importieren").
 
 import { useEffect, useState } from 'react'
-import { CheckSquareIcon, DownloadSimpleIcon, FlagCheckeredIcon, InfinityIcon, PencilSimpleIcon, SquareIcon, TrashIcon } from '@phosphor-icons/react'
+import { ArrowLeftIcon, CheckSquareIcon, DownloadSimpleIcon, PencilSimpleIcon, SquareIcon, TrashIcon } from '@phosphor-icons/react'
 import { api } from '../api.js'
 import { useAuth } from '../auth.js'
-import { dateTime, secs, sessionKind, time } from '../format.js'
-import { standings } from '../model.js'
+import { dateTime, sessionKind, time } from '../format.js'
 import Dialog from '../components/Dialog.jsx'
 import ExportDialog from '../components/ExportDialog.jsx'
 import ImportButton from '../components/ImportButton.jsx'
 import PassEditor from '../components/PassEditor.jsx'
 import Ranking from '../components/Ranking.jsx'
+import SessionItem from '../components/SessionItem.jsx'
 
 /** @param {{changed: number, state: import('../types').State}} props */
 export default function Sessions({ changed, state }) {
@@ -93,46 +93,22 @@ export default function Sessions({ changed, state }) {
           )}
         </div>
         {list.map((d) => {
-          const s = d.session
-          const st = standings(s, d.results)
-          const first = st.findIndex((x) => x.pos === 1)
-          const best = Math.min(...d.results.map((r) => r.best_lap_us ?? Infinity))
-          const bestSeat = s.seats[d.results.findIndex((r) => r.best_lap_us === best)]
+          const id = d.session.id
           return (
-            <button
-              key={s.id}
-              className={'session-item' + ((picked ? picked.includes(s.id) : s.id === chosen) ? ' on' : '')}
-              onClick={() => (picked ? togglePick(s.id) : setSel(s.id))}
-            >
-              {picked ? (
-                picked.includes(s.id) ? (
+            <SessionItem
+              key={id}
+              detail={d}
+              on={picked ? picked.includes(id) : id === chosen}
+              icon={
+                picked &&
+                (picked.includes(id) ? (
                   <CheckSquareIcon size={22} weight="fill" color="var(--accent)" />
                 ) : (
                   <SquareIcon size={22} color="var(--n400)" />
-                )
-              ) : s.config.race ? (
-                <FlagCheckeredIcon size={22} color="var(--accent)" />
-              ) : (
-                <InfinityIcon size={22} color="var(--n400)" />
-              )}
-              <span className="t">
-                <span style={{ fontWeight: 500 }}>
-                  {dateTime(s.created_us)}
-                  {s.ended_us == null && <span style={{ color: 'var(--accent)' }}> · läuft</span>}
-                </span>
-                <span className="muted small">
-                  {sessionKind(s.config)} · {s.seats.length} {s.seats.length === 1 ? 'Pilot' : 'Piloten'}
-                </span>
-              </span>
-              <span className="r">
-                <span className="small">{s.config.race && first >= 0 ? s.seats[first].label : ''}</span>
-                {bestSeat && (
-                  <span className="small best-color">
-                    {secs(best)} {bestSeat.label}
-                  </span>
-                )}
-              </span>
-            </button>
+                ))
+              }
+              onClick={() => (picked ? togglePick(id) : setSel(id))}
+            />
           )
         })}
       </div>
@@ -149,6 +125,13 @@ function SessionView({ id, changed, editing, onEditing, onExport }) {
   const [d, setD] = useState(/** @type {import('../types').SessionDetail | null} */ (null))
   const [confirm, setConfirm] = useState(false)
   const [error, setError] = useState('')
+  // Unsaved changes in the editor (they live only in the page): ask before leaving.
+  const [unsaved, setUnsaved] = useState(0)
+  const [confirmLeave, setConfirmLeave] = useState(false)
+  const leave = () => {
+    if (unsaved && !confirmLeave) return setConfirmLeave(true)
+    onEditing(false)
+  }
   const reload = () =>
     api(`/sessions/${id}`)
       .then(setD)
@@ -163,8 +146,20 @@ function SessionView({ id, changed, editing, onEditing, onExport }) {
   return (
     <div className="panel" style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: 16 }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+        {editing && (
+          <button
+            className={confirmLeave ? 'btn btn-danger' : 'btn btn-secondary'}
+            title="Bearbeiten schließen, zurück zur Liste"
+            onClick={leave}
+            onBlur={() => setConfirmLeave(false)}
+          >
+            <ArrowLeftIcon size={16} /> {confirmLeave ? `${unsaved} ${unsaved === 1 ? 'Änderung' : 'Änderungen'} verwerfen?` : 'Zur Liste'}
+          </button>
+        )}
         <div style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.3, flex: 1, minWidth: 0 }}>
-          <span style={{ fontSize: 18, fontWeight: 500 }}>{s.config.race ? 'Rennen' : 'Training'}</span>
+          <span style={{ fontSize: 18, fontWeight: 500 }}>
+            {s.config.race ? 'Rennen' : 'Training'} <span className="muted" style={{ fontWeight: 400 }}>#{s.id}</span>
+          </span>
           <span className="muted small">
             {dateTime(s.created_us)}
             {s.ended_us != null && `–${time(s.ended_us)}`} · {sessionKind(s.config)}
@@ -185,10 +180,7 @@ function SessionView({ id, changed, editing, onEditing, onExport }) {
       <Ranking detail={d} />
       {editing && canEdit ? (
         <>
-          <button className="btn btn-secondary" style={{ alignSelf: 'flex-start' }} onClick={() => onEditing(false)}>
-            Bearbeiten schließen
-          </button>
-          <PassEditor detail={d} onSaved={reload} />
+          <PassEditor detail={d} onSaved={reload} onUnsaved={setUnsaved} />
         </>
       ) : (
         canEdit && <button className="btn btn-secondary" style={{ alignSelf: 'flex-start' }} onClick={() => onEditing(true)}>

@@ -82,8 +82,9 @@ function markersOf(passes, d) {
  * @param {object} props
  * @param {import('../types').SessionDetail} props.detail   with passes
  * @param {() => void} props.onSaved
+ * @param {(n: number) => void} [props.onUnsaved]   how many changes are not saved yet (to ask before leaving)
  */
-export default function PassEditor({ detail, onSaved }) {
+export default function PassEditor({ detail, onSaved, onUnsaved }) {
   const s = detail.session
   const t0 = s.config.race ? s.start_us : s.created_us
   const passes = detail.passes ?? []
@@ -121,6 +122,7 @@ export default function PassEditor({ detail, onSaved }) {
   const minLapUs = s.config.min_lap_s * 1e6
   const tooShort = preview.laps.filter((l) => l.duration_us < minLapUs).length
   const total = Object.values(drafts).reduce((n, d) => n + changes(d), 0)
+  useEffect(() => onUnsaved?.(total), [total, onUnsaved])
   // Where trimming cuts, as the server does it: the last finish-gate pass
   // of any channel + 10 s. Only stored passes count (unsaved ones block it).
   const lastPass = Math.max(-Infinity, ...passes.filter((p) => !p.gate && !p.deleted).map((p) => p.time_us))

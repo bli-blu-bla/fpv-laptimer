@@ -804,6 +804,10 @@ impl Core {
             })
             .collect();
         writeln!(out, "# roles: {}", roles.join(" "))?;
+        // Which board was which (MAC, name), as in a recording.
+        for b in self.debug_boards() {
+            writeln!(out, "# board {} {}", b.index, serde_json::to_string(&b)?)?;
+        }
         writeln!(out, "board,channel,host_us,board_us,rssi,flags")?;
         // Remember the file (the row was made before we knew the id).
         self.db.set_levels_file(id, &levels_path.to_string_lossy())?;
