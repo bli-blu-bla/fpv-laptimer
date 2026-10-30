@@ -72,7 +72,13 @@ export default function App() {
   const failed = boards.filter((b) => b.failed).length
   const lost = boards.reduce((n, b) => n + (b.stats?.lost ?? 0), 0)
   const ok = connected && boards.length > 0 && !failed
-  const boardText = !connected ? 'Keine Verbindung' : `${boards.length} Board${boards.length === 1 ? '' : 's'}${failed ? `, ${failed} ausgefallen` : ''}`
+  const replay = connected && state?.replay != null
+  const dot = replay ? 'status-dot warn' : ok ? 'status-dot' : 'status-dot bad'
+  const boardText = !connected
+    ? 'Keine Verbindung'
+    : replay
+      ? 'Wiedergabe statt Boards'
+      : `${boards.length} Board${boards.length === 1 ? '' : 's'}${failed ? `, ${failed} ausgefallen` : ''}`
   const raceCount = `Heute · ${stats?.today_races ?? 0} Rennen`
 
   if (FULL_SCREEN_WATCH) {
@@ -118,7 +124,7 @@ export default function App() {
         {nav(false)}
         <div className="board-box">
           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span className={ok ? 'status-dot' : 'status-dot bad'} />
+            <span className={dot} />
             {boardText}
           </span>
           <span className="muted">{lost} Messungen verloren</span>
@@ -133,7 +139,7 @@ export default function App() {
           </div>
           <div className="right">
             <span className="narrow-only" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span className={ok ? 'status-dot' : 'status-dot bad'} />
+              <span className={dot} />
               {boardText}
             </span>
             {shown === 'watch' && (

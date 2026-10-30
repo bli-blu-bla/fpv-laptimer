@@ -143,6 +143,12 @@
  * @property {Board[]} boards
  * @property {(SessionDetail & {passes: Pass[]}) | null} active
  * @property {number | null} unconfirmed   the ended race whose result still needs confirming (blocks starting)
+ * @property {Replay | null} replay   a recording plays instead of the boards (Boards → Quelle)
+ *
+ * @typedef {object} Replay
+ * @property {string} source   "rec:<name>", "session:<id>" or "file" (`--replay`)
+ * @property {string} label
+ * @property {string[]} channels   the recording's channels, "R1@5658" (by position: they replace the set ones)
  *
  * @typedef {object} ChannelLive
  * @property {number | null} level_db

@@ -506,6 +506,9 @@ body {
 .status-dot.bad {
   background: var(--bad);
 }
+.status-dot.warn {
+  background: var(--warn);
+}
 .main {
   flex: 1;
   min-width: 0;

@@ -26,6 +26,12 @@ export function dateTime(us) {
   return d.toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
 }
 
+/** "rec_2026-10-26_14-09-09.csv" → "26.10.2026 14:09:09". @param {string} name */
+export function recLabel(name) {
+  const m = name.match(/^rec_(\d{4})-(\d\d)-(\d\d)_(\d\d)-(\d\d)-(\d\d)\.csv$/)
+  return m ? `${m[3]}.${m[2]}.${m[1]} ${m[4]}:${m[5]}:${m[6]}` : name
+}
+
 /** @type {Record<import('./types').StartMode, string>} */
 export const START_MODES = {
   holeshot: 'Holeshot',

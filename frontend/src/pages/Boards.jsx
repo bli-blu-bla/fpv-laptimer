@@ -9,6 +9,7 @@ import { useState } from 'react'
 import { api, saveSettings } from '../api.js'
 import BoardDebug from '../components/BoardDebug.jsx'
 import FirmwarePanel from '../components/FirmwarePanel.jsx'
+import SourcePanel from '../components/SourcePanel.jsx'
 import Tabs from '../components/Tabs.jsx'
 import { channelMode } from '../model.js'
 
@@ -61,11 +62,12 @@ export default function Boards({ state, live, flash }) {
   return (
     <>
       <Tabs tabs={tabs} value={tab} onChange={setTab} />
+      <SourcePanel state={state} />
       <div className="panel">
         <div className="panel-head">
           <CpuIcon size={18} /> Boards
           <span className="end muted small">Mit dem Quad (Sender an) davor wedeln: der Balken zeigt, welches Board welches ist.</span>
-          <button className="btn btn-secondary" disabled={scanning || state.active != null} onClick={rescan}>
+          <button className="btn btn-secondary" disabled={scanning || state.active != null || state.replay != null} onClick={rescan}>
             <ArrowsClockwiseIcon size={16} /> {scanning ? 'Suche …' : 'Boards neu suchen'}
           </button>
         </div>
@@ -75,7 +77,7 @@ export default function Boards({ state, live, flash }) {
           <div key={b.id} className="thresh-row" style={{ padding: '12px 16px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <span className={b.failed ? 'status-dot bad' : 'status-dot'} />
-              <BoardName board={b} disabled={state.active != null} />
+              <BoardName board={b} disabled={state.active != null || state.replay != null} />
               <span className="muted small" style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {b.name ? `${shortId(b.id)} · ` : ''}
                 {b.port}

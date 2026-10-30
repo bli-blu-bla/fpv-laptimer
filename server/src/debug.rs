@@ -340,6 +340,47 @@ pub struct FileAnalysis {
     pub channels: Vec<String>,
 }
 
+/// The boards' roles from a level file's "# roles: 0=finish 1=arming" line
+/// (after the colon), by board index.
+pub fn parse_roles(rest: &str) -> Vec<BoardRole> {
+    let mut roles = Vec::new();
+    for (b, role) in rest.split_whitespace().filter_map(|r| r.split_once('=')) {
+        let (Ok(b), Ok(role)) = (b.parse::<usize>(), serde_json::from_value(json!(role))) else {
+            continue;
+        };
+        if roles.len() <= b {
+            roles.resize(b + 1, BoardRole::Finish);
+        }
+        roles[b] = role;
+    }
+    roles
+}
+
+/// The channels in a level file's header ("R1@5658" …), without reading
+/// the levels.
+pub fn file_channels(path: &Path) -> Result<Vec<String>> {
+    let file = File::open(path).with_context(|| format!("{}", path.display()))?;
+    for line in BufReader::new(file).lines() {
+        let line = line?;
+        if let Some(rest) = line.strip_prefix("# channels:") {
+            return Ok(parse_channels(rest));
+        }
+        if !line.starts_with('#') {
+            break;
+        }
+    }
+    Ok(Vec::new())
+}
+
+/// "0=R1@5658 1=R3@5732" (after the colon) → "R1@5658", "R3@5732" (what
+/// follows the "="; the first recordings of `laptimer record` wrote
+/// "R1=5658", that gives just the frequency).
+fn parse_channels(rest: &str) -> Vec<String> {
+    rest.split_whitespace()
+        .map(|c| c.split_once('=').map_or(c, |(_, v)| v).to_string())
+        .collect()
+}
+
 /// Reads a level file (a recording, a session's, `laptimer record`'s) and
 /// runs it through the detectors. `setup`: a session's settings; None: the
 /// file's own (`# detection:`, recordings), else the defaults.
@@ -354,23 +395,11 @@ pub fn load(path: &Path, setup: Option<DetectSetup>) -> Result<FileAnalysis> {
     for (n, line) in BufReader::new(file).lines().enumerate() {
         let line = line?;
         if let Some(rest) = line.strip_prefix("# channels:") {
-            channels = rest
-                .split_whitespace()
-                .map(|c| c.split_once('=').map_or(c, |(_, v)| v).to_string())
-                .collect();
+            channels = parse_channels(rest);
             continue;
         }
         if let Some(rest) = line.strip_prefix("# roles:") {
-            // "0=finish 1=arming"
-            for (b, role) in rest.split_whitespace().filter_map(|r| r.split_once('=')) {
-                let (Ok(b), Ok(role)) = (b.parse::<usize>(), serde_json::from_value(json!(role))) else {
-                    continue;
-                };
-                if roles.len() <= b {
-                    roles.resize(b + 1, BoardRole::Finish);
-                }
-                roles[b] = role;
-            }
+            roles = parse_roles(rest);
             continue;
         }
         if let Some(rest) = line.strip_prefix("# board ") {
@@ -674,26 +703,7 @@ async fn graph(State(app): St, Query(q): Query<GraphQuery>) -> Response {
 /// A level file worked through: from the cache (same file size), else read.
 /// Blocks for a while (seconds for a long session on the Pi).
 fn file_analysis(app: &App, source: &str) -> Result<Arc<FileAnalysis>> {
-    let (path, setup) = if let Some(name) = source.strip_prefix("rec:") {
-        check_name(name)?;
-        let mut core = app.core.lock().unwrap();
-        core.flush_recording();
-        (core.data_dir().join("recordings").join(name), None)
-    } else if let Some(id) = source.strip_prefix("session:") {
-        let id: i64 = id.parse().context("Ungültige Session")?;
-        let mut core = app.core.lock().unwrap();
-        let s = core.db.session(id)?.context("Diese Session gibt es nicht.")?;
-        core.flush_levels(id)?;
-        let path = s.levels_file.context("Für diese Session sind keine Pegel aufgezeichnet.")?;
-        let setup = DetectSetup {
-            n_channels: 0, // from the file
-            min_lap_us: (s.config.min_lap_s * 1e6) as i64,
-            detection: s.config.detection.clone().unwrap_or_default(),
-        };
-        (PathBuf::from(path), Some(setup))
-    } else {
-        bail!("Unbekannte Quelle „{source}“.");
-    };
+    let (path, setup) = source_file(app, source)?;
     let size = fs::metadata(&path).with_context(|| format!("{}", path.display()))?.len();
     if let Some((_, _, f)) = app
         .debug_files
@@ -712,6 +722,31 @@ fn file_analysis(app: &App, source: &str) -> Result<Arc<FileAnalysis>> {
     }
     cache.push((source.to_string(), size, Arc::clone(&f)));
     Ok(f)
+}
+
+/// The level file behind "rec:<name>" or "session:<id>", and for a session
+/// its detection settings (also the source of a replay, `server.rs`).
+pub fn source_file(app: &App, source: &str) -> Result<(PathBuf, Option<DetectSetup>)> {
+    Ok(if let Some(name) = source.strip_prefix("rec:") {
+        check_name(name)?;
+        let mut core = app.core.lock().unwrap();
+        core.flush_recording();
+        (core.data_dir().join("recordings").join(name), None)
+    } else if let Some(id) = source.strip_prefix("session:") {
+        let id: i64 = id.parse().context("Ungültige Session")?;
+        let mut core = app.core.lock().unwrap();
+        let s = core.db.session(id)?.context("Diese Session gibt es nicht.")?;
+        core.flush_levels(id)?;
+        let path = s.levels_file.context("Für diese Session sind keine Pegel aufgezeichnet.")?;
+        let setup = DetectSetup {
+            n_channels: 0, // from the file
+            min_lap_us: (s.config.min_lap_s * 1e6) as i64,
+            detection: s.config.detection.clone().unwrap_or_default(),
+        };
+        (PathBuf::from(path), Some(setup))
+    } else {
+        bail!("Unbekannte Quelle „{source}“.");
+    })
 }
 
 #[cfg(test)]

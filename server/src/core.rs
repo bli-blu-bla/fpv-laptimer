@@ -9,6 +9,8 @@ use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result, bail};
@@ -209,6 +211,10 @@ pub struct BoardView {
     /// The board's current level (highest envelope of its channels), dBFS:
     /// to tell the boards apart when assigning their roles.
     pub level_db: Option<f32>,
+    /// Replay: the role the board had in the recording, while the page
+    /// sets none for it.
+    #[serde(skip)]
+    pub default_role: Option<BoardRole>,
     #[serde(skip)]
     count: u64,
 }
@@ -272,6 +278,12 @@ pub struct Core {
     /// (`debug.rs`), and the recording in progress.
     pub debug: Analysis,
     pub recording: Option<Recording>,
+    /// The recording played instead of the boards (`server.rs`, `/api/source`):
+    /// `{source, label, channels}`, in the `state` message.
+    pub replay: Option<serde_json::Value>,
+    /// The replay's rewind flag (`source.rs`): a session start plays the
+    /// recording from the beginning. `None` with the boards.
+    pub replay_rewind: Option<Arc<AtomicBool>>,
     next_live_us: i64,
     next_rate_us: i64,
 }
@@ -299,6 +311,8 @@ impl Core {
         Core {
             debug: Analysis::new(debug_setup(&settings), Vec::new(), origin_unix_us, Some(debug::LIVE_KEEP_US)),
             recording: None,
+            replay: None,
+            replay_rewind: None,
             db,
             finish,
             arming,
@@ -416,7 +430,7 @@ impl Core {
     /// Each board's role from the settings.
     fn apply_roles(&mut self) {
         for b in &mut self.boards {
-            b.role = self.settings.board_roles.get(&b.id).copied().unwrap_or_default();
+            b.role = self.settings.board_roles.get(&b.id).copied().or(b.default_role).unwrap_or_default();
         }
     }
 
@@ -671,6 +685,9 @@ impl Core {
             bail!("Erst das Ergebnis des letzten Rennens bestätigen (oder verwerfen).");
         }
         self.resync_clock();
+        if let Some(rewind) = &self.replay_rewind {
+            rewind.store(true, Ordering::Relaxed);
+        }
         let s = &self.settings;
         let config = if race {
             SessionConfig {
@@ -1353,6 +1370,7 @@ impl Core {
             "pilots": pilots,
             "presets": self.db.presets().unwrap_or_default(),
             "boards": self.boards,
+            "replay": self.replay,
             "active": active,
             // The ended race still waiting for its result to be confirmed.
             "unconfirmed": self.db.unconfirmed_race().ok().flatten(),

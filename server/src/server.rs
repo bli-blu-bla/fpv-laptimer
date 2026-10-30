@@ -73,7 +73,8 @@ pub struct App {
     /// The boards (or the replay); replaced when channels or gain change.
     source: Mutex<Option<Source>>,
     events: Sender<Event>,
-    replay: Option<PathBuf>,
+    /// The recording played instead of the boards (None: the boards).
+    replay: Mutex<Option<Replay>>,
     /// Level graphs of sessions: (size of the level file, graph). A file
     /// that grew (the running session) is read again.
     /// Key: session id and gate (true: the arming gate).
@@ -103,7 +104,24 @@ struct FlashStatus {
     error: Option<String>,
 }
 
+/// A recording played instead of the boards: from `--replay`, or chosen on
+/// the page (Boards → Quelle, `/api/source`). Not kept across a restart: a
+/// forgotten replay would hide the real boards at the next meeting.
+#[derive(Clone)]
+struct Replay {
+    /// "rec:<name>", "session:<id>" (as in the board debugging) or "file"
+    /// (`--replay`).
+    source: String,
+    path: PathBuf,
+    label: String,
+}
+
 impl App {
+    /// A recording plays instead of the boards.
+    fn replaying(&self) -> bool {
+        self.replay.lock().unwrap().is_some()
+    }
+
     /// A board is being flashed (no restart now).
     pub fn flashing(&self) -> bool {
         self.flash.lock().unwrap().as_ref().is_some_and(|s| !s.done)
@@ -135,7 +153,11 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         auth: Auth::new(&opts.auth),
         source: Mutex::new(None),
         events,
-        replay: opts.replay.clone(),
+        replay: Mutex::new(opts.replay.as_ref().map(|path| Replay {
+            source: "file".into(),
+            path: path.clone(),
+            label: path.file_name().map_or_else(|| path.display().to_string(), |f| f.to_string_lossy().to_string()),
+        })),
         traces: Mutex::new(HashMap::new()),
         debug_files: Mutex::new(Vec::new()),
         firmware_dir: opts.web_dir.join("firmware"),
@@ -185,6 +207,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .route("/presets/{id}", axum::routing::put(update_preset).delete(delete_preset))
         .route("/stats", get(get_stats))
         .route("/boards/rescan", post(rescan_boards))
+        .route("/source", get(get_source).put(set_source))
         .route("/boards/name", post(name_board))
         .route("/firmware", get(get_firmware))
         .route("/firmware/flash", post(flash_board))
@@ -253,8 +276,9 @@ fn start_source(app: &App, source: &mut Option<Source>) -> Result<()> {
         let core = app.core.lock().unwrap();
         (core.settings.clone(), core.origin())
     };
-    let (new, names) = match &app.replay {
-        Some(path) => source::start_replay(path, origin, app.events.clone())?,
+    let replay = app.replay.lock().unwrap().clone();
+    let (new, names) = match &replay {
+        Some(r) => source::start_replay(&r.path, origin, app.events.clone())?,
         None => {
             let config = ScanConfig {
                 channels: settings.channels.iter().map(|c| (c.name.clone(), c.mhz)).collect(),
@@ -267,13 +291,77 @@ fn start_source(app: &App, source: &mut Option<Source>) -> Result<()> {
     if names.is_empty() {
         eprintln!("no boards found");
     }
+    let rewind = new.rewind_flag();
     *source = Some(new);
     let views = names
         .into_iter()
-        .map(|n| BoardView::new(n.port, n.id, n.info, n.name))
+        .map(|n| {
+            let mut view = BoardView::new(n.port, n.id, n.info, n.name);
+            view.default_role = n.role;
+            view
+        })
         .collect();
-    app.core.lock().unwrap().boards_started(views);
+    let replay = replay.map(|r| {
+        let channels = crate::debug::file_channels(&r.path).unwrap_or_default();
+        json!({ "source": r.source, "label": r.label, "channels": channels })
+    });
+    let mut core = app.core.lock().unwrap();
+    core.replay = replay;
+    core.replay_rewind = rewind;
+    core.boards_started(views);
     Ok(())
+}
+
+/// What plays instead of the boards (`replay`: `{source, label, channels}`
+/// or null); the same as `state.replay`.
+async fn get_source(State(app): State<Arc<App>>) -> ApiResult {
+    Ok(Json(json!({ "replay": app.core.lock().unwrap().replay })))
+}
+
+#[derive(Deserialize)]
+struct SourceRequest {
+    /// "rec:<name>" or "session:<id>"; null: the boards again.
+    replay: Option<String>,
+}
+
+/// Plays a recording or a session's levels instead of the boards, or goes
+/// back to the boards. Not during a session or a flash. A file that does
+/// not play leaves the source as it was.
+async fn set_source(State(app): State<Arc<App>>, Json(req): Json<SourceRequest>) -> ApiResult {
+    if app.core.lock().unwrap().session_running() {
+        return Err(anyhow::anyhow!("Erst die laufende Session beenden.").into());
+    }
+    if app.flashing() {
+        return Err(anyhow::anyhow!("Es wird gerade ein Board geflasht.").into());
+    }
+    let new = match req.replay {
+        None => None,
+        Some(source) => {
+            let (path, _) = crate::debug::source_file(&app, &source)?;
+            if !path.is_file() {
+                return Err(anyhow::anyhow!("Die Pegel-Datei fehlt: {}", path.display()).into());
+            }
+            let label = match source.strip_prefix("session:") {
+                Some(id) => format!("Session #{id}"),
+                None => source.trim_start_matches("rec:").to_string(),
+            };
+            Some(Replay { source, path, label })
+        }
+    };
+    // Starting the source blocks (boards, or reading the file): off the async threads.
+    let app2 = Arc::clone(&app);
+    tokio::task::spawn_blocking(move || {
+        let old = std::mem::replace(&mut *app2.replay.lock().unwrap(), new);
+        let started = restart_source(&app2);
+        if started.is_err() {
+            // Back to what ran before, so there is still a source.
+            *app2.replay.lock().unwrap() = old;
+            let _ = restart_source(&app2);
+        }
+        started
+    })
+    .await??;
+    Ok(Json(json!({ "replay": app.core.lock().unwrap().replay })))
 }
 
 // --- errors: any failure becomes a 400 with the message ---
@@ -699,7 +787,7 @@ async fn get_firmware(State(app): State<Arc<App>>) -> ApiResult {
         Ok(m) => (Some(m), None),
         Err(e) => (None, Some(format!("{e:#}"))),
     };
-    let ports = if app.replay.is_some() {
+    let ports = if app.replaying() {
         Vec::new()
     } else {
         find_ports()?
@@ -755,8 +843,8 @@ struct NameRequest {
 /// Saves a name on a board. The board's port is busy while it scans, so all
 /// boards stop for that moment and start again (as with a rescan).
 async fn name_board(State(app): State<Arc<App>>, Json(req): Json<NameRequest>) -> ApiResult {
-    if app.replay.is_some() {
-        return Err(anyhow::anyhow!("Im Wiedergabe-Modus gibt es keine Boards.").into());
+    if app.replaying() {
+        return Err(anyhow::anyhow!("Während der Wiedergabe einer Aufnahme gibt es keine Boards.").into());
     }
     let name = req.name.trim().to_string();
     board::check_name(&name)?;
@@ -788,8 +876,8 @@ async fn name_board(State(app): State<Arc<App>>, Json(req): Json<NameRequest>) -
 }
 
 async fn flash_board(State(app): State<Arc<App>>, Json(req): Json<FlashRequest>) -> ApiResult {
-    if app.replay.is_some() {
-        return Err(anyhow::anyhow!("Im Wiedergabe-Modus gibt es keine Boards.").into());
+    if app.replaying() {
+        return Err(anyhow::anyhow!("Während der Wiedergabe einer Aufnahme gibt es keine Boards.").into());
     }
     if app.core.lock().unwrap().session_running() {
         return Err(anyhow::anyhow!("Erst die laufende Session beenden.").into());

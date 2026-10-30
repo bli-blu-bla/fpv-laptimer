@@ -21,7 +21,7 @@ import {
 } from '@phosphor-icons/react'
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api.js'
-import { dateTime } from '../format.js'
+import { dateTime, recLabel } from '../format.js'
 
 /**
  * @typedef {object} DebugBoard
@@ -376,12 +376,6 @@ function FileList({ onOpen }) {
       ))}
     </>
   )
-}
-
-/** "rec_2026-10-26_14-09-09.csv" → "26.10.2026 14:09:09". @param {string} name */
-function recLabel(name) {
-  const m = name.match(/^rec_(\d{4})-(\d\d)-(\d\d)_(\d\d)-(\d\d)-(\d\d)\.csv$/)
-  return m ? `${m[3]}.${m[2]}.${m[1]} ${m[4]}:${m[5]}:${m[6]}` : name
 }
 
 /**
