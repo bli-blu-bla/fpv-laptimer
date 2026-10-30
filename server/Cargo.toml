@@ -17,7 +17,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # bundled: SQLite is compiled in, nothing to install on the Pi.
 rusqlite = { version = "0.37", features = ["bundled"] }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "signal"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "signal", "fs", "io-util"] }
 axum = { version = "0.8", features = ["multipart", "ws"] }
 tower-http = { version = "0.6", features = ["fs"] }
 # Writes the firmware from the web page (Boards → Firmware); without the CLI.

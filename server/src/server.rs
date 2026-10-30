@@ -215,6 +215,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .merge(auth::routes())
         .merge(api::page_routes())
         .merge(crate::data::routes())
+        .merge(crate::transfer::routes())
         .merge(crate::debug::routes())
         .merge(crate::update::routes())
         .merge(crate::remote::routes())

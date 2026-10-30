@@ -106,7 +106,7 @@ pub struct Seat {
     pub label: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionRow {
     pub id: i64,
     pub config: SessionConfig,
@@ -582,6 +582,50 @@ impl Db {
         self.conn
             .execute("VACUUM INTO ?1", [path.to_string_lossy().to_string()])?;
         Ok(())
+    }
+
+    /// A session from another laptimer (`transfer.rs`), with a new id and
+    /// all its passes, in one transaction. `row.seats` already point at the
+    /// pilots here. The pass ids are new; nothing else refers to them.
+    pub fn import_session(&self, row: &SessionRow, passes: &[PassRecord], levels_file: Option<&str>) -> Result<i64> {
+        self.conn.execute_batch("BEGIN")?;
+        // As in `edit_passes`: `?` in the closure ends it, then all is rolled back.
+        let result = (|| -> Result<i64> {
+            let id = self.create_session(&row.config, row.created_us, row.start_us, &row.seats, levels_file)?;
+            self.conn.execute(
+                "UPDATE sessions SET ended_us = ?2, confirmed_us = ?3 WHERE id = ?1",
+                params![id, row.ended_us, row.confirmed_us],
+            )?;
+            for p in passes {
+                let rejected = p.rejected.map(|r| match r {
+                    Rejected::NoArming => "no_arming",
+                });
+                self.conn.execute(
+                    "INSERT INTO passes (session_id, channel, time_us, peak_db, manual, deleted, gate, rejected)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![id, p.channel, p.time_us, p.peak_db, p.manual, p.deleted, p.gate, rejected],
+                )?;
+            }
+            Ok(id)
+        })();
+        match &result {
+            Ok(_) => self.conn.execute_batch("COMMIT")?,
+            Err(_) => self.conn.execute_batch("ROLLBACK")?,
+        }
+        result
+    }
+
+    /// The session that began at exactly this time, if any (an import seen
+    /// before: same creation and start, to the µs).
+    pub fn session_at(&self, created_us: i64, start_us: i64) -> Result<Option<i64>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT id FROM sessions WHERE created_us = ?1 AND start_us = ?2",
+                params![created_us, start_us],
+                |r| r.get(0),
+            )
+            .optional()?)
     }
 
     pub fn delete_session(&self, id: i64) -> Result<()> {

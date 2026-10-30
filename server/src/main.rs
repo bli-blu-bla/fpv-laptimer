@@ -23,6 +23,7 @@ mod sound;
 mod source;
 mod stats;
 mod trace;
+mod transfer;
 mod update;
 
 use std::path::PathBuf;

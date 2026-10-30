@@ -1,7 +1,8 @@
 // @ts-check
 // Past sessions: the list, and the chosen one with its result; each pilot
 // can be corrected on the level graph. Export: the chosen session, or
-// several picked in the list ("Auswählen").
+// several picked in the list ("Auswählen"); as a package also into another
+// laptimer ("Importieren").
 
 import { useEffect, useState } from 'react'
 import { CheckSquareIcon, DownloadSimpleIcon, FlagCheckeredIcon, InfinityIcon, PencilSimpleIcon, SquareIcon, TrashIcon } from '@phosphor-icons/react'
@@ -11,6 +12,7 @@ import { dateTime, secs, sessionKind, time } from '../format.js'
 import { standings } from '../model.js'
 import Dialog from '../components/Dialog.jsx'
 import ExportDialog from '../components/ExportDialog.jsx'
+import ImportButton from '../components/ImportButton.jsx'
 import PassEditor from '../components/PassEditor.jsx'
 import Ranking from '../components/Ranking.jsx'
 
@@ -25,6 +27,7 @@ export default function Sessions({ changed, state }) {
   const [exporting, setExporting] = useState(/** @type {import('../types').Session[] | null} */ (null))
   const activeId = state.active?.session.id
   const passCount = state.active?.passes.length
+  const { canEdit } = useAuth()
 
   useEffect(() => {
     api('/sessions')
@@ -33,7 +36,15 @@ export default function Sessions({ changed, state }) {
   }, [changed, activeId, passCount])
 
   if (!list) return <p className="muted">Lade …</p>
-  if (!list.length) return <p className="muted">Noch keine Sessions. Starte unter „Live“ ein Training oder Rennen.</p>
+  if (!list.length)
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+        <p className="muted" style={{ margin: 0 }}>
+          Noch keine Sessions. Starte unter „Live“ ein Training oder Rennen{canEdit ? ', oder übernimm sie aus einem Paket:' : '.'}
+        </p>
+        {canEdit && <ImportButton />}
+      </div>
+    )
   const chosen = sel ?? list[0].session.id
   const exportDialog = exporting && <ExportDialog sessions={exporting} onClose={() => setExporting(null)} />
   if (editing)
@@ -72,9 +83,13 @@ export default function Sessions({ changed, state }) {
               </button>
             </>
           ) : (
-            <button className="btn btn-ghost" style={{ marginLeft: 'auto' }} onClick={() => setPicked([])} title="Mehrere Sessions für einen Export wählen">
-              <CheckSquareIcon size={16} /> Auswählen
-            </button>
+            <>
+              <span style={{ marginLeft: 'auto' }} />
+              {canEdit && <ImportButton />}
+              <button className="btn btn-ghost" onClick={() => setPicked([])} title="Mehrere Sessions für einen Export wählen">
+                <CheckSquareIcon size={16} /> Auswählen
+              </button>
+            </>
           )}
         </div>
         {list.map((d) => {

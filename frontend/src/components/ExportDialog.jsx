@@ -1,7 +1,9 @@
 // @ts-check
 // Export of one or several sessions as a file (server/src/data.rs,
 // GET /api/export): laps or result, all channels or some, CSV (spreadsheet)
-// or JSON; one session also as a debug package (.tar.gz with the raw levels).
+// or JSON; one session also as a debug package (.tar.gz with the raw levels);
+// any number as a package for another laptimer (server/src/transfer.rs,
+// GET /api/export/package; imported under Sessions → Importieren).
 
 import { useState } from 'react'
 import { DownloadSimpleIcon } from '@phosphor-icons/react'
@@ -30,7 +32,7 @@ async function download(url) {
 /** @param {{sessions: import('../types').Session[], onClose: () => void}} props */
 export default function ExportDialog({ sessions, onClose }) {
   const [content, setContent] = useState(/** @type {'laps' | 'results'} */ ('laps'))
-  const [format, setFormat] = useState(/** @type {'csv' | 'json' | 'debug'} */ ('csv'))
+  const [format, setFormat] = useState(/** @type {'csv' | 'json' | 'debug' | 'package'} */ ('csv'))
   /** Chosen channel indexes; empty: all. */
   const [channels, setChannels] = useState(/** @type {number[]} */ ([]))
   const [error, setError] = useState('')
@@ -52,9 +54,11 @@ export default function ExportDialog({ sessions, onClose }) {
     setError('')
     setBusy(true)
     const ids = sessions.map((s) => s.id).join(',')
-    const q = new URLSearchParams(format === 'debug' ? { session: ids, channels: channels.join(',') } : { sessions: ids, channels: channels.join(','), content, format })
+    let url = `/api/export?${new URLSearchParams({ sessions: ids, channels: channels.join(','), content, format })}`
+    if (format === 'debug') url = `/api/export/debug?${new URLSearchParams({ session: ids, channels: channels.join(',') })}`
+    if (format === 'package') url = `/api/export/package?${new URLSearchParams({ sessions: ids })}`
     try {
-      await download(format === 'debug' ? `/api/export/debug?${q}` : `/api/export?${q}`)
+      await download(url)
       onClose()
     } catch (e) {
       setError(/** @type {Error} */ (e).message)
@@ -80,6 +84,9 @@ export default function ExportDialog({ sessions, onClose }) {
               Debug
             </button>
           )}
+          <button className={format === 'package' ? 'on' : ''} onClick={() => setFormat('package')}>
+            Paket
+          </button>
         </div>
       </div>
       {format === 'csv' && (
@@ -98,21 +105,29 @@ export default function ExportDialog({ sessions, onClose }) {
           </span>
         </div>
       )}
-      <div className="field">
-        <span>Kanäle</span>
-        <div className="seg" style={{ flexWrap: 'wrap' }}>
-          <button className={channels.length === 0 ? 'on' : ''} onClick={() => setChannels([])}>
-            Alle
-          </button>
-          {channelList.map(([c, label]) => (
-            <button key={c} className={channels.includes(c) ? 'on' : ''} onClick={() => toggle(c)}>
-              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                <span className="dot" style={{ background: slotColor(c) }} /> {label}
-              </span>
+      {format !== 'package' && (
+        <div className="field">
+          <span>Kanäle</span>
+          <div className="seg" style={{ flexWrap: 'wrap' }}>
+            <button className={channels.length === 0 ? 'on' : ''} onClick={() => setChannels([])}>
+              Alle
             </button>
-          ))}
+            {channelList.map(([c, label]) => (
+              <button key={c} className={channels.includes(c) ? 'on' : ''} onClick={() => toggle(c)}>
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <span className="dot" style={{ background: slotColor(c) }} /> {label}
+                </span>
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
+      {format === 'package' && (
+        <span className="muted small">
+          Die Sessions komplett, mit Durchflügen und Rohpegeln, für einen anderen Laptimer (z. B. vom Pi in die Testumgebung): dort unter Sessions →
+          Importieren. Mit Pegeln einige MB pro Session.
+        </span>
+      )}
       {format === 'debug' && (
         <span className="muted small">
           Alles zum Fehlersuchen in einer .tar.gz: Rohpegel (neu auswertbar mit <code>laptimer replay</code>), Pegelverlauf mit Schwellen je 10 ms, was der Detektor

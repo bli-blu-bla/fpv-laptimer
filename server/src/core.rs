@@ -944,6 +944,13 @@ impl Core {
         Ok((cut_us, removed))
     }
 
+    /// Sessions came in from another laptimer (`transfer.rs`): the pages
+    /// load their lists again.
+    pub fn sessions_imported(&mut self) {
+        let _ = self.tx.send(json!({ "type": "session_changed" }).to_string());
+        self.broadcast_state();
+    }
+
     /// Deletes every session with its passes and level files (pilots,
     /// settings, keys and hooks stay). Refused while a session runs.
     /// Returns how many were deleted.
