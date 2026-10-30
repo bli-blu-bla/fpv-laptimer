@@ -83,11 +83,18 @@ Ziel-Durchflug:
 ```text
 wenn ein Freigabe-Board läuft
    und es nicht der erste Durchflug nach dem Start ist
-   und seit dem letzten gezählten Durchflug dieses Kanals kein Freigabe-Durchflug kam:
+   und zwischen 1 s nach dem letzten gezählten Durchflug dieses Kanals
+       und 1 s nach diesem kein Freigabe-Durchflug liegt:
        als gelöscht speichern (im Editor wiederherstellbar)
 sonst:
        zählen
 ```
+
+Die 1 s Spielraum sind für ein Freigabe-Gate kurz vor dem Ziel: Beide Gates setzen den
+Durchflug in die Mitte eines breiten Buckels (±0,3–0,4 s), der Freigabe-Durchflug kann also
+knapp hinter dem Ziel-Durchflug liegen, und beide werden erst 1 s nach dem Austritt gemeldet.
+Meldet das Freigabe-Gate später als das Ziel, wird der schon abgelehnte Ziel-Durchflug
+nachträglich gezählt (samt Ansage).
 
 Freigabe-Durchflüge stehen mit `gate = 1` in der Datenbank und machen keine Runden.
 

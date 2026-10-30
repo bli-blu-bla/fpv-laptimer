@@ -258,6 +258,9 @@ pub struct Core {
     /// at the finish (wall µs), for the arming rule.
     armed_at: Vec<Option<i64>>,
     last_counted: Vec<Option<i64>>,
+    /// Per channel: the last finish pass rejected for the arming rule (id,
+    /// wall µs). An arming pass reported later can still let it count.
+    unarmed: Vec<Option<(i64, i64)>>,
     /// Host time (µs since `origin`) → wall clock: origin_unix_us + host_us.
     /// All session times come from this one clock (`now_us`), not from the
     /// system clock: a Pi without a battery clock boots with an old time and
@@ -318,6 +321,7 @@ impl Core {
             arming,
             armed_at: Vec::new(),
             last_counted: Vec::new(),
+            unarmed: Vec::new(),
             settings,
             origin,
             origin_unix_us,
@@ -525,15 +529,20 @@ impl Core {
                 }
                 let t0 = if row.config.race { row.start_us } else { row.created_us };
                 // The arming rule: after the first counted pass, a pass only
-                // counts if the arming gate saw the pilot since the last one.
+                // counts if the arming gate saw the pilot since the last one
+                // (`arms`).
                 let c = p.channel as usize;
                 let last = self.last_counted.get(c).copied().flatten();
                 let armed = self.armed_at.get(c).copied().flatten();
-                let counts = !self.has_arming() || last.is_none() || armed.is_some_and(|a| Some(a) > last);
+                let counts = !self.has_arming() || last.is_none() || armed.is_some_and(|a| arms(a, last, time_us));
                 let id = self.db.add_pass(session_id, p.channel, time_us, p.peak_db, false)?;
+                if let Some(u) = self.unarmed.get_mut(c) {
+                    *u = (!counts).then_some((id, time_us));
+                }
                 if !counts {
                     // Kept as deleted, with the reason: the page says why,
-                    // and the pass editor can restore it.
+                    // and the pass editor can restore it. `on_arming` still
+                    // lets it count if the arming pass is only late.
                     self.db.reject_pass(id, Rejected::NoArming)?;
                 } else if time_us >= t0
                     && let Some(l) = self.last_counted.get_mut(c)
@@ -563,16 +572,42 @@ impl Core {
             return Ok(());
         };
         let time_us = self.wall_us(p.time_us);
-        if let Some(a) = self.armed_at.get_mut(p.channel as usize) {
+        let c = p.channel as usize;
+        if let Some(a) = self.armed_at.get_mut(c) {
             *a = Some(time_us);
         }
-        if let Some(a) = &self.active
-            && time_us >= a.row.created_us
-        {
-            let id = a.row.id;
-            self.db.add_arming_pass(id, p.channel, time_us, p.peak_db)?;
-            self.refresh(false)?;
+        let Some(a) = &self.active else { return Ok(()) };
+        if time_us < a.row.created_us {
+            return Ok(());
         }
+        let session_id = a.row.id;
+        let (race, start_us, created_us) = (a.row.config.race, a.row.start_us, a.row.created_us);
+        self.db.add_arming_pass(session_id, p.channel, time_us, p.peak_db)?;
+        // The finish detector may report its pass before this one: both wait
+        // 1 s after the crossing ended, and the arming hump can end later.
+        // Then the finish pass was rejected, but the pilot was armed.
+        let last = self.last_counted.get(c).copied().flatten();
+        let late = match self.unarmed.get(c).copied().flatten() {
+            Some((id, t)) if arms(time_us, last, t) => Some((id, t)),
+            _ => None,
+        };
+        let Some((id, t)) = late else {
+            self.refresh(false)?;
+            return Ok(());
+        };
+        // Only if it is still rejected (not edited by hand meanwhile).
+        let rejected = self.active.as_ref().unwrap().passes.iter().any(|p| p.id == id && p.rejected == Some(Rejected::NoArming));
+        self.unarmed[c] = None;
+        if !rejected {
+            self.refresh(false)?;
+            return Ok(());
+        }
+        self.db.set_pass_deleted(id, false)?;
+        if t >= if race { start_us } else { created_us } {
+            self.last_counted[c] = Some(t);
+        }
+        self.refresh(true)?;
+        self.events.emit("passes_changed", json!({ "session_id": session_id }));
         Ok(())
     }
 
@@ -784,6 +819,7 @@ impl Core {
         let n_channels = self.settings.channels.len();
         self.armed_at = vec![None; n_channels];
         self.last_counted = vec![None; n_channels];
+        self.unarmed = vec![None; n_channels];
         self.active = Some(Active {
             row,
             passes: Vec::new(),
@@ -1529,6 +1565,20 @@ fn report_passes(a: &mut Active, new: &[PilotResult], events: &Events) {
     }
 }
 
+/// Both gates time a pass by the middle of a broad hump (±0.3–0.4 s), so an
+/// arming pass this close to a finish pass belongs to it, even a little
+/// after it: an arming gate right before the finish (or at the same place).
+const ARM_SLACK_US: i64 = 1_000_000;
+
+/// The arming rule: does an arming pass at `armed` let the finish pass at
+/// `time` count, after the last counted one at `last`? Yes if it came after
+/// that one (and not within `ARM_SLACK_US` after it: then it was that pass's)
+/// and not later than `ARM_SLACK_US` after this one. The first pass always counts.
+fn arms(armed: i64, last: Option<i64>, time: i64) -> bool {
+    let Some(last) = last else { return true };
+    armed > last + ARM_SLACK_US && armed <= time + ARM_SLACK_US
+}
+
 /// Fresh detectors for the finish and the arming gate.
 fn detectors(s: &Settings) -> (Detector, Detector) {
     let n = s.channels.len();
@@ -1596,6 +1646,22 @@ mod tests {
             preset_id,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn arming_rule() {
+        let s = 1_000_000;
+        // The first pass counts without arming.
+        assert!(arms(0, None, 10 * s));
+        // Armed during the lap, or a little before or after the finish pass.
+        assert!(arms(20 * s, Some(10 * s), 30 * s));
+        assert!(arms(30 * s - 150_000, Some(10 * s), 30 * s));
+        assert!(arms(30 * s + 700_000, Some(10 * s), 30 * s));
+        // Just after the last counted pass: that one's arming pass.
+        assert!(!arms(10 * s + 700_000, Some(10 * s), 30 * s));
+        // Before the last pass, or long after this one.
+        assert!(!arms(9 * s, Some(10 * s), 30 * s));
+        assert!(!arms(32 * s, Some(10 * s), 30 * s));
     }
 
     #[test]

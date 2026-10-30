@@ -154,9 +154,13 @@ Einstellungen.
 `settings.board_roles` ordnet sie zu: `finish` (Standard), `arming` (Freigabe-Gate) oder
 `off`. `Core` hat zwei `Detector`: Ziel und Freigabe; jedes Board speist den seiner Rolle,
 mehrere Boards pro Gate werden kombiniert (Maximum). Freigabe-Regel: Gibt es ein
-funktionierendes Freigabe-Board, zählt ein Ziel-Durchflug nur, wenn seit dem letzten
-gezählten Durchflug des Kanals ein Freigabe-Durchflug kam; der erste nach dem Start zählt
-immer. Abgelehnte werden als `deleted` mit `rejected = 'no_arming'` gespeichert (Spalte wird
+funktionierendes Freigabe-Board, zählt ein Ziel-Durchflug nur, wenn ein Freigabe-Durchflug
+des Kanals zwischen 1 s nach dem letzten gezählten und 1 s nach diesem liegt (`core::arms`,
+`ARM_SLACK_US`: Freigabe-Gate kurz vor dem Ziel, Zeiten ±0,3–0,4 s); der erste nach dem Start
+zählt immer. Meldet der Freigabe-Detektor später als der Ziel-Detektor (beide 1 s nach dem
+Austritt, der Freigabe-Buckel endet oft später), zählt `on_arming` den schon abgelehnten
+nachträglich (`Core::unarmed`, Ansage, `passes_changed`). Session 26 (2026-10-30, Freigabe
+0,4 s vor dem Ziel): vorher 3 von 4 Runden auf R3 abgelehnt, jetzt alle gezählt (Wiedergabe). Abgelehnte werden als `deleted` mit `rejected = 'no_arming'` gespeichert (Spalte wird
 in alten Datenbanken ergänzt; Löschen/Wiederherstellen von Hand setzt sie auf `NULL`), stehen
 in der Durchflug-Liste der Rennleitung als „Keine Freigabe“ und sind dort und im Editor
 wiederherstellbar. Nicht gezählte Durchflüge nennen ihren Grund (`model.js::notCountedReason`:
