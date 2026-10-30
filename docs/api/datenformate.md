@@ -46,6 +46,26 @@ In `passes` von `sessions.get`:
 | `rejected` | vom Server abgelehnt, und warum (`no_arming`); `null` = nicht oder von Hand gelöscht |
 | `detected_us` | wo die Erkennung ihn gesetzt hat; `null` = von Hand eingefügt. Anders als `time_us`: von Hand verschoben |
 
+## Korrektur
+
+In `changes` von `sessions.get`, älteste zuerst: jede Änderung an einem Durchflug, auch
+während der Session.
+
+```json
+{"pass_id": 17, "channel": 0, "action": "restore", "from_us": …, "to_us": null,
+ "rejected": "no_arming", "live": true, "origin": "seite", "at_us": …}
+```
+
+| Feld | Bedeutung |
+|---|---|
+| `pass_id` | der Durchflug; kann fehlen, wenn er nicht mehr existiert (von Hand eingefügt und wieder gelöscht). `null`: unbekannt (importiert) |
+| `action` | `add` (von Hand eingefügt), `delete`, `restore`, `move`, `reject` (vom Server abgelehnt, z. B. ohne Freigabe) |
+| `from_us`, `to_us` | Zeit des Durchflugs vorher und nachher (`move` beide, `add` nur `to_us`) |
+| `rejected` | `reject`: der Grund; `restore`: der Grund, den er bis dahin hatte |
+| `live` | während die Session lief |
+| `origin` | `seite` (Rennleitung), `editor`, `api`, `server` |
+| `at_us` | wann |
+
 ## state
 
 ```json

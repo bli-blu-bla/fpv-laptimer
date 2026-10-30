@@ -28,7 +28,7 @@ Zeiten sind µs (Wanduhr: seit 1970). Die REST-Routen gelten ab `/api/v1`.
 | `session.confirm` | `POST /session/confirm` | `id` (Standard: das Rennen, das auf Bestätigung wartet) | `{"session_id"}` |
 | `session.discard` | `POST /session/discard` | `id` (wie oben) | `{"session_id"}`; löscht die beendete Session |
 | `sessions.list` | `GET /sessions?limit=20` | `limit` (Standard 20) | Liste von [Sessions](datenformate.md#session) |
-| `sessions.get` | `GET /sessions/{id}` | `id` | Session mit `passes` (alle Durchflüge) |
+| `sessions.get` | `GET /sessions/{id}` | `id` | Session mit `passes` (alle Durchflüge) und `changes` (alle Korrekturen) |
 | `passes.add` | `POST /passes` | `channel` (Index), `time_us` (Standard: jetzt), `session_id` (Standard: die laufende) | `{"pass_id", "session_id", "time_us"}` |
 | `passes.delete` | `DELETE /passes/{id}` | `id` | `{"session_id"}`; erkannte werden nur markiert, von Hand eingefügte gelöscht |
 | `passes.restore` | `POST /passes/{id}/restore` | `id` | `{"session_id"}`; nur für erkannte (von Hand eingefügte sind nach dem Löschen weg) |

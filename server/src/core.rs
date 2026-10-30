@@ -19,7 +19,7 @@ use serde_json::{Value, json};
 use tokio::sync::broadcast;
 
 use crate::debug::{self, Analysis, DebugBoard, DetectSetup, Recording};
-use crate::db::{Db, Pilot, Preset, PresetValues, Seat, SessionConfig, SessionRow};
+use crate::db::{By, Db, Pilot, Preset, PresetValues, Seat, SessionConfig, SessionRow};
 use crate::detect::{ChannelStatus, DetectConfig, DetectionSettings, Detector, Event as DetectEvent, Thresholds};
 use crate::esp::board::{Event as BoardEvent, Level, LinkStats};
 use crate::events::Events;
@@ -543,7 +543,7 @@ impl Core {
                     // Kept as deleted, with the reason: the page says why,
                     // and the pass editor can restore it. `on_arming` still
                     // lets it count if the arming pass is only late.
-                    self.db.reject_pass(id, Rejected::NoArming)?;
+                    self.db.reject_pass(id, Rejected::NoArming, self.now_us())?;
                 } else if time_us >= t0
                     && let Some(l) = self.last_counted.get_mut(c)
                 {
@@ -602,7 +602,7 @@ impl Core {
             self.refresh(false)?;
             return Ok(());
         }
-        self.db.set_pass_deleted(id, false)?;
+        self.db.set_pass_deleted(id, false, By { origin: "server", at_us: self.now_us() })?;
         if t >= if race { start_us } else { created_us } {
             self.last_counted[c] = Some(t);
         }

@@ -33,7 +33,7 @@ use crate::api;
 use crate::auth::{self, Auth};
 use crate::config::{AuthConfig, UpdateConfig};
 use crate::core::{BoardView, Core, Settings, results};
-use crate::db::{Db, PassEdit};
+use crate::db::{By, Db, PassEdit};
 use crate::detect::DetectConfig;
 use crate::esp::board::{self, Event, ScanConfig, find_ports};
 use crate::esp::flash;
@@ -424,8 +424,9 @@ async fn get_session(State(app): State<Arc<App>>, Path(id): Path<i64>) -> ApiRes
     let core = app.core.lock().unwrap();
     let s = core.db.session(id)?.context("Diese Session gibt es nicht.")?;
     let passes = core.db.passes(id)?;
+    let changes = core.db.pass_changes(id)?;
     Ok(Json(
-        json!({ "session": s, "results": results(&s, &passes), "passes": passes }),
+        json!({ "session": s, "results": results(&s, &passes), "passes": passes, "changes": changes }),
     ))
 }
 
@@ -559,7 +560,8 @@ async fn add_pass(State(app): State<Arc<App>>, Path(id): Path<i64>, Json(req): J
     }
     let mut core = app.core.lock().unwrap();
     check_room(&core, id, req.channel, time_us, None, MANUAL_GAP_US)?;
-    let pass = core.db.add_pass(id, req.channel, time_us, peak_db, true)?;
+    let by = By { origin: "seite", at_us: core.now_us() };
+    let pass = core.db.add_manual_pass(id, req.channel, time_us, peak_db, by)?;
     core.session_changed(id)?;
     Ok(Json(json!({ "id": pass, "time_us": time_us })))
 }
@@ -634,7 +636,8 @@ async fn edit_passes(State(app): State<Arc<App>>, Path(id): Path<i64>, Json(req)
         )
         .into());
     }
-    core.db.edit_passes(id, req.channel, e)?;
+    let by = By { origin: "editor", at_us: core.now_us() };
+    core.db.edit_passes(id, req.channel, e, by)?;
     core.session_changed(id)?;
     Ok(Json(json!({})))
 }
@@ -659,7 +662,7 @@ async fn set_pass_deleted(State(app): State<Arc<App>>, Path(id): Path<i64>, Json
     }
     let session = core
         .db
-        .set_pass_deleted(id, req.deleted)?
+        .set_pass_deleted(id, req.deleted, By { origin: "seite", at_us: core.now_us() })?
         .context("Diesen Durchflug gibt es nicht.")?;
     core.session_changed(session)?;
     Ok(Json(json!({})))

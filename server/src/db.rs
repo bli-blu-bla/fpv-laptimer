@@ -53,6 +53,21 @@ CREATE TABLE IF NOT EXISTS passes (
     detected_us INTEGER               -- where the detector put it (NULL: added by hand); differs from time_us: moved
 );
 CREATE INDEX IF NOT EXISTS passes_by_session ON passes(session_id);
+-- Every correction of a pass, to see later where the detection went wrong.
+CREATE TABLE IF NOT EXISTS pass_changes (
+    id INTEGER PRIMARY KEY,
+    session_id INTEGER NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+    pass_id INTEGER,               -- may be gone (added by hand, deleted again); NULL: unknown (import)
+    channel INTEGER NOT NULL,
+    action TEXT NOT NULL,          -- add, delete, restore, move, reject
+    from_us INTEGER,               -- the pass time before (delete, restore, move, reject)
+    to_us INTEGER,                 -- and after (add, move)
+    rejected TEXT,                 -- reject: why; restore: the reason it had until then
+    live INTEGER NOT NULL,         -- 1: while the session ran
+    origin TEXT NOT NULL,          -- seite, editor, api, server
+    at_us INTEGER NOT NULL         -- when (the core's wall clock)
+);
+CREATE INDEX IF NOT EXISTS pass_changes_by_session ON pass_changes(session_id);
 CREATE TABLE IF NOT EXISTS api_keys (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL,
@@ -118,6 +133,44 @@ pub struct SessionRow {
     pub confirmed_us: Option<i64>,
     pub levels_file: Option<String>,
     pub seats: Vec<Seat>,
+}
+
+/// Who changes a pass and when, for the change log (`pass_changes`).
+#[derive(Debug, Clone, Copy)]
+pub struct By {
+    /// "seite" (race control, the page), "editor", "api" (a key) or "server" (the arming rule).
+    pub origin: &'static str,
+    pub at_us: i64,
+}
+
+/// One line of the change log (`Db::pass_changes`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PassChange {
+    pub pass_id: Option<i64>,
+    pub channel: u8,
+    /// "add", "delete", "restore", "move" or "reject".
+    pub action: String,
+    pub from_us: Option<i64>,
+    pub to_us: Option<i64>,
+    pub rejected: Option<String>,
+    /// While the session ran.
+    pub live: bool,
+    pub origin: String,
+    pub at_us: i64,
+}
+
+impl PassChange {
+    /// "gelöscht", "wiederhergestellt", … for exports.
+    pub fn action_text(&self) -> &'static str {
+        match self.action.as_str() {
+            "add" => "eingefügt",
+            "delete" => "gelöscht",
+            "restore" => "wiederhergestellt",
+            "move" => "verschoben",
+            "reject" => "abgelehnt",
+            _ => "geändert",
+        }
+    }
 }
 
 /// Corrections of one channel (`Db::edit_passes`).
@@ -597,9 +650,16 @@ impl Db {
     }
 
     /// A session from another laptimer (`transfer.rs`), with a new id and
-    /// all its passes, in one transaction. `row.seats` already point at the
-    /// pilots here. The pass ids are new; nothing else refers to them.
-    pub fn import_session(&self, row: &SessionRow, passes: &[PassRecord], levels_file: Option<&str>) -> Result<i64> {
+    /// all its passes and change log, in one transaction. `row.seats` already
+    /// point at the pilots here. The pass ids are new: the log follows them
+    /// (a pass that is gone keeps no id).
+    pub fn import_session(
+        &self,
+        row: &SessionRow,
+        passes: &[PassRecord],
+        changes: &[PassChange],
+        levels_file: Option<&str>,
+    ) -> Result<i64> {
         self.conn.execute_batch("BEGIN")?;
         // As in `edit_passes`: `?` in the closure ends it, then all is rolled back.
         let result = (|| -> Result<i64> {
@@ -608,10 +668,10 @@ impl Db {
                 "UPDATE sessions SET ended_us = ?2, confirmed_us = ?3 WHERE id = ?1",
                 params![id, row.ended_us, row.confirmed_us],
             )?;
+            // Old pass id → new one, for the change log.
+            let mut new_ids = std::collections::HashMap::new();
             for p in passes {
-                let rejected = p.rejected.map(|r| match r {
-                    Rejected::NoArming => "no_arming",
-                });
+                let rejected = p.rejected.map(rejected_text);
                 // Packages from before `detected_us`: detected passes as they are.
                 let detected_us = p.detected_us.or((!p.manual).then_some(p.time_us));
                 self.conn.execute(
@@ -619,6 +679,11 @@ impl Db {
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
                     params![id, p.channel, p.time_us, p.peak_db, p.manual, p.deleted, p.gate, rejected, detected_us],
                 )?;
+                new_ids.insert(p.id, self.conn.last_insert_rowid());
+            }
+            for c in changes {
+                let pass_id = c.pass_id.and_then(|p| new_ids.get(&p).copied());
+                self.insert_change(id, &PassChange { pass_id, ..c.clone() })?;
             }
             Ok(id)
         })();
@@ -709,37 +774,36 @@ impl Db {
 
     /// Several corrections of one channel at once, all or none: passes moved
     /// (`detected_us` keeps where the detector had them), deleted, restored, added.
-    pub fn edit_passes(&self, session_id: i64, channel: u8, e: &PassEdit) -> Result<()> {
+    /// Each one goes into the change log.
+    pub fn edit_passes(&self, session_id: i64, channel: u8, e: &PassEdit, by: By) -> Result<()> {
         self.conn.execute_batch("BEGIN")?;
         // The closure runs the changes; `?` inside it ends it early with the
         // error, and then everything is rolled back.
         let result = (|| -> Result<()> {
-            // Only finish-gate passes are edited.
-            let ids = "WHERE id = ?1 AND session_id = ?2 AND channel = ?3 AND gate = 0";
+            // Only finish-gate passes of this channel and session are edited.
+            let ours = |id: i64| -> Result<Option<PassRecord>> {
+                if self.pass_session(id)? != Some(session_id) {
+                    return Ok(None);
+                }
+                Ok(self.pass(id)?.filter(|p| p.channel == channel && p.gate == 0))
+            };
             for &(id, time_us) in &e.moves {
-                self.conn.execute(
-                    &format!("UPDATE passes SET time_us = ?4 {ids}"),
-                    params![id, session_id, channel, time_us],
-                )?;
+                let Some(p) = ours(id)? else { continue };
+                self.conn.execute("UPDATE passes SET time_us = ?2 WHERE id = ?1", params![id, time_us])?;
+                self.log_change(session_id, &p, "move", Some(p.time_us), Some(time_us), None, by)?;
             }
             for &id in &e.restores {
-                self.conn.execute(
-                    &format!("UPDATE passes SET deleted = 0, rejected = NULL {ids}"),
-                    params![id, session_id, channel],
-                )?;
+                if let Some(p) = ours(id)? {
+                    self.set_deleted(&p, session_id, false, by)?;
+                }
             }
             for &id in &e.deletes {
-                self.conn.execute(
-                    &format!("UPDATE passes SET deleted = 1, rejected = NULL {ids}"),
-                    params![id, session_id, channel],
-                )?;
-                self.conn.execute(
-                    &format!("DELETE FROM passes {ids} AND manual = 1"),
-                    params![id, session_id, channel],
-                )?;
+                if let Some(p) = ours(id)? {
+                    self.set_deleted(&p, session_id, true, by)?;
+                }
             }
             for &time_us in &e.adds {
-                self.add_pass(session_id, channel, time_us, 0.0, true)?;
+                self.add_manual_pass(session_id, channel, time_us, 0.0, by)?;
             }
             Ok(())
         })();
@@ -760,6 +824,7 @@ impl Db {
     }
 
     /// `manual`: added by hand; else found by the detector (`detected_us` = `time_us`).
+    /// Not logged: by hand, use `add_manual_pass`.
     pub fn add_pass(&self, session_id: i64, channel: u8, time_us: i64, peak_db: f32, manual: bool) -> Result<i64> {
         let detected_us = (!manual).then_some(time_us);
         self.conn.execute(
@@ -769,30 +834,140 @@ impl Db {
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// A pass the detection missed, added by hand (and logged).
+    pub fn add_manual_pass(&self, session_id: i64, channel: u8, time_us: i64, peak_db: f32, by: By) -> Result<i64> {
+        let id = self.add_pass(session_id, channel, time_us, peak_db, true)?;
+        self.insert_change(
+            session_id,
+            &PassChange {
+                pass_id: Some(id),
+                channel,
+                action: "add".into(),
+                from_us: None,
+                to_us: Some(time_us),
+                rejected: None,
+                live: self.running(session_id)?,
+                origin: by.origin.into(),
+                at_us: by.at_us,
+            },
+        )?;
+        Ok(id)
+    }
+
     /// Deleting a detected pass only marks it, so it can be restored. A pass
-    /// added by hand is removed (to undo, add it again). Returns its session.
-    pub fn set_pass_deleted(&self, id: i64, deleted: bool) -> Result<Option<i64>> {
-        let session = self.pass_session(id)?;
+    /// added by hand is removed (to undo, add it again); the log keeps it.
+    /// Returns its session.
+    pub fn set_pass_deleted(&self, id: i64, deleted: bool, by: By) -> Result<Option<i64>> {
+        let (Some(p), Some(session)) = (self.pass(id)?, self.pass_session(id)?) else {
+            return Ok(None);
+        };
+        self.set_deleted(&p, session, deleted, by)?;
+        Ok(Some(session))
+    }
+
+    /// Deletes or restores `p`, logged if it changes anything.
+    fn set_deleted(&self, p: &PassRecord, session_id: i64, deleted: bool, by: By) -> Result<()> {
         self.conn
-            .execute("UPDATE passes SET deleted = ?2, rejected = NULL WHERE id = ?1", params![id, deleted])?;
+            .execute("UPDATE passes SET deleted = ?2, rejected = NULL WHERE id = ?1", params![p.id, deleted])?;
         if deleted {
             self.conn
-                .execute("DELETE FROM passes WHERE id = ?1 AND manual = 1", [id])?;
+                .execute("DELETE FROM passes WHERE id = ?1 AND manual = 1", [p.id])?;
         }
-        Ok(session)
+        if p.deleted != deleted {
+            let (action, why) = if deleted { ("delete", None) } else { ("restore", p.rejected) };
+            self.log_change(session_id, p, action, Some(p.time_us), None, why, by)?;
+        }
+        Ok(())
     }
 
     /// A pass the server doesn't count (see `Rejected`): marked deleted with
     /// the reason, so the page can say why and the user can restore it.
-    pub fn reject_pass(&self, id: i64, why: Rejected) -> Result<()> {
-        let why = match why {
-            Rejected::NoArming => "no_arming",
-        };
+    pub fn reject_pass(&self, id: i64, why: Rejected, at_us: i64) -> Result<()> {
         self.conn.execute(
             "UPDATE passes SET deleted = 1, rejected = ?2 WHERE id = ?1",
-            params![id, why],
+            params![id, rejected_text(why)],
+        )?;
+        if let (Some(p), Some(session)) = (self.pass(id)?, self.pass_session(id)?) {
+            let by = By { origin: "server", at_us };
+            self.log_change(session, &p, "reject", Some(p.time_us), None, Some(why), by)?;
+        }
+        Ok(())
+    }
+
+    /// One pass by its id.
+    fn pass(&self, id: i64) -> Result<Option<PassRecord>> {
+        let session = self.pass_session(id)?;
+        Ok(match session {
+            Some(s) => self.passes(s)?.into_iter().find(|p| p.id == id),
+            None => None,
+        })
+    }
+
+    /// Whether the session is still running (no end yet).
+    fn running(&self, session_id: i64) -> Result<bool> {
+        Ok(self
+            .conn
+            .query_row("SELECT ended_us IS NULL FROM sessions WHERE id = ?1", [session_id], |r| r.get(0))
+            .optional()?
+            .unwrap_or(false))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn log_change(
+        &self,
+        session_id: i64,
+        p: &PassRecord,
+        action: &str,
+        from_us: Option<i64>,
+        to_us: Option<i64>,
+        rejected: Option<Rejected>,
+        by: By,
+    ) -> Result<()> {
+        self.insert_change(
+            session_id,
+            &PassChange {
+                pass_id: Some(p.id),
+                channel: p.channel,
+                action: action.into(),
+                from_us,
+                to_us,
+                rejected: rejected.map(|r| rejected_text(r).into()),
+                live: self.running(session_id)?,
+                origin: by.origin.into(),
+                at_us: by.at_us,
+            },
+        )
+    }
+
+    fn insert_change(&self, session_id: i64, c: &PassChange) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO pass_changes (session_id, pass_id, channel, action, from_us, to_us, rejected, live, origin, at_us)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![session_id, c.pass_id, c.channel, c.action, c.from_us, c.to_us, c.rejected, c.live, c.origin, c.at_us],
         )?;
         Ok(())
+    }
+
+    /// The change log of a session, oldest first.
+    pub fn pass_changes(&self, session_id: i64) -> Result<Vec<PassChange>> {
+        let mut st = self.conn.prepare(
+            "SELECT pass_id, channel, action, from_us, to_us, rejected, live, origin, at_us
+             FROM pass_changes WHERE session_id = ?1 ORDER BY id",
+        )?;
+        let rows = st.query_map([session_id], |r| {
+            Ok(PassChange {
+                pass_id: r.get(0)?,
+                channel: r.get(1)?,
+                action: r.get(2)?,
+                from_us: r.get(3)?,
+                to_us: r.get(4)?,
+                rejected: r.get(5)?,
+                live: r.get(6)?,
+                origin: r.get(7)?,
+                at_us: r.get(8)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     /// The session a pass belongs to.
@@ -838,6 +1013,13 @@ impl Db {
     }
 }
 
+/// How a `Rejected` is stored.
+fn rejected_text(why: Rejected) -> &'static str {
+    match why {
+        Rejected::NoArming => "no_arming",
+    }
+}
+
 /// A second pilot with the same callsign: say so in words the page can show.
 fn name_taken(e: rusqlite::Error) -> anyhow::Error {
     if let rusqlite::Error::SqliteFailure(f, _) = &e
@@ -860,6 +1042,8 @@ fn preset_name_taken(e: rusqlite::Error) -> anyhow::Error {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const BY: By = By { origin: "seite", at_us: 7 };
 
     #[test]
     fn session_with_passes() {
@@ -886,20 +1070,20 @@ mod tests {
         let p1 = db.add_pass(id, 1, 6_000_000, -18.0, false).unwrap();
         db.add_pass(id, 1, 12_000_000, -19.0, false).unwrap();
         let by_hand = db.add_pass(id, 1, 9_000_000, 0.0, true).unwrap();
-        db.set_pass_deleted(p1, true).unwrap();
-        assert_eq!(db.set_pass_deleted(by_hand, true).unwrap(), Some(id)); // removed
+        db.set_pass_deleted(p1, true, BY).unwrap();
+        assert_eq!(db.set_pass_deleted(by_hand, true, BY).unwrap(), Some(id)); // removed
         db.remove_auto_pass(id, 1, 12_000_000).unwrap();
         let passes = db.passes(id).unwrap();
         assert_eq!(passes.len(), 1);
         assert!(passes[0].deleted);
         assert_eq!(passes[0].rejected, None);
         // Rejected by the server: the reason is kept until the user decides.
-        db.reject_pass(p1, Rejected::NoArming).unwrap();
+        db.reject_pass(p1, Rejected::NoArming, 5).unwrap();
         assert_eq!(db.passes(id).unwrap()[0].rejected, Some(Rejected::NoArming));
-        db.set_pass_deleted(p1, false).unwrap();
+        db.set_pass_deleted(p1, false, BY).unwrap();
         let p = db.passes(id).unwrap()[0];
         assert!(!p.deleted && p.rejected.is_none());
-        db.set_pass_deleted(p1, true).unwrap();
+        db.set_pass_deleted(p1, true, BY).unwrap();
         let s = db.session(id).unwrap().unwrap();
         assert_eq!(s.config, config);
         assert_eq!(s.seats, seats);
@@ -911,7 +1095,7 @@ mod tests {
             restores: vec![p1],
             adds: vec![30_000_000],
         };
-        db.edit_passes(id, 1, &e).unwrap();
+        db.edit_passes(id, 1, &e, BY).unwrap();
         let times: Vec<(i64, bool)> = db.passes(id).unwrap().iter().map(|p| (p.time_us, p.deleted)).collect();
         assert_eq!(
             times,
@@ -925,10 +1109,37 @@ mod tests {
         );
         // The detector can't take back a moved pass; deleting it only marks it.
         db.remove_auto_pass(id, 1, 20_000_000).unwrap();
-        db.set_pass_deleted(p2, true).unwrap();
+        db.set_pass_deleted(p2, true, BY).unwrap();
         let p = db.passes(id).unwrap().into_iter().find(|p| p.id == p2).unwrap();
         assert!(p.deleted && p.source() == "verschoben");
-        db.set_pass_deleted(p2, false).unwrap();
+        db.set_pass_deleted(p2, false, BY).unwrap();
+        // Everything the user (and the arming rule) did, in order; the session still runs.
+        let log = db.pass_changes(id).unwrap();
+        let actions: Vec<(Option<i64>, &str)> = log.iter().map(|c| (c.pass_id, c.action.as_str())).collect();
+        assert_eq!(
+            actions,
+            vec![
+                (Some(p1), "delete"),
+                (Some(by_hand), "delete"),
+                (Some(p1), "reject"),
+                (Some(p1), "restore"),
+                (Some(p1), "delete"),
+                (Some(p2), "move"),
+                (Some(p1), "restore"),
+                (log[7].pass_id, "add"),
+                (Some(p2), "delete"),
+                (Some(p2), "restore"),
+            ]
+        );
+        assert!(log.iter().all(|c| c.live));
+        assert_eq!(log[2].origin, "server");
+        assert_eq!(log[3].rejected.as_deref(), Some("no_arming")); // restored what the server rejected
+        assert_eq!((log[5].from_us, log[5].to_us), (Some(20_000_000), Some(21_000_000)));
+        assert_eq!(log[7].to_us, Some(30_000_000));
+        // After the end: no longer live.
+        db.end_session(id, 40_000_000).unwrap();
+        db.set_pass_deleted(p2, true, BY).unwrap();
+        assert!(!db.pass_changes(id).unwrap().last().unwrap().live);
         db.delete_pilot(pilot).unwrap();
         assert_eq!(db.session(id).unwrap().unwrap().seats[0].pilot_id, None);
         db.set_setting("x", &vec![1, 2]).unwrap();

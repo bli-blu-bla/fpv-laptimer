@@ -35,7 +35,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use crate::core::{results, standings};
-use crate::db::SessionRow;
+use crate::db::{PassChange, SessionRow};
 use crate::laps::{EndRule, PassRecord, PilotResult};
 use crate::server::App;
 
@@ -91,6 +91,8 @@ pub struct Exported {
     pub seats: Vec<usize>,
     /// All passes, for how each lap came about (`PassRecord::source`).
     pub passes: Vec<PassRecord>,
+    /// The change log (`Db::pass_changes`).
+    pub changes: Vec<PassChange>,
 }
 
 /// "3,5" → [3, 5].
@@ -124,11 +126,12 @@ fn build_export(app: &App, q: &ExportQuery) -> Result<(String, &'static str, Vec
         for id in &ids {
             let row = core.db.session(*id)?.with_context(|| format!("Session {id} gibt es nicht."))?;
             let passes = core.db.passes(*id)?;
+            let changes = core.db.pass_changes(*id)?;
             let results = results(&row, &passes);
             let seats = (0..row.seats.len())
                 .filter(|&i| channels.is_empty() || channels.contains(&(row.seats[i].channel as i64)))
                 .collect();
-            list.push(Exported { row, results, seats, passes });
+            list.push(Exported { row, results, seats, passes, changes });
         }
     }
     // Oldest first, like a logbook.
@@ -219,12 +222,22 @@ fn start_of(row: &SessionRow) -> i64 {
     if row.config.race { row.start_us } else { row.created_us }
 }
 
+/// What happened to a pass, from the change log: "gelöscht (live), wiederhergestellt".
+fn corrections(e: &Exported, pass_id: i64) -> String {
+    e.changes
+        .iter()
+        .filter(|c| c.pass_id == Some(pass_id))
+        .map(|c| format!("{}{}", c.action_text(), if c.live { " (live)" } else { "" }))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 /// One row per lap.
 pub fn laps_csv(list: &[Exported]) -> String {
     let mut out = String::new();
     let head = [
         "Session", "Datum", "Art", "Format", "Kanal", "Frequenz (MHz)", "Pilot", "Runde", "Rundenzeit (s)", "Zeit seit Start (s)", "Uhrzeit",
-        "Erfassung", "Verschoben um (s)",
+        "Erfassung", "Verschoben um (s)", "Korrekturen",
     ];
     csv_line(&mut out, &head.map(String::from));
     for e in list {
@@ -250,6 +263,7 @@ pub fn laps_csv(list: &[Exported]) -> String {
                         local_time(lap.end_us),
                         pass.map_or("", |p| p.source()).into(),
                         secs(moved_by),
+                        corrections(e, lap.pass_id),
                     ],
                 );
             }
@@ -316,6 +330,7 @@ fn export_json(list: &[Exported]) -> Value {
                 "confirmed_us": e.row.confirmed_us,
                 "results": results,
                 "passes": passes_json(e),
+                "changes": changes_of(e),
             })
         })
         .collect();
@@ -341,6 +356,12 @@ fn passes_json(e: &Exported) -> Vec<Value> {
             })
         })
         .collect()
+}
+
+/// The change log of the chosen channels.
+fn changes_of(e: &Exported) -> Vec<&PassChange> {
+    let channels: Vec<u8> = e.seats.iter().map(|&i| e.row.seats[i].channel).collect();
+    e.changes.iter().filter(|c| channels.contains(&c.channel)).collect()
 }
 
 // --- backups ---
@@ -510,7 +531,7 @@ mod tests {
 
     fn exported(row: SessionRow, passes: &[PassRecord], seats: Vec<usize>) -> Exported {
         let results = results(&row, passes);
-        Exported { row, results, seats, passes: passes.to_vec() }
+        Exported { row, results, seats, passes: passes.to_vec(), changes: Vec::new() }
     }
 
     #[test]
@@ -526,14 +547,30 @@ mod tests {
         assert!(lines[1].contains(";Rennen;2 Runden;R1;5658;NITRO;1;5,000;5,000;"));
         assert!(lines[2].contains(";NITRO;2;4,500;9,500;"));
         assert!(lines[3].contains(";\"A;B\";1;6,000;6,000;"));
-        assert!(lines[1].ends_with(";erkannt;"), "{}", lines[1]);
+        assert!(lines[1].ends_with(";erkannt;;"), "{}", lines[1]);
 
         // A lap ending in a moved pass says so, with how far.
         let mut moved = passes;
         moved[1].time_us = 10_250_000;
-        let e2 = exported(session(7, true), &moved, vec![0]);
+        let mut e2 = exported(session(7, true), &moved, vec![0]);
+        // And what was done to it, from the change log.
+        let change = |action: &str, live: bool| PassChange {
+            pass_id: Some(2),
+            channel: 0,
+            action: action.into(),
+            from_us: None,
+            to_us: None,
+            rejected: None,
+            live,
+            origin: "seite".into(),
+            at_us: 0,
+        };
+        e2.changes = vec![change("delete", true), change("restore", true), change("move", false)];
         let laps2 = laps_csv(std::slice::from_ref(&e2));
-        assert!(laps2.lines().nth(2).unwrap().ends_with(";verschoben;-0,250"), "{laps2}");
+        assert!(
+            laps2.lines().nth(2).unwrap().ends_with(";verschoben;-0,250;gelöscht (live), wiederhergestellt (live), verschoben"),
+            "{laps2}"
+        );
 
         let res = results_csv(std::slice::from_ref(&e));
         let lines: Vec<&str> = res.lines().collect();
@@ -586,7 +623,9 @@ Debug-Paket des Laptimers
 
 session.json         Session (Config, Sitze, Zeiten), aktuelle Einstellungen, alle
                      gespeicherten Durchflüge (auch gelöschte, von Hand eingefügte und
-                     Freigabe-Gate), Ergebnis, Version
+                     Freigabe-Gate), Korrekturen (changes: eingefügt, gelöscht,
+                     wiederhergestellt, verschoben, abgelehnt; live = während der Session),
+                     Ergebnis, Version
 levels.csv           die Rohpegel der Session (Format wie `laptimer record`), nur die
                      gewählten Kanäle; mit `laptimer replay levels.csv` neu auswertbar
 trace.csv            was der Detektor je 10-ms-Slot sah: Hüllkurve (kombiniert und je Board),
@@ -615,12 +654,13 @@ fn debug_package(app: &App, q: &DebugQuery) -> Result<(String, Vec<u8>)> {
     let channels: Vec<usize> = id_list(&q.channels, "channels")?.iter().map(|&c| c as usize).collect();
     let wanted = |c: usize| channels.is_empty() || channels.contains(&c);
     let id = q.session;
-    let (row, passes, settings) = {
+    let (row, passes, changes, settings) = {
         let mut core = app.core.lock().unwrap();
         let row = core.db.session(id)?.with_context(|| format!("Session {id} gibt es nicht."))?;
         core.flush_levels(id)?;
         let passes = core.db.passes(id)?;
-        (row, passes, core.settings.clone())
+        let changes = core.db.pass_changes(id)?;
+        (row, passes, changes, core.settings.clone())
     };
     let levels_path = row.levels_file.clone().context("Für diese Session sind keine Pegel aufgezeichnet.")?;
     let trace = crate::server::session_trace(app, id)?;
@@ -680,6 +720,7 @@ fn debug_package(app: &App, q: &DebugQuery) -> Result<(String, Vec<u8>)> {
         "settings_now": settings,
         "standings": standings(&row, &results),
         "passes": passes.iter().filter(|p| wanted(p.channel as usize)).collect::<Vec<_>>(),
+        "changes": changes.iter().filter(|c| wanted(c.channel as usize)).collect::<Vec<_>>(),
     });
 
     let mut name = format!("laptimer_session_{id}_debug");

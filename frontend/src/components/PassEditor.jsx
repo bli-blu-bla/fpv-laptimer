@@ -41,6 +41,16 @@ const TRIM_AFTER_US = 10e6
  * @typedef {{start_us: number | null, end_us: number | null, graph: Graph | null}} GraphReply
  */
 
+/** What happened to a saved pass, from the change log: "gelöscht (live) · wiederhergestellt".
+ * @param {import('../types').PassChange[]} changes @param {number} id */
+function historyOf(changes, id) {
+  const words = { add: 'eingefügt', delete: 'gelöscht', restore: 'wiederhergestellt', move: 'verschoben', reject: 'abgelehnt' }
+  return changes
+    .filter((c) => c.pass_id === id)
+    .map((c) => words[c.action] + (c.origin === 'server' ? ' vom Server' : '') + (c.live ? ' (live)' : ''))
+    .join(' · ')
+}
+
 /** @returns {Draft} */
 const emptyDraft = () => ({ moves: {}, deletes: [], restores: [], adds: [] })
 /** @param {Draft | undefined} d */
@@ -102,6 +112,7 @@ export default function PassEditor({ detail, onSaved }) {
     t0,
   )
   const selected = markers.find((m) => m.key === sel) ?? null
+  const selectedHistory = selected?.id != null ? historyOf(detail.changes ?? [], selected.id) : ''
   // Why the selected pass doesn't count ("" if it does), as in the pass log.
   const selectedReason = selected
     ? notCountedReason({ id: selected.key, time_us: selected.t, deleted: selected.kind === 'deleted', rejected: selected.rejected }, preview)
@@ -245,6 +256,7 @@ export default function PassEditor({ detail, onSaved }) {
             {selected.kind === 'moved' && selected.detected != null && (
               <> – verschoben, erkannt bei <span className="tnum">{secs(selected.detected - t0)} s</span></>
             )}
+            {selectedHistory && <span className="muted small" style={{ display: 'block' }}>Bisher: {selectedHistory}</span>}
             {selectedReason && (
               <>
                 {' – zählt nicht: '}

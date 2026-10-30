@@ -37,7 +37,7 @@ use serde_json::{Value, json};
 use tokio::io::AsyncWriteExt;
 
 use crate::core::unix_now_us;
-use crate::db::{Pilot, SessionRow};
+use crate::db::{PassChange, Pilot, SessionRow};
 use crate::laps::PassRecord;
 use crate::server::App;
 
@@ -74,6 +74,9 @@ struct Manifest {
 struct Packed {
     session: SessionRow,
     passes: Vec<PassRecord>,
+    /// The change log of the passes (packages from before it: none).
+    #[serde(default)]
+    changes: Vec<PassChange>,
     /// The pilots of the seats (`seats[].pilot_id`), to match them here.
     pilots: Vec<Pilot>,
 }
@@ -147,6 +150,7 @@ fn collect(app: &App, ids: &str) -> Result<Vec<(Packed, Option<PathBuf>)>> {
         core.flush_levels(id)?;
         let levels = session.levels_file.take().map(PathBuf::from).filter(|p| p.is_file());
         let passes = core.db.passes(id)?;
+        let changes = core.db.pass_changes(id)?;
         let pilots = pilots
             .iter()
             .filter(|p| session.seats.iter().any(|s| s.pilot_id == Some(p.id)))
@@ -156,6 +160,7 @@ fn collect(app: &App, ids: &str) -> Result<Vec<(Packed, Option<PathBuf>)>> {
             Packed {
                 session,
                 passes,
+                changes,
                 pilots,
             },
             levels,
@@ -348,7 +353,7 @@ fn import_file(app: &App, path: &Path) -> Result<Value> {
                 row.confirmed_us = Some(now);
                 confirmed.push(from);
             }
-            let id = core.db.import_session(&row, &packed.passes, None)?;
+            let id = core.db.import_session(&row, &packed.passes, &packed.changes, None)?;
             if let Some(tmp) = levels.remove(&from) {
                 let dest = levels_dir.join(format!("session_{id}.csv"));
                 fs::rename(&tmp, &dest)?;

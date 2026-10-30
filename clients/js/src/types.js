@@ -55,6 +55,20 @@
  * @property {number | null} [detected_us]   where the detector put it (null: added by hand; differs from time_us: moved by hand)
  */
 
+/**
+ * A correction of a pass (only in `sessions.get`, as `changes`).
+ * @typedef {object} PassChange
+ * @property {number | null} pass_id
+ * @property {number} channel
+ * @property {'add' | 'delete' | 'restore' | 'move' | 'reject'} action
+ * @property {number | null} from_us
+ * @property {number | null} to_us
+ * @property {string | null} rejected
+ * @property {boolean} live      while the session ran
+ * @property {'seite' | 'editor' | 'api' | 'server'} origin
+ * @property {number} at_us
+ */
+
 /** @typedef {'holeshot' | 'from_start' | 'flying'} StartMode */
 
 /**
@@ -74,6 +88,7 @@
  * @property {boolean} needs_confirmation
  * @property {SeatResult[]} results
  * @property {Pass[]} [passes]               only from `sessions.get`
+ * @property {PassChange[]} [changes]        only from `sessions.get`: every correction of a pass
  */
 
 /**

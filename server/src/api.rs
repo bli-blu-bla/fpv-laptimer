@@ -35,7 +35,7 @@ use tokio::sync::broadcast;
 
 use crate::auth::{hex, random_bytes};
 use crate::core::{ChannelSetting, Core, standings, unix_now_us};
-use crate::db::SessionRow;
+use crate::db::{By, SessionRow};
 use crate::laps::{EndRule, StartMode};
 use crate::server::{App, MANUAL_GAP_US, check_room, min_lap_us, restart_source, session_results, stats_json};
 
@@ -557,7 +557,8 @@ pub fn command(app: &App, cmd: &str, args: Value) -> Result<Value> {
                     .context("Diesen Durchflug gibt es nicht.")?;
                 check_room(&core, session, p.channel, p.time_us, Some(id), MANUAL_GAP_US)?;
             }
-            core.db.set_pass_deleted(id, !restore)?;
+            let by = By { origin: "api", at_us: core.now_us() };
+            core.db.set_pass_deleted(id, !restore, by)?;
             core.session_changed(session)?;
             Ok(json!({ "session_id": session }))
         }
@@ -677,6 +678,7 @@ fn session_json(core: &Core, s: &SessionRow, with_passes: bool) -> Result<Value>
     });
     if with_passes {
         v["passes"] = json!(passes);
+        v["changes"] = json!(core.db.pass_changes(s.id)?);
     }
     Ok(v)
 }
@@ -900,7 +902,8 @@ fn add_pass(app: &App, args: &Value) -> Result<Value> {
     }
     // Live from a button that may bounce: keep the minimum lap here.
     check_room(&core, session, channel, time_us, None, min_lap_us(&core, session)?)?;
-    let id = core.db.add_pass(session, channel, time_us, 0.0, true)?;
+    let by = By { origin: "api", at_us: core.now_us() };
+    let id = core.db.add_manual_pass(session, channel, time_us, 0.0, by)?;
     core.pass_added(session)?;
     Ok(json!({ "pass_id": id, "session_id": session, "time_us": time_us }))
 }

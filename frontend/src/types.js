@@ -117,6 +117,18 @@
  * @property {Session} session
  * @property {PilotResult[]} results
  * @property {Pass[]} [passes]
+ * @property {PassChange[]} [changes]   every correction of a pass, oldest first
+ *
+ * @typedef {object} PassChange
+ * @property {number | null} pass_id   null: unknown (imported, pass gone)
+ * @property {number} channel
+ * @property {'add' | 'delete' | 'restore' | 'move' | 'reject'} action
+ * @property {number | null} from_us   pass time before
+ * @property {number | null} to_us     and after (add, move)
+ * @property {string | null} rejected  reject: why; restore: the reason it had
+ * @property {boolean} live   while the session ran
+ * @property {'seite' | 'editor' | 'api' | 'server'} origin
+ * @property {number} at_us
  *
  * @typedef {object} LinkStats
  * @property {number} crc_errors
