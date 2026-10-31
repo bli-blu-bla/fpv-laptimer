@@ -486,10 +486,9 @@ pub fn load(path: &Path, setup: Option<DetectSetup>) -> Result<FileAnalysis> {
             }
             continue;
         }
-        let f: Vec<i64> = line.split(',').filter_map(|x| x.parse().ok()).collect();
-        if f.len() < 6 {
+        let Some(f) = crate::record::parse_row(&line) else {
             continue; // the column names, or a line cut off at the end
-        }
+        };
         let a = analysis.get_or_insert_with(|| {
             let mut s = setup.clone().or(file_setup.clone()).unwrap_or_else(|| DetectSetup {
                 n_channels: 0,

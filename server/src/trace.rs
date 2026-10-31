@@ -15,6 +15,7 @@ use serde::Serialize;
 use crate::detect::{DetectConfig, Detector, Event, TRACE_BOARDS, TracePoint};
 use crate::esp::board::Level;
 use crate::esp::frame::rssi_dbfs;
+use crate::record::parse_row;
 
 pub struct SessionTrace {
     /// host_us + offset_us = wall clock µs.
@@ -55,22 +56,30 @@ pub fn load(
     // Boards that are not on the gate asked for ("1=arming", "2=off").
     let gate = if arming { "arming" } else { "finish" };
     let mut skip: Vec<usize> = Vec::new();
-    let mut has_roles = false;
+    let mut has_gate = false; // a board on this gate in "# roles:"
     let mut events: Vec<Event> = Vec::new();
-    for (n, line) in BufReader::new(file).lines().enumerate() {
-        let line = line?;
+    // One buffer for all lines (`lines()` would allocate one per line).
+    let mut reader = BufReader::with_capacity(1 << 16, file);
+    let mut line = String::new();
+    let mut n = 0usize;
+    loop {
+        line.clear();
+        if reader.read_line(&mut line)? == 0 {
+            break;
+        }
+        n += 1;
         if let Some(rest) = line.strip_prefix("# channels:") {
             n_channels = rest.split_whitespace().count();
             continue;
         }
         if let Some(rest) = line.strip_prefix("# roles:") {
-            has_roles = true;
             skip = rest
                 .split_whitespace()
                 .filter_map(|r| r.split_once('='))
                 .filter(|(_, role)| *role != gate)
                 .filter_map(|(b, _)| b.parse().ok())
                 .collect();
+            has_gate = rest.split_whitespace().any(|r| r.split_once('=').is_some_and(|(_, role)| role == gate));
             continue;
         }
         if line.starts_with('#') {
@@ -80,12 +89,15 @@ pub fn load(
             }
             continue;
         }
-        let f: Vec<i64> = line.split(',').filter_map(|x| x.parse().ok()).collect();
-        if f.len() < 6 {
-            continue; // the column names, or a line cut off at the end
+        // Without roles every board was on the finish gate. No board on the
+        // arming gate: nothing to read (the page asks to know whether there is one).
+        if arming && !has_gate {
+            break;
         }
-        // Without roles every board was on the finish gate.
-        if skip.contains(&(f[0] as usize)) || (arming && !has_roles) {
+        let Some(f) = parse_row(&line) else {
+            continue; // the column names, or a line cut off at the end
+        };
+        if skip.contains(&(f[0] as usize)) {
             continue;
         }
         let d = det.get_or_insert_with(|| {
@@ -343,3 +355,4 @@ mod tests {
         assert!(g.boards.is_empty()); // no board data in this trace
     }
 }
+

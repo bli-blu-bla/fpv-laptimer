@@ -27,6 +27,8 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::sync::broadcast;
+use tower_http::compression::CompressionLayer;
+use tower_http::compression::predicate::{DefaultPredicate, NotForContentType, Predicate};
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::api;
@@ -226,11 +228,20 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         // Changes need the login (reading stays open).
         .layer(middleware::from_fn_with_state(Arc::clone(&app), auth::require_login));
     let app_remote = Arc::clone(&app);
+    let app_warm = Arc::clone(&app);
     let web = ServeDir::new(&opts.web_dir).fallback(ServeFile::new(opts.web_dir.join("index.html")));
     let router = Router::new()
         .nest("/api", api)
         .route("/ws", get(websocket))
         .fallback_service(web)
+        // gzip for the browsers that ask for it (all do): graphs, lists and the
+        // page's scripts shrink to a fifth or less, which counts on the WLAN.
+        // Not for what is packed already (packages, backups) or MP3s.
+        .layer(CompressionLayer::new().gzip(true).compress_when(
+            DefaultPredicate::new()
+                .and(NotForContentType::new("application/gzip"))
+                .and(NotForContentType::new("audio/")),
+        ))
         .with_state(app);
 
     let everywhere = opts.host == "0.0.0.0" || opts.host == "::";
@@ -250,6 +261,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
     let rt = tokio::runtime::Runtime::new()?;
     rt.block_on(async move {
         tokio::spawn(crate::remote::run(app_remote));
+        tokio::spawn(warm_traces(app_warm));
         // `localhost` would resolve to ::1 only on some systems (then
         // 127.0.0.1 does not answer); other names are looked up by `bind`.
         let host = if opts.host == "localhost" { "127.0.0.1" } else { opts.host.as_str() };
@@ -487,11 +499,38 @@ pub fn gate_trace(app: &App, id: i64, arming: bool) -> Result<Arc<SessionTrace>>
     }
     let t = Arc::new(trace::load(&path, config, fixed, min_rise, arming)?);
     let mut traces = app.traces.lock().unwrap();
-    if traces.len() >= 4 {
-        traces.clear(); // keep the memory small; the next request reads again
+    // A few MB each (finish and arming gate of a session are two): keep the
+    // memory small; the next request reads again.
+    if traces.len() >= 8 {
+        traces.clear();
     }
     traces.insert((id, arming), (size, Arc::clone(&t)));
     Ok(t)
+}
+
+/// Works out the level graph of every session that ends (both gates) in
+/// the background, so that it is in the cache when the race control opens
+/// the editor: on the Pi a long session takes seconds.
+async fn warm_traces(app: Arc<App>) {
+    let mut events = app.api_tx.subscribe();
+    loop {
+        let msg = match events.recv().await {
+            Ok(msg) => msg,
+            Err(broadcast::error::RecvError::Lagged(_)) => continue,
+            Err(broadcast::error::RecvError::Closed) => return,
+        };
+        let Ok(v) = serde_json::from_str::<Value>(&msg) else { continue };
+        if v["event"] != "session_stopped" || v["data"]["reason"] == "cancelled" {
+            continue;
+        }
+        let Some(id) = v["data"]["session_id"].as_i64() else { continue };
+        let app = Arc::clone(&app);
+        // Errors (no level file) show up when the page asks.
+        tokio::task::spawn_blocking(move || {
+            let _ = gate_trace(&app, id, false);
+            let _ = gate_trace(&app, id, true);
+        });
+    }
 }
 
 #[derive(Deserialize)]

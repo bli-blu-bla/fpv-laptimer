@@ -197,6 +197,40 @@ fn write_header(out: &mut impl Write, boards: &[Board], config: &ScanConfig) -> 
     Ok(())
 }
 
+/// One data line `board,channel,host_us,board_us,rssi,flags` as six numbers;
+/// `None` for anything else (comments, the column names, a line cut off at
+/// the end). By hand instead of `split(',')` + `parse()`: a long session has
+/// millions of lines, and this is about four times faster.
+pub fn parse_row(line: &str) -> Option<[i64; 6]> {
+    let mut f = [0i64; 6];
+    let mut k = 0; // which field
+    let mut digits = 0; // digits in the current field
+    let mut neg = false;
+    for &c in line.trim_end().as_bytes() {
+        match c {
+            b'0'..=b'9' => {
+                f[k] = f[k].checked_mul(10)?.checked_add((c - b'0') as i64)?;
+                digits += 1;
+            }
+            b'-' if digits == 0 && !neg => neg = true,
+            b',' if digits > 0 && k < 5 => {
+                if neg {
+                    f[k] = -f[k];
+                }
+                (k, digits, neg) = (k + 1, 0, false);
+            }
+            _ => return None,
+        }
+    }
+    if k != 5 || digits == 0 {
+        return None;
+    }
+    if neg {
+        f[5] = -f[5];
+    }
+    Some(f)
+}
+
 fn draw(
     views: &[BoardView],
     config: &ScanConfig,
@@ -284,4 +318,23 @@ fn draw(
     }
     print!("{s}");
     let _ = std::io::stdout().flush();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_row;
+
+    #[test]
+    fn rows() {
+        assert_eq!(parse_row("1,2,-30,4000,150,0"), Some([1, 2, -30, 4000, 150, 0]));
+        assert_eq!(parse_row("0,3,123456789,987654321,99,2\r\n"), Some([0, 3, 123456789, 987654321, 99, 2]));
+        assert_eq!(parse_row("board,channel,host_us,board_us,rssi,flags"), None);
+        assert_eq!(parse_row("# channels: 0=R1@5658"), None);
+        assert_eq!(parse_row("1,2,3,4,5"), None); // cut off
+        assert_eq!(parse_row("1,2,3,4,5,"), None);
+        assert_eq!(parse_row("1,2,3,4,5,6,7"), None);
+        assert_eq!(parse_row("1,,3,4,5,6"), None);
+        assert_eq!(parse_row("1,2-,3,4,5,6"), None);
+        assert_eq!(parse_row(""), None);
+    }
 }

@@ -19,7 +19,7 @@ serde_json = "1"
 rusqlite = { version = "0.37", features = ["bundled"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "signal", "fs", "io-util"] }
 axum = { version = "0.8", features = ["multipart", "ws"] }
-tower-http = { version = "0.6", features = ["fs"] }
+tower-http = { version = "0.6", features = ["fs", "compression-gzip"] }
 # Writes the firmware from the web page (Boards → Firmware); without the CLI.
 espflash = { version = "4.6", default-features = false, features = ["serialport"] }
 sha2 = "0.10"

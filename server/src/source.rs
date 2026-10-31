@@ -109,10 +109,9 @@ pub fn start_replay(path: &Path, origin: Instant, tx: Sender<Event>) -> Result<(
         if line.starts_with('#') || line.starts_with("board") || line.is_empty() {
             continue;
         }
-        let f: Vec<i64> = line.split(',').filter_map(|x| x.parse().ok()).collect();
-        if f.len() < 6 {
+        let Some(f) = crate::record::parse_row(&line) else {
             continue;
-        }
+        };
         let level = Level {
             host_us: f[2],
             board_us: f[3] as u64,
