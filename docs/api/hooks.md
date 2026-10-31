@@ -55,4 +55,4 @@ GPIO-LEDs mit `pinctrl`, `log.sh`). Eine Ampel am Start z. B. so:
 | `*` | `log.sh` | | |
 
 In Python liest der [Client](clients.md) das Event aus der Umgebung (`Event.from_env()`),
-Beispiel: `clients/python/examples/hook_autoconfirm.py`.
+Beispiel: [`examples/hook_autoconfirm.py`](https://github.com/bli-blu-bla/fpv-laptimer-client-python/blob/main/examples/hook_autoconfirm.py).
