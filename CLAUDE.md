@@ -13,12 +13,12 @@ Ownership-/async-Stellen kommentieren), Frontend in JavaScript mit JSDoc (`// @t
 
 | Teil | Technik |
 |---|---|
-| `firmware/` | widscan58 (ESP32-C5 als SDR, 5,8 GHz), per `git subtree` von [CapnBry/widscan58](https://github.com/CapnBry/widscan58), plus `LEVELBATCH`/`TIME?`/`NAME` (unten). GPL-3.0-or-later |
+| Firmware | eigenes Repo [`fpv-laptimer-firmware`](https://github.com/bli-blu-bla/fpv-laptimer-firmware) (lokal `../firmware`, eigene `CLAUDE.md`): widscan58 (ESP32-C5 als SDR, 5,8 GHz) per `git subtree` von [CapnBry/widscan58](https://github.com/CapnBry/widscan58), plus `LEVELBATCH`/`TIME?`/`NAME` (unten), eigene Versionen (Tag `v0.1.0` → `INFO` meldet `0.1.0`), Flash-Seite auf GitHub Pages (aufspielen, Name, Pegel, Konsole). Bis 2026-10-31 hier unter `firmware/`; herausgelöst, weil jeder Server-Commit eine neue Firmware-Version ergab („veraltet“) und jeder Release-Build sie neu baute. Hier gepinnt in `firmware.env` (unten) |
 | `server/` | Rust (Crate `laptimer`, Server `laptimer serve`) auf einem Raspberry Pi 3 (für den Pi auf dem Mac cross-kompilieren, der Pi 3 schafft keinen Rust-Build): ESPs per USB lesen, Durchflüge erkennen, SQLite (Sessions, Durchflüge, Rohpegel), MP3-Ansagen (`mpg123`), Web/WebSocket |
 | `frontend/` | React, JavaScript + JSDoc |
-| `tools/` | Flash-Script, `stage_firmware.py` (Firmware für die Seite), `build_release.sh` (Release-Pakete), Python-Scripts zum Messen und Auswerten |
+| `tools/` | `fetch_firmware.sh` (Firmware für Seite und Server), `build_release.sh` (Release-Pakete), Python-Scripts zum Messen und Auswerten |
 | `.github/workflows/` | CI auf GitHub Actions (Repo `bli-blu-bla/fpv-laptimer`): `ci.yml` testet jeden Push, `release.yml` baut bei Tag `v*` (Doku: `docs/INSTALL.md`), `docs.yml` veröffentlicht die Doku-Seite. Die API-Clients liegen in eigenen Repos: [`fpv-laptimer-client-python`](https://github.com/bli-blu-bla/fpv-laptimer-client-python) (PyPI) und [`fpv-laptimer-client-js`](https://github.com/bli-blu-bla/fpv-laptimer-client-js) (npm), beide Paket `fpv-laptimer-client`, Version aus dem Tag `v*`; Beschreibung der API für sie: `docs/api/` |
-| `NOTICE.md` | Herkunft und Danksagung (widscan58, C5VRX, esp-sdr), die Änderungen an der Firmware mit Datum (auch im Kopf jeder geänderten Firmware-Datei vermerken, GPL §5a), Quellcode-Hinweis; kommt in jedes Release-Paket. Bei neuen Firmware-Änderungen ergänzen |
+| `NOTICE.md` | Herkunft und Danksagung (widscan58, C5VRX, esp-sdr), Verweis aufs Firmware-Repo (dessen `NOTICE.md` listet die Firmware-Änderungen mit Datum), Quellcode-Hinweis; kommt in jedes Release-Paket |
 | `docs/`, `mkdocs.yml` | Doku-Seite (gebaut mit Zensical, dem Nachfolger von Material for MkDocs; liest `mkdocs.yml` unverändert. Nur dunkel in den App-Farben, ohne Google Fonts) auf GitHub Pages: Start, Konzept, Funktionen, Installation (`INSTALL.md`), API (`docs/api/`: Überblick, HTTP, WebSocket, Server-Verbindung, Events, Befehle, Datenformate, Hooks, Clients), FAQ, Technik. Screenshots in `docs/assets/screens/` von `tools/docs_screenshots.cjs` (playwright-core) gegen einen Server mit der erfundenen Aufnahme von `tools/make_demo_recording.py` (4 Piloten, 2 Ziel- + 1 Freigabe-Board); Ablauf im Kopf des Scripts. Anker mit Umlauten (`pymdownx.slugs`), damit Links auf GitHub und auf der Seite gehen |
 
 **Installation** (`docs/INSTALL.md`): Pi (64-bit Pi OS Lite), Linux-PC und Mac, alles in
@@ -51,8 +51,10 @@ Ziele `linux-aarch64` (Standard), `linux-x86_64` (`cargo zigbuild --target
 <triple>.2.36`, also glibc ≥ 2.36), `macos-aarch64`, `macos-x86_64` (nur auf einem Mac),
 Pakete `dist/laptimer-<ver>-<ziel>.tar.gz` (`bin/`, `web/` mit Firmware, `sounds/`,
 `hooks-examples/`, `install.sh`, `laptimer.service`, `update-check.sh`, `VERSION`,
-`minisign.pub`) + `.sha256`, dazu `dist/install.sh`. Die Release-CI: Job `web` (Tests,
-Firmware, Seite), dann `linux` (ubuntu) und `macos` (macos-14) parallel mit `--no-web`, dann
+`minisign.pub`) + `.sha256`, dazu `dist/install.sh`. Die Firmware baut es nicht: es holt
+die in `firmware.env` gepinnte (`tools/fetch_firmware.sh`; `--no-firmware` lässt
+`frontend/public/firmware` wie es ist). Die Release-CI: Job `web` (Tests,
+Firmware holen, Seite), dann `linux` (ubuntu) und `macos` (macos-14) parallel mit `--no-web`, dann
 `release`: minisign-Signatur (Secrets `RELEASE_SIGNING_KEY`, `RELEASE_SIGNING_PASSWORD`; das
 Passwort liest minisign ohne Terminal aus stdin) und `gh release create`. Lokal gemessen
 2026-10-28: `linux-x86_64` per zigbuild ~1 min, Paket 5,4 MB. Noch nicht auf GitHub gelaufen.
@@ -74,10 +76,22 @@ Setup am Stammtisch: meist 4 Piloten auf R1, R3, R6, R8; 3–4 ESP32-C5 vorhande
 
 ## Firmware
 
-Bauen und flashen: `tools/flash_c5_many.sh` (siehe README), oder über die Web-Seite (unten,
-„Firmware über die Seite“). Die vollständige Firmware-Doku
-(Befehle, Messwerte, Flash-Probleme, RotorHazard-Modus) steht im Upstream-Repo in
-`CLAUDE.md` und `PLAN.md`; hier nur, was der Laptimer braucht.
+Im Repo [`fpv-laptimer-firmware`](https://github.com/bli-blu-bla/fpv-laptimer-firmware)
+(Bauen, `tools/flash_c5_many.sh`, Releases, Flash-Seite: dort `CLAUDE.md`/`README.md`). Die
+vollständige Firmware-Doku (Befehle, Messwerte, Flash-Probleme, RotorHazard-Modus) steht im
+Upstream-Repo widscan58 in `CLAUDE.md` und `PLAN.md`; hier nur, was der Laptimer braucht.
+
+**Welche Firmware der Laptimer mitbringt:** `firmware.env` (`FIRMWARE_VERSION`,
+`FIRMWARE_SHA256` des Release-Tarballs `fpv-laptimer-firmware-<ver>.tar.gz` = `manifest.json`
++ `esp32c5/*.bin`). `tools/fetch_firmware.sh` lädt ihn vom GitHub-Release, prüft die sha256
+gegen `firmware.env` und entpackt nach `frontend/public/firmware/` (nicht im Git; Vite nimmt
+ihn nach `dist/firmware/` mit). `--update [VER]` (ohne VER: neuestes Release) prüft gegen die
+`.sha256` des Releases und schreibt `firmware.env` neu; `--from <tarball|ordner>` nimmt eine
+selbst gebaute ungeprüft (z. B. `../firmware/web/public/firmware` nach dessen
+`tools/stage_firmware.py`). Versionsvergleich auf der Seite: `frontend/src/firmwareVersion.js`
+(gleiche Regeln wie `web/src/version.js` im Firmware-Repo): „aktuell“, „veraltet“ (älter),
+„neuer“, „andere Version“ (nicht vergleichbar, z. B. reiner Commit-Hash). Firmware aus der Zeit
+im Laptimer-Repo meldet dessen Version (`v0.0.12-…`) und gilt als veraltet.
 
 Die Firmware startet stumm im RotorHazard-Modus. Der Server stellt sie beim Verbinden ein:
 
@@ -93,7 +107,7 @@ LEVELBATCH 10
 
 - **`LEVELBATCH <ms>`** (1–100, 0 = aus; `LEVELBATCH?`): Mit `METRICS RSSI|SNR` kommen die
   Pegel aller Hops der letzten `<ms>` als ein Frame (Typ 7, `FRAME_LEVEL_BATCH`,
-  `firmware/src/proto/frames.h`), höchstens 128 Einträge. Kopf 18 Byte: `u32 seq`,
+  `firmware/src/proto/frames.h` im Firmware-Repo), höchstens 128 Einträge. Kopf 18 Byte: `u32 seq`,
   `u64 t0_us`, `u16 lost`, `u8 gain`, `u8 mode`, `u16 n`; je Eintrag 8 Byte: `u32 dt_us`,
   `u8 id`, `u8 flags`, `u8 rssi`, `u8 snr`. Zeit = `t0_us + dt_us`, Mitte des Captures.
   Pegelcodes in 0,25 dB: dBFS = code / 4 − 63,75. Jedes `PROTOCOL MONITOR` setzt es auf 0.
@@ -338,10 +352,10 @@ zurückgesetzt wurden; Ursache unbekannt, nicht wieder aufgetreten.
 keine C-Bibliothek braucht; Boards werden am Portnamen erkannt (`/dev/cu.usbmodem*`,
 `/dev/ttyACM*`).
 
-**Firmware über die Seite** (Boards → Firmware, `components/FirmwarePanel.jsx`):
-`tools/stage_firmware.py` kopiert den Build nach `frontend/public/firmware/` (nicht im Git) mit
-`manifest.json` (ESP-Web-Tools-Format plus Größe und sha256; `version` = `project_version` des
-Builds, wie es `INFO` meldet). Vite nimmt das nach `dist/firmware/` mit. Zwei Wege:
+**Firmware über die Seite** (Boards → Firmware, `components/FirmwarePanel.jsx`, mit Link auf
+die Flash-Seite des Firmware-Repos): die Dateien aus `frontend/public/firmware/`
+(`tools/fetch_firmware.sh`, siehe „Firmware“ oben), `manifest.json` im ESP-Web-Tools-Format
+plus Größe und sha256, `version` wie `INFO` sie meldet. Zwei Wege:
 - **Server** (`src/esp/flash.rs`, Crate `espflash` ohne CLI): `GET /api/firmware` (Manifest,
   alle Ports aus `find_ports` mit `INFO` der laufenden Boards, Flash-Status), `POST
   /api/firmware/flash {port}` (nicht während einer Session). Ein Thread hält die
@@ -352,11 +366,13 @@ Builds, wie es `INFO` meldet). Vite nimmt das nach `dist/firmware/` mit. Zwei We
   Watchdog-Reset danach (ein USB-Reset lässt den C5 im Download-Modus) machen wir selbst,
   Register wie in esptool. Gemessen 2026-10-22: ~10 s pro Board, beide Boards danach mit
   richtiger Version zurück.
-- **Browser** (`src/flasher.js`, esptool-js, aus widscan58s `web/src/serial/flasher.ts`):
+- **Browser** (`src/flasher.js`, esptool-js, aus widscan58s `web/src/serial/flasher.ts`;
+  dieselbe Datei in `web/src/flasher.js` des Firmware-Repos):
   Web Serial gibt es nur in sicherem Kontext (localhost/HTTPS), also nicht von
   `http://<pi>:5800`; dann zeigt die Seite nur einen Hinweis. esptool-js wird erst beim
   Flashen geladen (eigene Chunks). Nicht automatisch getestet (die Port-Auswahl braucht einen
   Klick).
 
-**Upstream-Updates holen:** `tools/update_firmware.sh` (zieht `firmware/` aus
-CapnBry/widscan58 per `git subtree`).
+**Upstream-Updates holen:** im Firmware-Repo `tools/update_firmware.sh` (zieht `firmware/` aus
+CapnBry/widscan58 per `git subtree`), dort taggen, dann hier `tools/fetch_firmware.sh
+--update`.

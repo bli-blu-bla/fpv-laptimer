@@ -6,9 +6,10 @@ Der FPV Laptimer baut auf der Arbeit anderer auf. Ohne sie gäbe es ihn nicht.
 
 Die Firmware der Boards ist **[widscan58](https://github.com/CapnBry/widscan58)** von
 **Bryan Mayland (CapnBry)**. Sie macht aus dem Funkteil eines ESP32 einen Empfänger, der die
-FPV-Kanäle reihum misst: das Herzstück der Messung. Im Laptimer liegt sie per `git subtree` im
-Ordner `firmware/`, ergänzt um drei Befehle für den Server (`LEVELBATCH`, `TIME?`, `NAME`;
-siehe [Firmware und Protokoll](technik/firmware.md)). Auch das Flashen aus dem Browser und die
+FPV-Kanäle reihum misst: das Herzstück der Messung. Per `git subtree` übernommen liegt sie im
+Repository [fpv-laptimer-firmware](https://github.com/bli-blu-bla/fpv-laptimer-firmware),
+ergänzt um drei Befehle für den Server (`LEVELBATCH`, `TIME?`, `NAME`; siehe
+[Firmware und Protokoll](technik/firmware.md)). Auch das Flashen aus dem Browser und die
 Kanalwahl der Seite stammen aus bzw. folgen widscan58.
 
 ## C5VRX und esp-sdr

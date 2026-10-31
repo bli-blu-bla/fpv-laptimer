@@ -11,6 +11,13 @@ stehen beide Gates mit dem Erkennungsmodus jedes Kanals und „Alle automatisch 
 **Firmware** spielt man ebenfalls hier auf, auch vom Handy aus: Der Server flasht ein Board,
 das an ihm steckt, in etwa 10 s, und vergleicht danach die Version. Am Rechner mit Chrome oder
 Edge geht es auch direkt aus dem Browser (Web Serial, nur über `localhost` oder HTTPS).
+„veraltet“ steht neben einem Board nur, wenn seine Firmware älter ist als die, die der Laptimer
+mitbringt.
+
+Die Firmware hat außerdem eine eigene Seite:
+**[bli-blu-bla.github.io/fpv-laptimer-firmware](https://bli-blu-bla.github.io/fpv-laptimer-firmware/)**.
+Dort spielt man an jedem Rechner mit Chrome oder Edge die neueste Firmware auf, sieht Version
+und Pegel eines Boards, gibt ihm einen Namen und schickt Befehle über eine Konsole.
 
 ## Debug
 

@@ -1,5 +1,5 @@
 # A release on a tag "v*" (git tag v0.2.0 && git push origin v0.2.0): tests,
-# firmware and web page once, the server for Linux (Pi and PC) and the Mac
+# web page once (with the firmware release firmware.env pins, not built here), the server for Linux (Pi and PC) and the Mac
 # (tools/build_release.sh), the packages signed with minisign and attached
 # to a GitHub release, together with install.sh:
 #
@@ -24,22 +24,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0 # git describe: the firmware's version
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - uses: actions/setup-python@v7
-        with:
-          python-version: '3.12'
       - uses: actions/cache@v6
         with:
           path: |
-            ~/.platformio
             ~/.cargo/registry
             ~/.cargo/git
             server/target
-          key: release-web-${{ hashFiles('firmware/platformio.ini', 'server/Cargo.lock') }}
+          key: release-web-${{ hashFiles('server/Cargo.lock') }}
           restore-keys: release-web-
 
       - name: Tests
@@ -48,10 +42,7 @@ jobs:
           (cd frontend && npm ci --no-audit --no-fund && npm run check)
 
       - name: Firmware and web page
-        run: |
-          sudo apt-get install -y --no-install-recommends cmake ninja-build
-          pip install --quiet platformio
-          tools/build_release.sh "${GITHUB_REF_NAME#v}" --web-only
+        run: tools/build_release.sh "${GITHUB_REF_NAME#v}" --web-only
 
       - uses: actions/upload-artifact@v7
         with:

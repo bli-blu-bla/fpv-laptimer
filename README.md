@@ -18,11 +18,10 @@ Status: im Aufbau. Doku mit Screenshots: **[bli-blu-bla.github.io/fpv-laptimer](
 
 | Ordner | Inhalt |
 |---|---|
-| `firmware/` | ESP32-C5-Firmware: [widscan58](https://github.com/CapnBry/widscan58) von Bryan Mayland (per `git subtree`) plus unsere Erweiterungen |
 | `server/` | Rust: der Server (`laptimer serve`), dazu `record`/`replay` für Testflüge |
 | `frontend/` | Oberfläche in React mit JavaScript + JSDoc |
 | `sounds/` | Fertige Ansage-Bausteine als MP3 (Platzhalter von `tools/make_sounds.sh`, gern durch eigene mit gleichem Namen ersetzen; fehlt einer, wird sein Text gesprochen). Namen und Rundenzeiten spricht die Sprachausgabe: auf dem Pi `sudo apt install libttspico-utils` (oder `espeak-ng`). Einstellungen → Ansagen: welche Ereignisse angesagt werden, und ob der Server oder ein Browser (z. B. Laptop mit Bluetooth-Box) sie abspielt |
-| `tools/` | Flash-Script, Release-Build, Mess- und Auswerte-Scripts |
+| `tools/` | Release-Build, Firmware holen (`fetch_firmware.sh`), Mess- und Auswerte-Scripts |
 
 ## Installieren
 
@@ -38,22 +37,15 @@ Derselbe Befehl aktualisiert eine installierte Version. Danach Updates auch übe
 
 ## Firmware flashen
 
-```sh
-tools/flash_c5_many.sh          # baut einmal, dann ein Board nach dem anderen anstecken
-tools/flash_c5_many.sh --all    # alle gerade angesteckten Boards
-```
+Die Firmware der Boards hat ein eigenes Repo mit eigenen Versionen:
+**[fpv-laptimer-firmware](https://github.com/bli-blu-bla/fpv-laptimer-firmware)**. Am
+einfachsten auf ihrer Seite
+**[bli-blu-bla.github.io/fpv-laptimer-firmware](https://bli-blu-bla.github.io/fpv-laptimer-firmware/)**
+(Chrome oder Edge, Board per USB): neueste Firmware aufspielen, Version und Name des Boards
+ansehen und setzen, Pegel live, Konsole.
 
-Braucht [PlatformIO](https://platformio.org) (`pio`) und Python 3.
-
-**Über die Web-Seite:** Firmware einmal bauen und für die Seite bereitstellen:
-
-```sh
-(cd firmware && pio run -e esp32c5)
-tools/stage_firmware.py                          # → frontend/public/firmware
-(cd frontend && npm run build)                   # nimmt sie mit nach dist/
-```
-
-Dann unter **Boards → Firmware**:
+Jeder Laptimer bringt eine feste Firmware-Version mit (`firmware.env`: Version + sha256 des
+Release-Pakets). Sie steht unter **Boards → Firmware**:
 
 - **Aufspielen** neben einem Board: Der Server flasht ein Board, das an ihm steckt (z. B. am
   Pi am Gate), auch vom Handy aus. Alle Boards pausieren dafür etwa 15 s; während einer
@@ -63,8 +55,15 @@ Dann unter **Boards → Firmware**:
   `http://<pi>:5800`. Läuft auf demselben Rechner `laptimer serve`, hat der Server die Ports
   offen; dann über „Aufspielen“ flashen.
 
-Neben jedem Board steht seine Firmware-Version, und „aktuell“ oder „veraltet“ im Vergleich zur
-bereitgestellten.
+Neben jedem Board steht seine Firmware-Version: „aktuell“, „veraltet“ (älter als die
+mitgebrachte) oder „neuer“ (z. B. von der Firmware-Seite). Beim Entwickeln die Firmware für die
+Seite holen:
+
+```sh
+tools/fetch_firmware.sh                          # die Version aus firmware.env → frontend/public/firmware
+tools/fetch_firmware.sh --update                 # neuestes Firmware-Release eintragen und holen
+tools/fetch_firmware.sh --from ../firmware/web/public/firmware   # eine selbst gebaute
+```
 
 ## Zeitmessung starten
 
@@ -158,10 +157,10 @@ tools/.venv-analysis/bin/python tools/plot_recording.py <datei>.csv --channel R3
 
 Die Firmware ist [widscan58](https://github.com/CapnBry/widscan58) von Bryan Mayland
 (CapnBry), die den Funkteil des ESP32 als Empfänger für 5,8 GHz nutzt; ohne sie gäbe es den
-Laptimer nicht. widscan58 wiederum baut auf [C5VRX](https://github.com/Twotoz/C5VRX) und den
+Laptimer nicht; sie liegt mit unseren Erweiterungen in
+[fpv-laptimer-firmware](https://github.com/bli-blu-bla/fpv-laptimer-firmware). widscan58 wiederum baut auf [C5VRX](https://github.com/Twotoz/C5VRX) und den
 davon abgeleiteten [esp-sdr](https://github.com/ESPARGOS/esp-sdr)-Projekten auf, die den
-versteckten I/Q-Debugpfad des ESP32 gefunden haben. Woher was stammt und was wir an der
-Firmware geändert haben: [NOTICE.md](NOTICE.md).
+versteckten I/Q-Debugpfad des ESP32 gefunden haben. Woher was stammt: [NOTICE.md](NOTICE.md).
 
 ## Lizenz
 

@@ -1,6 +1,6 @@
 //! What a board sends: binary frames and text lines, mixed in one byte stream.
 //!
-//! The wire format is defined in `firmware/src/proto/frames.h`:
+//! The wire format is defined in `firmware/src/proto/frames.h` of fpv-laptimer-firmware:
 //!
 //! ```text
 //! frame: A5 'R' | type | version | len (u16) | payload (len bytes) | crc32 (u32)
@@ -126,7 +126,7 @@ pub struct LevelRecord {
     pub board_us: u64,
     /// Index in the channel plan (the order of the `CHANNELS` command).
     pub channel: u8,
-    /// `CHF_*` flags (firmware/src/scan/metrics.h); 2 = the ADC clipped.
+    /// `CHF_*` flags (fpv-laptimer-firmware: firmware/src/scan/metrics.h); 2 = the ADC clipped.
     pub flags: u8,
     /// Level code in 0.25 dB steps, see [`rssi_dbfs`].
     pub rssi: u8,

@@ -133,7 +133,9 @@ git tag v0.2.0
 git push origin v0.2.0
 ```
 
-Die CI testet (Server, Seite), baut Firmware und Seite einmal, den Server für Linux
+Die CI testet (Server, Seite), baut die Seite einmal mit der Firmware aus `firmware.env`
+(ein Release von [fpv-laptimer-firmware](https://github.com/bli-blu-bla/fpv-laptimer-firmware),
+geprüft per sha256; `tools/fetch_firmware.sh`), den Server für Linux
 (`aarch64`, `x86_64`, per cargo-zigbuild) und auf einem macOS-Runner für den Mac (`aarch64`,
 `x86_64`), packt alles (`tools/build_release.sh`), signiert die Pakete und legt das Release an:
 
@@ -178,7 +180,7 @@ Ohne CI, z. B. zum Testen auf dem Pi:
 pip install cargo-zigbuild ziglang                         # einmal
 rustup target add aarch64-unknown-linux-gnu                # einmal
 tools/build_release.sh                                     # Pi, Version aus git describe
-tools/build_release.sh 0.2.0 --no-firmware                 # ohne PlatformIO
+tools/build_release.sh 0.2.0 --no-firmware                 # Firmware in frontend/public/firmware so lassen
 tools/build_release.sh --target linux-x86_64 --target macos-aarch64   # andere Ziele (macOS nur auf dem Mac)
 ```
 

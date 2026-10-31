@@ -14,8 +14,10 @@ Das Repository: [github.com/bli-blu-bla/fpv-laptimer](https://github.com/bli-blu
 
 | Ordner | Inhalt |
 |---|---|
-| `firmware/` | widscan58 (per `git subtree`) plus die Befehle `LEVELBATCH`, `TIME?`, `NAME` |
 | `server/` | Rust: Server, Erkennung, Datenbank, Ansagen, Installation |
 | `frontend/` | React in JavaScript mit JSDoc-Typen (`// @ts-check`) |
 | `deploy/` | `install.sh`, systemd-Unit, `update-check.sh` |
-| `tools/` | Release-Build, Flash-Script, Auswerte- und Demo-Scripts |
+| `tools/` | Release-Build, Firmware holen, Auswerte- und Demo-Scripts |
+
+Die Firmware der Boards liegt in einem eigenen Repository:
+[github.com/bli-blu-bla/fpv-laptimer-firmware](https://github.com/bli-blu-bla/fpv-laptimer-firmware).

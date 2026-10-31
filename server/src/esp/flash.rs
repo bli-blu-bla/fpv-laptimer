@@ -1,6 +1,6 @@
 //! Writes the firmware to a board on USB (the crate `espflash`), for the web
 //! page's "Firmware aufspielen". The files come from `<web>/firmware/`
-//! (`tools/stage_firmware.py`), the same ones the page's own flasher
+//! (`tools/fetch_firmware.sh`), the same ones the page's own flasher
 //! (Web Serial) uses.
 //!
 //! espflash knows the ESP32-C5 but not its watchdog registers, so two steps
@@ -53,7 +53,7 @@ pub fn load_manifest(dir: &Path) -> Result<Manifest> {
     let path = dir.join("manifest.json");
     let text = std::fs::read_to_string(&path).with_context(|| {
         format!(
-            "Keine Firmware bereitgestellt ({} fehlt; tools/stage_firmware.py ausführen).",
+            "Keine Firmware bereitgestellt ({} fehlt; tools/fetch_firmware.sh ausführen).",
             path.display()
         )
     })?;

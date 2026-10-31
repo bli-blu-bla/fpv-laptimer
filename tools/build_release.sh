@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build release packages: firmware, web page, the server for each target,
+# Build release packages: web page with the firmware, the server for each target,
 # packed with everything the installation needs, plus install.sh for
 # "curl … | bash". The CI runs this in parts (.github/workflows/release.yml);
 # it runs locally too. GPL-3.0-or-later.
@@ -9,11 +9,15 @@
 #   VERSION        default: git describe without the leading "v"
 #   --target T     linux-aarch64 (default, the Pi), linux-x86_64,
 #                  macos-aarch64, macos-x86_64; repeat for several
-#   --no-firmware  don't build the firmware; a staged one
-#                  (frontend/public/firmware) is packed as it is
+#   --no-firmware  don't fetch the firmware; whatever is in
+#                  frontend/public/firmware is packed as it is
+#                  (tools/fetch_firmware.sh --from … for an unreleased one)
 #   --no-web       don't build the web page, pack frontend/dist as it is
 #                  (the CI builds it once for all targets)
 #   --web-only     only firmware and web page (frontend/dist), no packages
+#
+# The firmware is not built here: it is the release of fpv-laptimer-firmware
+# that firmware.env pins (version + sha256), fetched by tools/fetch_firmware.sh.
 #
 # The packages carry LICENSE and NOTICE.md (where the firmware comes from,
 # what we changed, where its source is: the GPL asks for it with binaries).
@@ -29,7 +33,7 @@
 #
 # Needs: Rust with the targets (rustup target add aarch64-unknown-linux-gnu
 # …), for Linux targets cargo-zigbuild and zig (`pip install cargo-zigbuild
-# ziglang`), Node/npm, Python 3, and for the firmware PlatformIO (`pio`).
+# ziglang`), Node/npm, curl.
 set -euo pipefail
 root=$(cd "$(dirname "$0")/.." && pwd)
 glibc=2.36
@@ -68,9 +72,7 @@ for t in "${targets[@]}"; do triple "$t" >/dev/null; done
 
 if [ $web = 1 ]; then
     if [ $firmware = 1 ]; then
-        echo "== firmware"
-        (cd "$root/firmware" && pio run -e esp32c5)
-        python3 "$root/tools/stage_firmware.py"
+        "$root/tools/fetch_firmware.sh"
     elif [ -f "$root/frontend/public/firmware/manifest.json" ]; then
         echo "== firmware: packing the staged one (--no-firmware)"
     else

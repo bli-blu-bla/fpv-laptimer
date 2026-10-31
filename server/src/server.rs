@@ -84,7 +84,7 @@ pub struct App {
     /// Level files worked through for the board debugging: (source, file
     /// size, result), at most 2 (`debug.rs`).
     pub debug_files: Mutex<Vec<(String, u64, Arc<crate::debug::FileAnalysis>)>>,
-    /// The firmware the page offers (`<web>/firmware`, `tools/stage_firmware.py`).
+    /// The firmware the page offers (`<web>/firmware`, `tools/fetch_firmware.sh`).
     firmware_dir: PathBuf,
     /// The flash in progress or the last one (`/api/firmware`).
     flash: Mutex<Option<FlashStatus>>,

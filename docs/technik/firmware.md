@@ -2,14 +2,26 @@
 
 ## widscan58
 
-Die Firmware im Ordner `firmware/` ist [widscan58](https://github.com/CapnBry/widscan58) von
-Bryan Mayland, per `git subtree` übernommen (`tools/update_firmware.sh` holt neue Versionen).
+Die Firmware ist [widscan58](https://github.com/CapnBry/widscan58) von Bryan Mayland, mit
+unseren Erweiterungen in einem eigenen Repository:
+[fpv-laptimer-firmware](https://github.com/bli-blu-bla/fpv-laptimer-firmware) (dort per
+`git subtree` übernommen; `tools/update_firmware.sh` holt neue Upstream-Stände).
 Sie nutzt den Funkteil des ESP32-C5 über den I/Q-Debugpfad (aus
 [ESPARGOS/esp-sdr](https://github.com/ESPARGOS/esp-sdr)) als Software-Empfänger für 5,8 GHz.
 Für den Laptimer sind drei Befehle dazugekommen: `LEVELBATCH`, `TIME?` und `NAME`.
 
-Flashen: `tools/flash_c5_many.sh` (PlatformIO), oder über die Seite unter
-**Boards → Firmware**.
+Flashen: über die [Firmware-Seite](https://bli-blu-bla.github.io/fpv-laptimer-firmware/), über
+die Laptimer-Seite unter **Boards → Firmware**, oder mit `tools/flash_c5_many.sh` im
+Firmware-Repo.
+
+## Versionen
+
+Die Firmware hat eigene Versionen (Tags `v0.1.0` …, `INFO` meldet `0.1.0`). Der Laptimer
+bringt eine feste mit: `firmware.env` nennt Version und sha256 des Release-Pakets
+`fpv-laptimer-firmware-<ver>.tar.gz`, `tools/fetch_firmware.sh` lädt und prüft es (das macht
+auch `tools/build_release.sh`), `tools/fetch_firmware.sh --update [VER]` trägt eine neue ein.
+So ändert ein Server-Update die Firmware nur, wenn sich `firmware.env` ändert, und „veraltet“
+erscheint nur bei einer älteren Firmware als der mitgebrachten.
 
 ## Einstellen beim Verbinden
 

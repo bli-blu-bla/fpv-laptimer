@@ -1,11 +1,12 @@
 // @ts-check
-// Writes the firmware staged with the page (tools/stage_firmware.py puts it
+// Writes the firmware staged with the page (tools/fetch_firmware.sh puts it
 // in /firmware/) to a board on this computer's USB, over Web Serial, with
 // esptool-js. Only where the browser offers Web Serial: Chrome or Edge, and
 // only on a "secure" page (localhost or HTTPS), so not from the Pi's
 // http://… address; there the server flashes (Boards → Firmware).
 // GPL-3.0-or-later. Derived from widscan58's web/src/serial/flasher.ts
-// (CapnBry/widscan58).
+// (CapnBry/widscan58). The firmware repository's page has the same file
+// (fpv-laptimer-firmware, web/src/flasher.js).
 
 import SparkMD5 from 'spark-md5'
 
@@ -56,7 +57,7 @@ export async function loadManifest() {
   const r = await fetch(FIRMWARE_DIR + 'manifest.json', { cache: 'no-cache' })
   // The dev server answers a missing file with index.html, hence the JSON check.
   const m = r.ok ? /** @type {Manifest | null} */ (await r.json().catch(() => null)) : null
-  if (!m?.builds) throw new Error('Mit dieser Seite ist keine Firmware bereitgestellt (tools/stage_firmware.py).')
+  if (!m?.builds) throw new Error('Mit dieser Seite ist keine Firmware bereitgestellt (tools/fetch_firmware.sh).')
   return m
 }
 

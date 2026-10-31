@@ -111,7 +111,8 @@ Bedienung.
 ```
 
 Die ESP32-C5 laufen mit einer veränderten Version der Firmware [widscan58](https://github.com/CapnBry/widscan58) von
-Bryan Mayland als einfacher Empfänger (SDR) für das 5,8-GHz-Band und messen jeden Kanal etwa
+Bryan Mayland ([fpv-laptimer-firmware](https://github.com/bli-blu-bla/fpv-laptimer-firmware), mit
+[Flash-Seite](https://bli-blu-bla.github.io/fpv-laptimer-firmware/)) als einfacher Empfänger (SDR) für das 5,8-GHz-Band und messen jeden Kanal etwa
 500-mal pro Sekunde. Mehr dazu im [Konzept](konzept.md), wem wir das verdanken unter
 [Danksagung](danksagung.md).
 

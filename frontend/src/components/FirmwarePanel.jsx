@@ -1,14 +1,19 @@
 // @ts-check
 // Boards → Firmware: which firmware each board runs, and two ways to write
-// the one staged with the page (tools/stage_firmware.py):
+// the one this laptimer brings along (firmware.env, tools/fetch_firmware.sh):
 // - over the server, for the boards on its USB (the Pi at the gate);
 // - over Web Serial, for a board on this computer's USB. The browser allows
 //   that only on localhost or HTTPS, so not on the Pi's http://… page.
+// The firmware has its own repository and page (FIRMWARE_PAGE): newest
+// version, board names, levels and a console, for a board on any computer.
 
 import { useEffect, useState } from 'react'
 import { LightningIcon, UploadSimpleIcon } from '@phosphor-icons/react'
 import { api } from '../api.js'
 import { flashFirmware, loadManifest, requestPort, webSerialAvailable } from '../flasher.js'
+import { compareVersions } from '../firmwareVersion.js'
+
+const FIRMWARE_PAGE = 'https://bli-blu-bla.github.io/fpv-laptimer-firmware/'
 
 /** "widscan58|esp32c5|proto|version|…" → version. @param {string | null} info */
 const versionOf = (info) => info?.split('|')[3] ?? null
@@ -57,7 +62,8 @@ export default function FirmwarePanel({ state, flash }) {
         {fw && !fw.ports.length && <span className="muted small">Am Server ist kein Board angesteckt.</span>}
         {fw?.ports.map((p) => {
           const version = versionOf(p.info)
-          const current = version != null && version === offered
+          // -1 older, 0 the same, 1 newer (a test build), null not comparable
+          const cmp = version && offered ? compareVersions(version, offered) : null
           const mine = status?.port === p.port
           return (
             <div key={p.port} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -68,8 +74,10 @@ export default function FirmwarePanel({ state, flash }) {
                 <span className="muted small" style={{ flex: 1, minWidth: 0 }}>
                   {version ? `Firmware ${version}` : 'Keine Laptimer-Firmware oder nicht erreichbar'}
                 </span>
-                {current && <span className="tag">aktuell</span>}
-                {version && offered && !current && <span className="tag tag-accent">veraltet</span>}
+                {cmp === 0 && <span className="tag">aktuell</span>}
+                {cmp === -1 && <span className="tag tag-accent">veraltet</span>}
+                {cmp === 1 && <span className="tag">neuer</span>}
+                {version && offered && cmp == null && version !== offered && <span className="tag">andere Version</span>}
                 <button
                   className="btn btn-secondary"
                   disabled={!offered || busy || sessionRunning}
@@ -91,6 +99,13 @@ export default function FirmwarePanel({ state, flash }) {
         {error && <span className="error small">{error}</span>}
 
         <LocalFlash offered={offered} />
+        <span className="muted small">
+          Neueste Firmware, Board-Namen und Pegel auch an jedem anderen Rechner:{' '}
+          <a href={FIRMWARE_PAGE} target="_blank" rel="noreferrer">
+            Firmware-Seite
+          </a>{' '}
+          (Chrome oder Edge).
+        </span>
       </div>
     </div>
   )

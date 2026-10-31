@@ -1,6 +1,6 @@
 # Tests on every push: server (cargo test), web page (JSDoc types, build),
-# the install script's syntax. The release (firmware, packages, signature) is
-# release.yml. The API clients have their own repositories.
+# the scripts' syntax. The release (packages, signature) is release.yml. The
+# firmware and the API clients have their own repositories.
 name: CI
 
 on:
@@ -41,4 +41,4 @@ jobs:
           npm run build
 
       - name: Scripts
-        run: bash -n deploy/install.sh tools/build_release.sh && sh -n deploy/update-check.sh
+        run: bash -n deploy/install.sh tools/build_release.sh tools/fetch_firmware.sh && sh -n deploy/update-check.sh
