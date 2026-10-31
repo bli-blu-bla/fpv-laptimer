@@ -1,7 +1,8 @@
 // @ts-check
 // The frame: navigation (a sidebar on wide screens, a tab bar at the bottom
 // on phones), the top bar, and the pages. "?view=zuschauer" shows only the
-// spectator view, full screen.
+// spectator view, full screen. The page is part 0 of the hash ("#sessions",
+// see route.js), so a reload stays on it and the back button works.
 
 import { useEffect, useState } from 'react'
 import {
@@ -23,6 +24,7 @@ import {
 import { api, saveSettings, useServer } from './api.js'
 import { onBlocked, unblock } from './announcer.js'
 import { checkAuth, logout, showLogin, useAuth } from './auth.js'
+import { useHashPart } from './route.js'
 import LoginDialog, { Locked } from './components/LoginDialog.jsx'
 import ApiPage from './pages/Api.jsx'
 import Best from './pages/Best.jsx'
@@ -49,12 +51,14 @@ const DESKTOP_ONLY = ['api']
 /** Only for the race control: hidden without a login (when a password is set). */
 const CONTROL_ONLY = ['control', 'boards', 'settings', 'api']
 
+const PAGE_IDS = PAGES.map((p) => p[0])
+
 const FULL_SCREEN_WATCH = new URLSearchParams(location.search).get('view') === 'zuschauer'
 
 export default function App() {
   const server = useServer()
   const { state, connected, changed } = server
-  const [page, setPage] = useState(/** @type {(typeof PAGES)[number][0]} */ ('control'))
+  const [page, setPage] = useHashPart(0, PAGE_IDS, 'control')
   const stats = useStats(state, changed)
   const [soundBlocked, setSoundBlocked] = useState(false)
   useEffect(() => onBlocked(setSoundBlocked), [])

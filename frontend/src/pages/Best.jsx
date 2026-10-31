@@ -1,12 +1,12 @@
 // @ts-check
 // Best times: today or all time, per pilot.
 
-import { useState } from 'react'
+import { useHashPart } from '../route.js'
 import { secs } from '../format.js'
 
 /** @param {{state: import('../types').State, stats: import('../types').Stats | null}} props */
 export default function Best({ state, stats }) {
-  const [scope, setScope] = useState(/** @type {'today' | 'all'} */ ('today'))
+  const [scope, setScope] = useHashPart(1, /** @type {const} */ (['today', 'all']), 'today')
   const rows = (scope === 'today' ? stats?.today : stats?.all) ?? []
   const n = state.settings.consecutive
   const best = rows[0]?.best_lap_us

@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react'
 import { ArrowLeftIcon, CheckSquareIcon, DownloadSimpleIcon, PencilSimpleIcon, SquareIcon, TrashIcon } from '@phosphor-icons/react'
 import { api } from '../api.js'
+import { allowLeave, setPart, useHashNumber, useHashPart, useLeaveGuard } from '../route.js'
 import { useAuth } from '../auth.js'
 import { dateTime, sessionKind, time } from '../format.js'
 import Dialog from '../components/Dialog.jsx'
@@ -19,9 +20,16 @@ import SessionItem from '../components/SessionItem.jsx'
 /** @param {{changed: number, state: import('../types').State}} props */
 export default function Sessions({ changed, state }) {
   const [list, setList] = useState(/** @type {import('../types').SessionDetail[] | null} */ (null))
-  const [sel, setSel] = useState(/** @type {number | null} */ (null))
+  // Both in the hash ("#sessions/12/edit", route.js), so a reload keeps them.
+  const [sel, setSel] = useHashNumber(1)
   // While correcting, the session takes the whole width (a big graph).
-  const [editing, setEditing] = useState(false)
+  const [editingPart, setEditingPart] = useHashPart(2, /** @type {const} */ (['', 'edit']), '')
+  /** @param {boolean} on */
+  const setEditing = (on) => {
+    // Session and "edit" in one step: one history entry, so "back" leaves the editor.
+    if (on) setPart(1, `${chosen}/edit`)
+    else setEditingPart('')
+  }
   // Picking sessions for one export: null = not picking.
   const [picked, setPicked] = useState(/** @type {number[] | null} */ (null))
   const [exporting, setExporting] = useState(/** @type {import('../types').Session[] | null} */ (null))
@@ -45,7 +53,9 @@ export default function Sessions({ changed, state }) {
         {canEdit && <ImportButton />}
       </div>
     )
-  const chosen = sel ?? list[0].session.id
+  // A session that no longer exists (deleted, other server) falls back to the newest.
+  const chosen = sel != null && list.some((d) => d.session.id === sel) ? sel : list[0].session.id
+  const editing = editingPart === 'edit'
   const exportDialog = exporting && <ExportDialog sessions={exporting} onClose={() => setExporting(null)} />
   if (editing)
     return (
@@ -128,8 +138,10 @@ function SessionView({ id, changed, editing, onEditing, onExport }) {
   // Unsaved changes in the editor (they live only in the page): ask before leaving.
   const [unsaved, setUnsaved] = useState(0)
   const [confirmLeave, setConfirmLeave] = useState(false)
+  useLeaveGuard(unsaved ? 'Ungespeicherte Änderungen an den Runden verwerfen?' : null)
   const leave = () => {
     if (unsaved && !confirmLeave) return setConfirmLeave(true)
+    allowLeave()
     onEditing(false)
   }
   const reload = () =>

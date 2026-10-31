@@ -37,6 +37,7 @@ import {
   WaveSineIcon,
 } from '@phosphor-icons/react'
 import { api, saveSettings } from '../api.js'
+import { useHashPart } from '../route.js'
 import { isSpeaker, setSpeaker } from '../announcer.js'
 import { logout, useAuth } from '../auth.js'
 import { dateTime, slotColor } from '../format.js'
@@ -57,7 +58,7 @@ export default function SettingsPage({ state, onOpenApi }) {
   const running = state.active != null
   const [error, setError] = useState('')
   const [pending, setPending] = useState(0)
-  const [tab, setTab] = useState(/** @type {'measure' | 'announce' | 'system'} */ ('measure'))
+  const [tab, setTab] = useHashPart(1, /** @type {const} */ (['measure', 'announce', 'system']), 'measure')
   /** @param {Partial<import('../types').Settings>} patch */
   const save = (patch) => {
     setError('')

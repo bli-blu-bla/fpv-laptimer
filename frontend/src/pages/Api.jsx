@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { BookOpenIcon, CopyIcon, KeyIcon, LightningIcon, PaperPlaneTiltIcon, PencilSimpleIcon, PlayIcon, PlugIcon, PlugsConnectedIcon, PlusIcon, TrashIcon } from '@phosphor-icons/react'
 import { api } from '../api.js'
+import { useHashPart } from '../route.js'
 import { COMMANDS, EVENTS, restCall } from '../apiCatalog.js'
 import { dateTime } from '../format.js'
 import RemotePanel from '../components/RemotePanel.jsx'
@@ -57,7 +58,7 @@ async function copy(text) {
 }
 
 export default function ApiPage() {
-  const [tab, setTab] = useState(/** @type {(typeof TABS)[number][0]} */ ('keys'))
+  const [tab, setTab] = useHashPart(1, TABS.map((t) => t[0]), 'keys')
   const [key, setKey] = useState(() => storedKey(KEY_STORE))
   /** @param {string} k */
   const useKey = (k) => {

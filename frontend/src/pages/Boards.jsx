@@ -7,6 +7,7 @@
 import { ArrowsClockwiseIcon, BugIcon, CpuIcon, FlagCheckeredIcon, PencilSimpleIcon, ShieldCheckIcon } from '@phosphor-icons/react'
 import { useState } from 'react'
 import { api, saveSettings } from '../api.js'
+import { useHashPart } from '../route.js'
 import BoardDebug from '../components/BoardDebug.jsx'
 import FirmwarePanel from '../components/FirmwarePanel.jsx'
 import SourcePanel from '../components/SourcePanel.jsx'
@@ -30,7 +31,7 @@ export default function Boards({ state, live, flash }) {
   /** @param {string} id @param {import('../types').BoardRole} role */
   const setRole = (id, role) => save({ board_roles: { ...s.board_roles, [id]: role } })
   const count = (/** @type {import('../types').BoardRole} */ role) => boards.filter((b) => b.role === role && !b.failed).length
-  const [tab, setTab] = useState(/** @type {'setup' | 'debug'} */ ('setup'))
+  const [tab, setTab] = useHashPart(1, /** @type {const} */ (['setup', 'debug']), 'setup')
   const [scanning, setScanning] = useState(false)
   const [scanError, setScanError] = useState('')
 
