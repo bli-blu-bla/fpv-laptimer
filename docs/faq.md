@@ -17,6 +17,13 @@
     Kanäle reihum misst: ein Board für alle Piloten statt ein Modul pro Pilot. Gelötet werden
     muss nichts, die Boards hängen nur per USB am Rechner.
 
+??? question "Wie kommt die Firmware auf die Boards?"
+    Im Browser (Chrome oder Edge am Computer, Board per USB) auf der
+    [Firmware-Seite](https://bli-blu-bla.github.io/fpv-laptimer-firmware/): verbinden, aufspielen, fertig.
+    Dort gibt man dem Board auch einen Namen. Boards, die schon am Pi stecken, flasht der
+    Laptimer selbst unter **Boards → Firmware**, auch vom Handy aus. Schritt für Schritt:
+    [Installation](INSTALL.md#boards-flashen).
+
 ??? question "Wie viele Piloten gleichzeitig?"
     Bis zu 8 Kanäle. Gedacht und eingestellt ist der Laptimer für 4 (R1, R3, R6, R8).
     Je mehr Kanäle, desto seltener wird jeder gemessen: bei 4 alle 2 ms.

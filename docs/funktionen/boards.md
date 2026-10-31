@@ -18,6 +18,7 @@ Die Firmware hat außerdem eine eigene Seite:
 **[bli-blu-bla.github.io/fpv-laptimer-firmware](https://bli-blu-bla.github.io/fpv-laptimer-firmware/)**.
 Dort spielt man an jedem Rechner mit Chrome oder Edge die neueste Firmware auf, sieht Version
 und Pegel eines Boards, gibt ihm einen Namen und schickt Befehle über eine Konsole.
+Wie man ein neues Board einrichtet: [Installation → Boards flashen](../INSTALL.md#boards-flashen).
 
 ## Debug
 

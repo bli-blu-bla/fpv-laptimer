@@ -66,9 +66,29 @@ Das Script nimmt dann das Paket, in dem es liegt. Dahinter steht `bin/laptimer i
    in den Einstellungen des Imagers Hostname (z. B. `laptimer`), Nutzer mit Passwort, SSH
    und ggf. WLAN setzen.
 2. Pi per LAN an den Router, einschalten, per `ssh <nutzer>@<hostname>.local` anmelden.
-3. ESP-Boards per USB anstecken, Lautsprecher an die Klinke oder per USB.
+3. ESP-Boards per USB anstecken (vorher geflasht, siehe [Boards flashen](#boards-flashen)),
+   Lautsprecher an die Klinke oder per USB.
 4. Den Befehl oben ausführen. Danach läuft der Laptimer unter `http://<hostname>.local:5800`
    (das Script zeigt auch die IP).
+
+### Boards flashen
+
+Neue ESP32-C5 brauchen einmal die Firmware. Am einfachsten an einem Computer mit Chrome oder
+Edge auf der **[Firmware-Seite](https://bli-blu-bla.github.io/fpv-laptimer-firmware/)**:
+
+1. Board per USB anstecken, **Board verbinden …** und den Port wählen.
+2. **Aufspielen**: spielt die neueste Firmware auf (etwa 10 s).
+3. Optional einen **Namen** geben (z. B. „Gate links“). Er bleibt auf dem Board, auch beim
+   nächsten Flashen, und der Laptimer zeigt ihn unter **Boards** statt der MAC.
+
+Die Seite zeigt außerdem Version und Chip eines Boards, die Pegel der Kanäle live (zum
+Prüfen der Antenne) und eine Konsole für Befehle. Hängt ein Board beim Flashen: BOOT halten,
+RESET drücken, BOOT loslassen, dann noch einmal.
+
+Steckt ein Board schon am Pi, geht es auch ohne Computer: in der Laptimer-Seite unter
+**Boards → Firmware** (siehe [Boards und Debug](funktionen/boards.md)). Der Laptimer bringt
+eine feste Firmware-Version mit; eine neuere von der Firmware-Seite zeigt er als „neuer“ an,
+das ist kein Fehler.
 
 ## Was wo liegt
 

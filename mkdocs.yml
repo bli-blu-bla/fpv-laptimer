@@ -75,6 +75,7 @@ nav:
       - Zwei Gates: funktionen/gates.md
       - Boards und Debug: funktionen/boards.md
   - Installation: INSTALL.md
+  - Firmware: https://bli-blu-bla.github.io/fpv-laptimer-firmware/
   - API:
       - api/index.md
       - HTTP: api/http.md
