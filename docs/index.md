@@ -82,9 +82,11 @@ der Signalverlauf live.</figcaption>
     ---
 
     Alles, was die Seite kann, geht auch per HTTP oder WebSocket, mit jedem Ereignis live.
-    Hooks starten eigene Scripts, z. B. eine LED beim Startsignal.
+    Hooks starten eigene Scripts, z. B. eine LED beim Startsignal. Fertige Clients für
+    [Python](https://pypi.org/p/fpv-laptimer-client) (`pip install fpv-laptimer-client`) und
+    [JavaScript](https://www.npmjs.com/package/fpv-laptimer-client) (`npm install fpv-laptimer-client`).
 
-    [:octicons-arrow-right-24: API](api/index.md)
+    [:octicons-arrow-right-24: API](api/index.md) · [:octicons-arrow-right-24: Clients](api/clients.md)
 
 </div>
 

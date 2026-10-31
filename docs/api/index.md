@@ -34,8 +34,15 @@ Alle vier sprechen dieselbe Sprache:
   WebSockets, über die Server-Verbindung und an die Hooks. Was wann kommt: [Events](events.md).
 - Die Objekte darin (Kanal, Session, Ergebnis, Zustand): [Datenformate](datenformate.md).
 
-Fertige Clients für Python und JavaScript nehmen einem Verbindung, Neuverbinden und Fehler ab:
-[Clients](clients.md).
+Fertige Clients für Python und JavaScript nehmen einem Verbindung, Neuverbinden und Fehler ab,
+beide als Paket `fpv-laptimer-client`:
+
+| Sprache | Installieren | Paket | Quellcode |
+|---|---|---|---|
+| Python ≥ 3.10 | `pip install "fpv-laptimer-client[events]"` | [PyPI](https://pypi.org/p/fpv-laptimer-client) | [`fpv-laptimer-client-python`](https://github.com/bli-blu-bla/fpv-laptimer-client-python) |
+| JavaScript (Node ≥ 22, Browser) | `npm install fpv-laptimer-client` | [npm](https://www.npmjs.com/package/fpv-laptimer-client) | [`fpv-laptimer-client-js`](https://github.com/bli-blu-bla/fpv-laptimer-client-js) |
+
+Beispiele: [Clients](clients.md).
 
 ## Schlüssel
 

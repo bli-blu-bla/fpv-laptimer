@@ -131,8 +131,15 @@ LED am GPIO des Pi beim Startsignal. Die Scripts kommen in den Ordner `~/.laptim
 (ausführbar), welches Script bei welchem Ereignis läuft, stellst du auf der Seite ein.
 Beispiele in `tools/hooks/`.
 
+Fertige Clients, beide als Paket `fpv-laptimer-client`:
+
+- **Python** (≥ 3.10): `pip install "fpv-laptimer-client[events]"`, [PyPI](https://pypi.org/p/fpv-laptimer-client),
+  Quellcode [`fpv-laptimer-client-python`](https://github.com/bli-blu-bla/fpv-laptimer-client-python)
+- **JavaScript** (Node ≥ 22 und Browser): `npm install fpv-laptimer-client`, [npm](https://www.npmjs.com/package/fpv-laptimer-client),
+  Quellcode [`fpv-laptimer-client-js`](https://github.com/bli-blu-bla/fpv-laptimer-client-js)
+
 Alles im Detail: [docs/api/](docs/api/index.md) (HTTP, WebSocket, Server-Verbindung, Events,
-Befehle, Hooks).
+Befehle, Hooks, Clients).
 
 ## Pegel aufzeichnen (Testflüge)
 
