@@ -7,7 +7,7 @@
 #   tools/build_release.sh [VERSION] [--target T]... [--no-firmware] [--no-web] [--web-only]
 #
 #   VERSION        default: git describe without the leading "v"
-#   --target T     linux-aarch64 (default, the Pi), linux-x86_64,
+#   --target T     linux-aarch64 (default, the Pi), linux-x86_64, linux-armv6,
 #                  macos-aarch64, macos-x86_64; repeat for several
 #   --no-firmware  don't fetch the firmware; whatever is in
 #                  frontend/public/firmware is packed as it is
@@ -63,6 +63,7 @@ triple() {
     case $1 in
         linux-aarch64) echo aarch64-unknown-linux-gnu ;;
         linux-x86_64) echo x86_64-unknown-linux-gnu ;;
+        linux-armv6) echo arm-unknown-linux-gnueabihf ;;
         macos-aarch64) echo aarch64-apple-darwin ;;
         macos-x86_64) echo x86_64-apple-darwin ;;
         *) echo "unknown target $1 (linux-aarch64, linux-x86_64, macos-aarch64, macos-x86_64)" >&2; exit 2 ;;
