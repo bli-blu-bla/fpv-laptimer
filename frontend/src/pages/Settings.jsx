@@ -329,11 +329,13 @@ function AnnouncePanel({ settings: s, save }) {
   const set = (patch) => save({ announce: { ...a, ...patch } })
   /** @param {boolean} on */
   function toggleSpeaker(on) {
+    console.log("toggleSpeaker")
     setSpeaker(on)
     setSpeakerState(on)
   }
   function test() {
     setTesting(true)
+    // TODO
     api('/announce/test', { method: 'POST' }).finally(() => setTimeout(() => setTesting(false), 1500))
   }
   /** @param {import('@phosphor-icons/react').Icon} Icon @param {string} label @param {string} hint @param {keyof import('../types').AnnounceSettings} key */

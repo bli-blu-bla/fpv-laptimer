@@ -5,9 +5,9 @@
 // the server has no speech synthesis. Only a browser switched on as speaker
 // plays them (remembered in this browser), so phones stay quiet.
 
-const KEY = 'laptimer.speaker'
+const LAPTIME_SPEAKER = 'laptimer.speaker'
 
-/** @typedef {{url?: string, text?: string}} AnnounceItem */
+/** @typedef {{url?: string, text?: string, lang?: string}} AnnounceItem */
 
 /** @type {AnnounceItem[][]} */
 const queue = []
@@ -21,7 +21,7 @@ const cache = new Map()
 
 export function isSpeaker() {
   try {
-    return localStorage.getItem(KEY) === '1'
+    return localStorage.getItem(LAPTIME_SPEAKER) === '1'
   } catch {
     return false
   }
@@ -30,8 +30,8 @@ export function isSpeaker() {
 /** @param {boolean} on */
 export function setSpeaker(on) {
   try {
-    if (on) localStorage.setItem(KEY, '1')
-    else localStorage.removeItem(KEY)
+    if (on) localStorage.setItem(LAPTIME_SPEAKER, '1')
+    else localStorage.removeItem(LAPTIME_SPEAKER)
   } catch {
     // private window: then only until the page is reloaded
   }
@@ -74,10 +74,13 @@ async function playNext() {
   playing = true
   for (const item of items) {
     try {
-      if (item.url) await playUrl(item.url)
-      else if (item.text) await speak(item.text)
+      console.log("playNext", item);
+      //if (item.url) await playUrl(item.url)
+      if (item.text) await speak(item.text, item.lang)
+      else if (item.url) await playUrl(item.url)
     } catch (e) {
       if (e instanceof DOMException && e.name === 'NotAllowedError') {
+        console.log("test")
         setBlocked(true)
         queue.length = 0 // stale by the time someone taps
         break
@@ -91,6 +94,7 @@ async function playNext() {
 /** @param {string} url @returns {Promise<void>} */
 function playUrl(url) {
   let audio = cache.get(url)
+  console.log("playUrl", audio);
   if (!audio) {
     audio = new Audio(url)
     // Spoken texts are made per announcement; only clips are worth keeping.
@@ -105,12 +109,13 @@ function playUrl(url) {
   })
 }
 
-/** @param {string} text @returns {Promise<void>} */
-function speak(text) {
+/** @param {string} text @param {string | undefined} lang @returns {Promise<void>} */
+function speak(text, lang) {
+  console.log("speak", lang, text);
   return new Promise((resolve) => {
     if (!('speechSynthesis' in window)) return resolve()
     const u = new SpeechSynthesisUtterance(text)
-    u.lang = 'de-DE'
+    u.lang = lang || 'en-US'
     u.onend = () => resolve()
     u.onerror = () => resolve()
     speechSynthesis.speak(u)

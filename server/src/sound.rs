@@ -29,39 +29,111 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::thread;
 
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::broadcast;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub enum Lang { #[default] En, De }
+
+#[derive(Clone, Copy)]
+pub enum Msg { TrainingStarted, PilotsReady, RaceStartsIn, NewBestLap, SessionRunning, Start, Pilot, HasFinished, IsInRound, RaceOver}
+
+impl Msg {
+    /// Language-neutral clip name (the mp3 file name).
+    pub fn clip(self) -> &'static str {
+        match self {
+            Msg::TrainingStarted => "training_started",
+            Msg::PilotsReady     => "pilots_ready",
+            Msg::RaceStartsIn    => "race_starts_in",
+            Msg::NewBestLap      => "new_best_lap",
+            Msg::SessionRunning  => "session_running",
+            Msg::Start           => "start",
+            Msg::Pilot           => "pilot",
+            Msg::HasFinished     => "ist_im_ziel",
+            Msg::IsInRound       => "ist_in_runde",
+            Msg::RaceOver        => "rennen_beendet",
+        }
+    }
+}
+
+impl Lang {
+    pub fn text(self, m: Msg) -> &'static str {
+        use {Lang::*, Msg::*};
+        match (self, m) {
+            (De, TrainingStarted) => "Training läuft",
+            (En, TrainingStarted) => "Training started",
+            (De, PilotsReady)     => "Piloten bereit",
+            (En, PilotsReady)     => "Pilots, arm your quads",
+            (De, RaceStartsIn)    => "Rennen beginnt in",
+            (En, RaceStartsIn)    => "Race starts in",
+            (De, NewBestLap)      => "hat eine neue Bestzeit erzielt",
+            (En, NewBestLap)      => "has set a new best lap",
+            (De, SessionRunning)  => "Es läuft schon eine Session - erst stoppen.",
+            (En, SessionRunning)  => "A session is already running. Stop it first.",
+            (De, Start)           => "Start",
+            (En, Start)           => "Start",
+            (En, Pilot)           => "pilot",
+            (De, Pilot)           => "Pilot",
+            (En, HasFinished)     => "has finished",
+            (De, HasFinished)     => "ist im Ziel",
+            (En, IsInRound)       => "is in round",
+            (De, IsInRound)       => "ist in Runde",
+            (En, RaceOver)        => "Race over",
+            (De, RaceOver)        => "Rennen beendet",
+        }
+    }
+
+    /// `pico2wave -l …`
+    pub fn pico(self) -> &'static str {
+        match self { Lang::De => "de-DE", Lang::En => "en-US" }
+    }
+    /// `espeak-ng -v …`
+    pub fn espeak(self) -> &'static str {
+        match self { Lang::De => "de", Lang::En => "en-us" }
+    }
+    /// For the browser's `utterance.lang`.
+    pub fn bcp47(self) -> &'static str {
+        match self { Lang::De => "de-DE", Lang::En => "en-US" }
+    }
+
+    /// `say -v …` on macOS.
+    fn macos_voice(self) -> &'static str {
+        match self { Lang::De => "Anna", Lang::En => "Daniel" }
+    }
+
+}
 
 /// One piece of an announcement.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Part {
-    /// `<name>.mp3` from the sounds folder; if it is missing, `text` is
-    /// spoken instead (empty: nothing, e.g. for tones).
-    Clip { name: String, text: String },
-    /// Spoken by speech synthesis.
-    Text(String),
+    /// A sound from the sounds folder (`<name>.mp3`), e.g. the start tone
+    /// or a beep. Language-neutral; if the file is missing, nothing plays.
+    Clip(String),
+
+    /// Spoken by speech synthesis, in the given language.
+    Text { text: String, lang: Lang },
 }
 
 impl Part {
-    pub fn clip(name: &str, text: &str) -> Part {
-        Part::Clip {
-            name: name.to_string(),
-            text: text.to_string(),
-        }
+    /// A sound file, without the `.mp3`.
+    pub fn clip(name: &str) -> Part {
+        Part::Clip(name.to_string())
     }
 
-    /// A tone: a clip without a spoken replacement.
-    pub fn tone(name: &str) -> Part {
-        Part::clip(name, "")
+    /// Arbitrary text (pilot names, times).
+    pub fn text(text: impl Into<String>, lang: Lang) -> Part {
+        Part::Text { text: text.into(), lang }
     }
 
-    /// A number: clips exist for 1–15, the rest is spoken.
-    pub fn number(n: usize) -> Part {
-        Part::clip(&n.to_string(), &n.to_string())
+    /// A fixed phrase in the announcement language.
+    pub fn say(msg: Msg, lang: Lang) -> Part {
+        Part::text(lang.text(msg), lang)
     }
 
-    pub fn text(text: &str) -> Part {
-        Part::Text(text.to_string())
+    /// A countdown number, spoken.
+    pub fn number(n: usize, lang: Lang) -> Part {
+        Part::text(n.to_string(), lang)
     }
 }
 
@@ -101,7 +173,7 @@ impl Sounds {
                     send_to_browsers(&web, &clips, &files);
                 } else {
                     for f in &files {
-                        if let Resolved::File(path) = f {
+                        if let Some(path) = &f.file {
                             play_file(path);
                         }
                     }
@@ -132,69 +204,75 @@ impl Sounds {
     }
 
     /// A single clip (countdown, tones).
-    pub fn play(&self, name: &str, text: &str) {
-        self.say(vec![Part::clip(name, text)]);
+
+    pub fn play(&self, part: Part) {
+        self.say(vec![part])
     }
 
     /// Synthesizes these texts now, in a thread of its own (so the queue
     /// does not wait), so they are ready when an announcement needs them.
-    pub fn prepare(&self, texts: Vec<String>) {
+    pub fn prepare(&self, texts: Vec<String>, lang: Lang) {
         if !self.enabled.load(Ordering::Relaxed) {
             return;
         }
         let cache = self.cache.clone();
         thread::spawn(move || {
             for t in texts {
-                synthesize(&cache, &t);
+                synthesize(&cache, &t, lang);
             }
         });
     }
 }
 
-/// A part, ready to play.
-enum Resolved {
-    File(PathBuf),
-    /// Speech synthesis failed: the browser can still speak it itself.
-    Text(String),
+/// A part, ready to play: a clip has only the file; a text has the text
+/// and, if speech synthesis worked, also its WAV file.
+struct Resolved {
+    file: Option<PathBuf>,
+    text: Option<(String, Lang)>,
 }
 
 fn resolve(clips: &Path, cache: &Path, parts: &[Part]) -> Vec<Resolved> {
     let mut out = Vec::new();
     for p in parts {
-        let text = match p {
-            Part::Clip { name, text } => {
+        let (text, lang) = match p {
+            Part::Clip(name) => {
                 let path = clips.join(format!("{name}.mp3"));
                 if path.exists() {
-                    out.push(Resolved::File(path));
-                    continue;
+                    out.push(Resolved { file: Some(path), text: None });
                 }
-                text
+                continue;
             }
-            Part::Text(text) => text,
+            Part::Text { text, lang } => (text, *lang),
         };
         if text.trim().is_empty() {
             continue;
         }
-        match synthesize(cache, text) {
-            Some(path) => out.push(Resolved::File(path)),
-            None => out.push(Resolved::Text(text.clone())),
-        }
+        out.push(Resolved {
+            file: synthesize(cache, text, lang),
+            text: Some((text.clone(), lang)),
+        });
     }
     out
 }
 
-/// The WebSocket message `announce`: `items` is a list of `{url}` or
-/// `{text}` (the browser speaks those itself).
+/// The WebSocket message `announce`: `items` is a list of `{url}` (clip),
+/// `{url, text, lang}` (spoken text with the server's WAV) or `{text, lang}`
+/// (no speech synthesis on the server). The browser chooses what to play.
 fn send_to_browsers(web: &broadcast::Sender<String>, clips: &Path, files: &[Resolved]) {
     let items: Vec<serde_json::Value> = files
         .iter()
-        .map(|f| match f {
-            Resolved::File(path) => {
+        .map(|f| {
+            let mut item = json!({});
+            if let Some(path) = &f.file {
                 let name = path.file_name().unwrap_or_default().to_string_lossy();
                 let dir = if path.starts_with(clips) { "clips" } else { "tts" };
-                json!({ "url": format!("/api/audio/{dir}/{name}") })
+                item["url"] = json!(format!("/api/audio/{dir}/{name}"));
             }
-            Resolved::Text(text) => json!({ "text": text }),
+            if let Some((text, lang)) = &f.text {
+                item["text"] = json!(text);
+                item["lang"] = json!(lang.bcp47());
+            }
+            item
         })
         .collect();
     let _ = web.send(json!({ "type": "announce", "items": items }).to_string());
@@ -220,11 +298,12 @@ fn play_file(path: &Path) {
     }
 }
 
-/// The WAV file with `text` spoken in German, made if it is not in the
+/// The WAV file with `text` spoken in `lang`, made if it is not in the
 /// cache yet. None: no speech synthesis installed.
-fn synthesize(cache: &Path, text: &str) -> Option<PathBuf> {
+fn synthesize(cache: &Path, text: &str, lang: Lang) -> Option<PathBuf> {
     let mut h = DefaultHasher::new();
     text.hash(&mut h);
+    lang.bcp47().hash(&mut h);
     let path = cache.join(format!("{:016x}.wav", h.finish()));
     if path.exists() {
         return Some(path);
@@ -234,16 +313,16 @@ fn synthesize(cache: &Path, text: &str) -> Option<PathBuf> {
     let tmp = cache.join(format!("{:016x}.{:?}.tmp.wav", h.finish(), thread::current().id()));
     let ok = if cfg!(target_os = "macos") {
         run(Command::new("say")
-            .args(["-v", "Anna", "--file-format=WAVE", "--data-format=LEI16@22050", "-o"])
+            .args(["-v", lang.macos_voice(), "--file-format=WAVE", "--data-format=LEI16@22050", "-o"])
             .arg(&tmp)
             .arg(text))
     } else {
         // pico2wave sounds better; the file name must end in `.wav`.
         run(Command::new("pico2wave")
-            .args(["-l", "de-DE", "-w"])
+            .args(["-l", lang.pico(), "-w"])
             .arg(&tmp)
             .arg(text))
-            || run(Command::new("espeak-ng").args(["-v", "de", "-w"]).arg(&tmp).arg(text))
+            || run(Command::new("espeak-ng").args(["-v", lang.espeak(), "-w"]).arg(&tmp).arg(text))
     };
     if ok && std::fs::rename(&tmp, &path).is_ok() {
         return Some(path);

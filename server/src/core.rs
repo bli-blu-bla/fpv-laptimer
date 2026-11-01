@@ -24,7 +24,7 @@ use crate::detect::{ChannelStatus, DetectConfig, DetectionSettings, Detector, Ev
 use crate::esp::board::{Event as BoardEvent, Level, LinkStats};
 use crate::events::Events;
 use crate::laps::{self, EndRule, PassRecord, PilotResult, Rejected, StartMode};
-use crate::sound::{Part, Sounds};
+use crate::sound::{Lang, Msg, Part, Sounds};
 use crate::stats;
 
 /// Live levels go out this often, µs.
@@ -55,6 +55,9 @@ pub struct Settings {
     /// not listed watch the finish gate.
     #[serde(default)]
     pub board_roles: BTreeMap<String, BoardRole>,
+    /// Language of the announcements.
+    #[serde(default)]
+    pub language: Lang,
 }
 
 /// Where announcements are played, and which ones.
@@ -191,6 +194,7 @@ impl Default for Settings {
             announce: AnnounceSettings::default(),
             detection: DetectionSettings::default(),
             board_roles: BTreeMap::new(),
+            language: Lang::En,
         }
     }
 }
@@ -289,6 +293,7 @@ pub struct Core {
     pub replay_rewind: Option<Arc<AtomicBool>>,
     next_live_us: i64,
     next_rate_us: i64,
+
 }
 
 impl Core {
@@ -614,6 +619,9 @@ impl Core {
     /// Reloads the active session's passes, recomputes the laps and tells
     /// the browsers. `announce`: play the sounds for what changed.
     fn refresh(&mut self, announce: bool) -> Result<()> {
+
+        let lang = self.settings.language;
+
         // A pass right after the start must not be reported before the
         // `start_signal` (that one otherwise waits for the next `tick`).
         self.countdown_events(self.now_us());
@@ -636,25 +644,25 @@ impl Core {
             let mut finished_now = false;
             for (i, r) in new.iter().enumerate() {
                 let old_laps = a.results.get(i).map_or(0, |o| o.laps.len());
-                let name = Part::text(&a.row.seats[i].label);
+                let name = Part::text(&a.row.seats[i].label, lang);
                 let finished = r.finished_us.is_some();
                 if finished && !a.announced[i] {
                     a.announced[i] = true;
                     finished_now = true;
                     if ann.finished {
-                        calls.push(vec![name, Part::clip("ist_im_ziel", "ist im Ziel")]);
+                        calls.push(vec![name, Part::say(Msg::HasFinished, lang)]);
                         continue;
                     }
                 }
                 let Some(lap) = r.laps.last().filter(|_| r.laps.len() > old_laps) else {
                     continue;
                 };
-                let time = Part::text(&spoken_seconds(lap.duration_us));
+                let time = Part::text(spoken_seconds(lap.duration_us), lang);
                 if ann.best && new_best && r.best_lap_us == best {
                     calls.push(vec![
-                        Part::clip("pilot", "Pilot"),
+                        Part::say(Msg::Pilot, lang),
                         name,
-                        Part::clip("neue_bestzeit", "hat eine neue Bestzeit erzielt"),
+                        Part::say(Msg::NewBestLap, lang),
                         time,
                     ]);
                     continue;
@@ -667,20 +675,22 @@ impl Core {
                     LapCall::Number if finished => beep = true,
                     LapCall::Number => calls.push(vec![
                         name,
-                        Part::clip("ist_in_runde", "ist in Runde"),
-                        Part::number(r.laps.len() + 1),
+                        Part::say(Msg::IsInRound, lang),
+                        Part::number(r.laps.len() + 1, lang),
                     ]),
                     LapCall::Time => calls.push(vec![name, time]),
                 }
             }
+
             if beep {
-                self.sounds.play("runde", "");
+                self.sounds.play(Part::clip("runde"));
             }
+
             for parts in calls {
                 self.sounds.say(parts);
             }
             if race && ann.race_over && finished_now && a.announced.iter().all(|&x| x) {
-                self.sounds.play("rennen_beendet", "Rennen beendet");
+                self.sounds.say(vec![Part::say(Msg::RaceOver, lang)]);
             }
         }
         // Finished pilots, as events (announced or not).
@@ -813,7 +823,11 @@ impl Core {
         self.db.set_levels_file(id, &levels_path.to_string_lossy())?;
 
         // The pilot names, ready for the announcements.
-        self.sounds.prepare(seats.iter().map(|s| s.label.clone()).collect());
+        self.sounds.prepare(
+            seats.iter().map(|s| s.label.clone()).collect(),
+            self.settings.language,
+        );
+
         if self.settings.announce.start {
             self.schedule_start(race, config.countdown_s as i64, start_us);
         }
@@ -864,26 +878,31 @@ impl Core {
     /// or more), "Rennen beginnt in" 5 s before, the last seconds counted
     /// (up to 5), the start tone. Training: "Training läuft".
     fn schedule_start(&mut self, race: bool, countdown_s: i64, start_us: i64) {
+        let lang = self.settings.language;
         if !race {
-            self.sounds.play("training_beginnt", "Training läuft");
+            self.sounds.say(vec![Part::say(Msg::TrainingStarted, lang)]);
             return;
         }
         let at = |s_before: i64| start_us - s_before * 1_000_000;
+
         if countdown_s >= 8 {
-            self.sounds.play("piloten_bereit", "Piloten, macht euch bereit");
+            self.sounds.play(Part::say(Msg::PilotsReady, lang));
         }
+
         // "Rennen beginnt in" takes about 1.5 s: then the count from 3.
         let count_from = if countdown_s >= 5 {
             self.scheduled
-                .push((at(5), Part::clip("rennen_beginnt", "Rennen beginnt in")));
+                .push((at(5), Part::say(Msg::RaceStartsIn, lang)));
             3
         } else {
             countdown_s
         };
+
         for n in (1..=count_from).rev() {
-            self.scheduled.push((at(n), Part::number(n as usize)));
+            self.scheduled.push((at(n), Part::number(n as usize, lang)));
         }
-        self.scheduled.push((start_us, Part::tone("start")));
+
+        self.scheduled.push((start_us, Part::say(Msg::Start, lang)));
     }
 
     /// A sample announcement (settings page): the best-lap one, with the
@@ -904,11 +923,14 @@ impl Core {
                     .map(|p| p.name.clone())
             })
             .unwrap_or_else(|| "Nitro".into());
+
+        let lang = self.settings.language;
+
         self.sounds.say(vec![
-            Part::clip("pilot", "Pilot"),
-            Part::text(&name),
-            Part::clip("neue_bestzeit", "hat eine neue Bestzeit erzielt"),
-            Part::text(&spoken_seconds(13_700_000)),
+            Part::say(Msg::Pilot, lang),
+            Part::text(&name, lang),
+            Part::say(Msg::NewBestLap, lang),
+            Part::number(13_700_000, lang),
         ]);
     }
 
@@ -973,7 +995,7 @@ impl Core {
             .filter(|p| p.gate == 0 && !p.deleted)
             .map(|p| p.time_us)
             .max()
-            .context("Die Session hat keinen Durchflug – nichts zum Kürzen.")?;
+            .context("Die Session hat keinen Durchflug - nichts zum Kürzen.")?;
         let cut_us = last + TRIM_AFTER_US;
         let removed = crate::trace::trim_file(Path::new(&path), cut_us)?;
         if removed == 0 {
