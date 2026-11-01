@@ -25,7 +25,7 @@ Status: im Aufbau. Doku mit Screenshots: **[bli-blu-bla.github.io/fpv-laptimer](
 
 ## Installieren
 
-Auf dem Raspberry Pi (64-bit Pi OS), einem Linux-PC oder dem Mac, als normaler Nutzer:
+Auf dem Raspberry Pi, Raspberry Pi Zero, einem Linux-PC oder dem Mac, als normaler Nutzer:
 
 ```sh
 curl -fsSL https://github.com/bli-blu-bla/fpv-laptimer/releases/latest/download/install.sh | bash

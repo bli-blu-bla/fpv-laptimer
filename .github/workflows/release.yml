@@ -77,8 +77,8 @@ jobs:
           LAPTIMER_REPO: ${{ github.repository }}
         run: |
           pip install --quiet cargo-zigbuild ziglang
-          rustup target add aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu
-          tools/build_release.sh "${GITHUB_REF_NAME#v}" --no-web --target linux-aarch64 --target linux-x86_64
+          rustup target add aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu arm-unknown-linux-gnueabihf
+          tools/build_release.sh "${GITHUB_REF_NAME#v}" --no-web --target linux-aarch64 --target linux-x86_64 --target linux-armv6
 
       - uses: actions/upload-artifact@v7
         with:
