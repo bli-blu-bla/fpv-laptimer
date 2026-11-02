@@ -24,6 +24,7 @@
  * @property {number} min_lap_s
  * @property {number} consecutive
  * @property {boolean} sound
+ * @property {'De' | 'En'} [language]   of the announcements (missing: En)
  * @property {AnnounceSettings} announce
  * @property {DetectionSettings} detection
  * @property {Record<string, BoardRole>} board_roles   by board id; missing: finish

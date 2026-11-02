@@ -329,11 +329,13 @@ function AnnouncePanel({ settings: s, save }) {
   const set = (patch) => save({ announce: { ...a, ...patch } })
   /** @param {boolean} on */
   function toggleSpeaker(on) {
+    console.log("toggleSpeaker")
     setSpeaker(on)
     setSpeakerState(on)
   }
   function test() {
     setTesting(true)
+    // TODO
     api('/announce/test', { method: 'POST' }).finally(() => setTimeout(() => setTesting(false), 1500))
   }
   /** @param {import('@phosphor-icons/react').Icon} Icon @param {string} label @param {string} hint @param {keyof import('../types').AnnounceSettings} key */
@@ -363,7 +365,7 @@ function AnnouncePanel({ settings: s, save }) {
             </span>
             <span className={s.sound ? 'switch on' : 'switch'} />
           </button>
-          {toggle(HourglassMediumIcon, 'Start', '„Piloten, macht euch bereit“, Countdown, Startton; im Training „Training läuft“', 'start')}
+          {toggle(HourglassMediumIcon, 'Start', '„Piloten bereit“, drei Pieps und ein Startton; im Training „Training läuft“', 'start')}
           <div className="row-field" style={{ opacity: s.sound ? 1 : 0.45 }}>
             <TimerIcon size={20} className="row-icon" />
             <span className="text">
@@ -400,6 +402,16 @@ function AnnouncePanel({ settings: s, save }) {
               </button>
             </div>
           </div>
+          <div className="field">
+            <span>Sprache</span>
+            <div className="seg">
+              {LANGUAGES.map(([k, label]) => (
+                <button key={k} className={(s.language ?? 'En') === k ? 'on' : ''} onClick={() => save({ language: k })}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
           {a.output === 'browser' && (
             <button className="row-toggle" onClick={() => toggleSpeaker(!speaker)}>
               <span className="text">
@@ -426,6 +438,12 @@ function AnnouncePanel({ settings: s, save }) {
     </div>
   )
 }
+
+/** Languages of the announcements (`sound::Lang` on the server). @type {['De' | 'En', string][]} */
+const LANGUAGES = [
+  ['De', 'Deutsch'],
+  ['En', 'English'],
+]
 
 const defSeat = () => ({ pilot_id: null, label: '', enabled: true })
 

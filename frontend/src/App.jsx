@@ -22,7 +22,7 @@ import {
   UsersThreeIcon,
 } from '@phosphor-icons/react'
 import { api, saveSettings, useServer } from './api.js'
-import { onBlocked, unblock } from './announcer.js'
+import { onBlocked, scheduleCountdown, unblock } from './announcer.js'
 import { checkAuth, logout, showLogin, useAuth } from './auth.js'
 import { useHashPart } from './route.js'
 import LoginDialog, { Locked } from './components/LoginDialog.jsx'
@@ -62,6 +62,14 @@ export default function App() {
   const stats = useStats(state, changed)
   const [soundBlocked, setSoundBlocked] = useState(false)
   useEffect(() => onBlocked(setSoundBlocked), [])
+  // Countdown beeps in this browser (if it is a speaker): timed like the number on the screen.
+  const cd = state?.active?.session
+  const beepHere = !!state?.settings.sound && state.settings.announce.start && state.settings.announce.output === 'browser'
+  const cdId = cd && cd.config.race && beepHere ? cd.id : 0
+  useEffect(() => {
+    if (!cd) return scheduleCountdown(0, 0, 0, 0)
+    if (cdId) scheduleCountdown(cdId, cd.start_us, cd.config.countdown_s, server.clockOffset.current)
+  }, [cdId])
   const auth = useAuth()
   useEffect(() => {
     checkAuth()
