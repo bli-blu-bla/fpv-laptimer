@@ -57,6 +57,73 @@ export function onBlocked(cb) {
 /** After a tap on "Ton freigeben": sound is allowed from now on. */
 export function unblock() {
   setBlocked(false)
+  audioContext()?.resume()
+}
+
+/** For the countdown beeps. Made at the first use; starts "suspended" until a tap on the page. @type {AudioContext | null} */
+let ctx = null
+/** Session id of the countdown planned last, and its beeps (to stop them when the session goes away). */
+let countdownSession = 0
+/** @type {OscillatorNode[]} */
+let beeps = []
+
+function audioContext() {
+  if (!ctx && 'AudioContext' in window) ctx = new AudioContext()
+  return ctx
+}
+
+// Any tap on the page allows the AudioContext to play.
+document.addEventListener('pointerdown', () => audioContext()?.resume(), { capture: true })
+
+/**
+ * Plans the countdown beeps of a race: a short one in each of the last 3
+ * seconds, a longer, higher one at the start (like the server's `Tone`).
+ * Timed by the browser's own clock, the same one as the number on the
+ * screen, and scheduled in the AudioContext (sample-exact, no download, no
+ * WebSocket delay). Called for every `state`; plans each session once.
+ * `sessionId` 0 (no countdown running) stops planned beeps (aborted).
+ * @param {number} sessionId
+ * @param {number} startUs   start signal, server clock
+ * @param {number} countdownS
+ * @param {number} clockOffsetUs   server − browser clock (`useServer`)
+ */
+export function scheduleCountdown(sessionId, startUs, countdownS, clockOffsetUs) {
+  if (sessionId === countdownSession) return
+  countdownSession = sessionId
+  for (const b of beeps) b.stop()
+  beeps = []
+  if (!sessionId || !isSpeaker()) return
+  const ac = audioContext()
+  if (!ac) return
+  if (ac.state !== 'running') {
+    ac.resume().catch(() => {})
+    // Still not running a moment later: no tap on the page yet, show "Ton freigeben".
+    setTimeout(() => {
+      if (/** @type {string} */ (ac.state) !== 'running') setBlocked(true)
+    }, 200)
+  }
+  // Seconds from now (browser clock) to the start, then on the AudioContext's clock.
+  const toStart = (startUs - clockOffsetUs - Date.now() * 1000) / 1e6
+  const start = ac.currentTime + toStart
+  for (let n = Math.min(3, countdownS); n >= 1; n--) beep(ac, start - n, 880, 0.15)
+  beep(ac, start, 1760, 0.6)
+}
+
+/** @param {AudioContext} ac @param {number} at   AudioContext time, s @param {number} freq @param {number} length   s */
+function beep(ac, at, freq, length) {
+  if (at < ac.currentTime) return // already over (page opened during the countdown)
+  const osc = ac.createOscillator()
+  const gain = ac.createGain()
+  osc.frequency.value = freq
+  // 5 ms fade in and out, so it does not click.
+  gain.gain.setValueAtTime(0, at)
+  gain.gain.linearRampToValueAtTime(0.6, at + 0.005)
+  gain.gain.setValueAtTime(0.6, at + length - 0.005)
+  gain.gain.linearRampToValueAtTime(0, at + length)
+  osc.connect(gain).connect(ac.destination)
+  osc.start(at)
+  osc.stop(at + length)
+  beeps.push(osc)
 }
 
 /** @param {boolean} b */

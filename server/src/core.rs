@@ -889,6 +889,13 @@ impl Core {
             self.sounds.play(Part::say(Msg::PilotsReady, lang));
         }
 
+        // Browsers beep by themselves (`announcer.js::scheduleCountdown`),
+        // timed by the same clock as the number on the screen: sent from
+        // here they would come late by the WebSocket and the download.
+        if self.settings.announce.output == SoundOutput::Browser {
+            return;
+        }
+
         // Each beep is a separate short sound (150 ms), so a late one does
         // not push the next ones back.
         for n in (1..=countdown_s.min(3)).rev() {
@@ -922,7 +929,7 @@ impl Core {
             Part::say(Msg::Pilot, lang),
             Part::text(&name, lang),
             Part::say(Msg::NewBestLap, lang),
-            Part::number(13_700_000, lang),
+            Part::text(spoken_seconds(13_700_000), lang),
         ]);
     }
 
