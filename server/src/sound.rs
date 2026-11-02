@@ -10,8 +10,7 @@
 //! be left out.
 //!
 //! Clips used (`tools/make_sounds.sh` makes placeholders):
-//! - start: `piloten_bereit`, `rennen_beginnt`, `1` … `15`, `start` (tone),
-//!   `training_beginnt`
+//! - start: none; the countdown beeps are made by the server (`Tone`)
 //! - laps: `runde` (tone), `ist_in_runde`, `pilot`, `neue_bestzeit`
 //! - end: `ist_im_ziel`, `rennen_beendet`
 //!
@@ -37,7 +36,7 @@ use tokio::sync::broadcast;
 pub enum Lang { #[default] En, De }
 
 #[derive(Clone, Copy)]
-pub enum Msg { TrainingStarted, PilotsReady, RaceStartsIn, NewBestLap, SessionRunning, Start, Pilot, HasFinished, IsInRound, RaceOver}
+pub enum Msg { TrainingStarted, PilotsReady, NewBestLap, SessionRunning, Pilot, HasFinished, IsInRound, RaceOver}
 
 impl Msg {
     /// Language-neutral clip name (the mp3 file name).
@@ -45,10 +44,8 @@ impl Msg {
         match self {
             Msg::TrainingStarted => "training_started",
             Msg::PilotsReady     => "pilots_ready",
-            Msg::RaceStartsIn    => "race_starts_in",
             Msg::NewBestLap      => "new_best_lap",
             Msg::SessionRunning  => "session_running",
-            Msg::Start           => "start",
             Msg::Pilot           => "pilot",
             Msg::HasFinished     => "ist_im_ziel",
             Msg::IsInRound       => "ist_in_runde",
@@ -65,14 +62,10 @@ impl Lang {
             (En, TrainingStarted) => "Training started",
             (De, PilotsReady)     => "Piloten bereit",
             (En, PilotsReady)     => "Pilots, arm your quads",
-            (De, RaceStartsIn)    => "Rennen beginnt in",
-            (En, RaceStartsIn)    => "Race starts in",
             (De, NewBestLap)      => "hat eine neue Bestzeit erzielt",
             (En, NewBestLap)      => "has set a new best lap",
             (De, SessionRunning)  => "Es läuft schon eine Session - erst stoppen.",
             (En, SessionRunning)  => "A session is already running. Stop it first.",
-            (De, Start)           => "Start",
-            (En, Start)           => "Start",
             (En, Pilot)           => "pilot",
             (De, Pilot)           => "Pilot",
             (En, HasFinished)     => "has finished",
@@ -113,6 +106,36 @@ pub enum Part {
 
     /// Spoken by speech synthesis, in the given language.
     Text { text: String, lang: Lang },
+
+    /// A beep made by the server itself (no file needed).
+    Tone(Tone),
+}
+
+/// The countdown beeps, written as WAV files into the cache folder when
+/// the server starts (`write_tones`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Tone {
+    /// Short beep for the seconds before the start.
+    Beep,
+    /// Longer, higher beep at the start.
+    Go,
+}
+
+impl Tone {
+    fn file_name(self) -> &'static str {
+        match self {
+            Tone::Beep => "tone_beep.wav",
+            Tone::Go => "tone_go.wav",
+        }
+    }
+
+    /// (frequency in Hz, length in ms)
+    fn sound(self) -> (f32, u32) {
+        match self {
+            Tone::Beep => (880.0, 150),
+            Tone::Go => (1760.0, 600),
+        }
+    }
 }
 
 impl Part {
@@ -155,6 +178,7 @@ impl Sounds {
         if let Err(e) = std::fs::create_dir_all(&cache) {
             eprintln!("sound cache {}: {e}", cache.display());
         }
+        write_tones(&cache);
         let (tx, rx) = mpsc::channel::<Vec<Part>>();
         let enabled = Arc::new(AtomicBool::new(true));
         let browser = Arc::new(AtomicBool::new(false));
@@ -242,6 +266,13 @@ fn resolve(clips: &Path, cache: &Path, parts: &[Part]) -> Vec<Resolved> {
                 }
                 continue;
             }
+            Part::Tone(tone) => {
+                let path = cache.join(tone.file_name());
+                if path.exists() {
+                    out.push(Resolved { file: Some(path), text: None });
+                }
+                continue;
+            }
             Part::Text { text, lang } => (text, *lang),
         };
         if text.trim().is_empty() {
@@ -295,6 +326,45 @@ fn play_file(path: &Path) {
     // `status()` waits until the sound is over.
     if let Err(e) = cmd.arg(path).status() {
         eprintln!("sound {}: {e}", path.display());
+    }
+}
+
+/// Writes the countdown beeps (`Tone`) into the cache folder: a sine
+/// wave, 16 bit mono, with 5 ms fade in and out so it does not click.
+fn write_tones(cache: &Path) {
+    const RATE: u32 = 22050;
+    for tone in [Tone::Beep, Tone::Go] {
+        let (freq, ms) = tone.sound();
+        let n = RATE * ms / 1000;
+        let fade = (RATE * 5 / 1000) as f32;
+        let mut samples: Vec<u8> = Vec::with_capacity(n as usize * 2);
+        for i in 0..n {
+            let t = i as f32 / RATE as f32;
+            let edge = (i as f32).min((n - 1 - i) as f32);
+            let gain = (edge / fade).min(1.0);
+            let v = (t * freq * std::f32::consts::TAU).sin() * gain * 0.6;
+            samples.extend_from_slice(&((v * i16::MAX as f32) as i16).to_le_bytes());
+        }
+        // WAV header (44 bytes), then the samples.
+        let data_len = samples.len() as u32;
+        let mut wav = Vec::with_capacity(44 + samples.len());
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&(36 + data_len).to_le_bytes());
+        wav.extend_from_slice(b"WAVEfmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes()); // size of the fmt chunk
+        wav.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        wav.extend_from_slice(&1u16.to_le_bytes()); // mono
+        wav.extend_from_slice(&RATE.to_le_bytes());
+        wav.extend_from_slice(&(RATE * 2).to_le_bytes()); // bytes per second
+        wav.extend_from_slice(&2u16.to_le_bytes()); // bytes per sample
+        wav.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&data_len.to_le_bytes());
+        wav.extend_from_slice(&samples);
+        let path = cache.join(tone.file_name());
+        if let Err(e) = std::fs::write(&path, wav) {
+            eprintln!("tone {}: {e}", path.display());
+        }
     }
 }
 

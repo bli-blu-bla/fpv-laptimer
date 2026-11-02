@@ -24,7 +24,7 @@ use crate::detect::{ChannelStatus, DetectConfig, DetectionSettings, Detector, Ev
 use crate::esp::board::{Event as BoardEvent, Level, LinkStats};
 use crate::events::Events;
 use crate::laps::{self, EndRule, PassRecord, PilotResult, Rejected, StartMode};
-use crate::sound::{Lang, Msg, Part, Sounds};
+use crate::sound::{Lang, Msg, Part, Sounds, Tone};
 use crate::stats;
 
 /// Live levels go out this often, µs.
@@ -875,8 +875,8 @@ impl Core {
     }
 
     /// The start announcements. Race: "Piloten bereit" (countdown of 8 s
-    /// or more), "Rennen beginnt in" 5 s before, the last seconds counted
-    /// (up to 5), the start tone. Training: "Training läuft".
+    /// or more), a short beep in each of the last 3 seconds and a long,
+    /// higher one at the start. Training: "Training läuft".
     fn schedule_start(&mut self, race: bool, countdown_s: i64, start_us: i64) {
         let lang = self.settings.language;
         if !race {
@@ -889,20 +889,12 @@ impl Core {
             self.sounds.play(Part::say(Msg::PilotsReady, lang));
         }
 
-        // "Rennen beginnt in" takes about 1.5 s: then the count from 3.
-        let count_from = if countdown_s >= 5 {
-            self.scheduled
-                .push((at(5), Part::say(Msg::RaceStartsIn, lang)));
-            3
-        } else {
-            countdown_s
-        };
-
-        for n in (1..=count_from).rev() {
-            self.scheduled.push((at(n), Part::number(n as usize, lang)));
+        // Each beep is a separate short sound (150 ms), so a late one does
+        // not push the next ones back.
+        for n in (1..=countdown_s.min(3)).rev() {
+            self.scheduled.push((at(n), Part::Tone(Tone::Beep)));
         }
-
-        self.scheduled.push((start_us, Part::say(Msg::Start, lang)));
+        self.scheduled.push((start_us, Part::Tone(Tone::Go)));
     }
 
     /// A sample announcement (settings page): the best-lap one, with the
