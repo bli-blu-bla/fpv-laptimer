@@ -92,5 +92,6 @@ nav:
       - technik/index.md
       - Architektur: technik/architektur.md
       - Durchflug-Erkennung: technik/erkennung.md
+      - Automatik-Modus (Anstieg & Drop): technik/automatik-modus.md
       - Firmware und Protokoll: technik/firmware.md
       - Entwickeln: technik/entwickeln.md

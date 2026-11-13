@@ -7,6 +7,7 @@ anbinden: [API](../api/index.md).
 |---|---|
 | [Architektur](architektur.md) | Teile, Threads, Datenfluss, Uhren, Speicher, Installation und Updates |
 | [Durchflug-Erkennung](erkennung.md) | vom Rohpegel zum Durchflug: Hüllkurve, gelernte Schwellen, Zurücknehmen, Freigabe |
+| [Automatik-Modus (Anstieg & Drop)](automatik-modus.md) | warum erst beim Drop ausgelöst wird, welche Differenz zählt und wie die Zeit trotzdem am Maximum liegt |
 | [Firmware und Protokoll](firmware.md) | widscan58, die Befehle des Servers, das Frame-Format, Uhrabgleich |
 | [Entwickeln](entwickeln.md) | bauen, ohne Boards testen, Aufnahmen, Releases |
 

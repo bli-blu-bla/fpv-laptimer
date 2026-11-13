@@ -67,6 +67,9 @@ Der Pegel allein trennt Überflüge und Durchflüge also nur knapp. Die verläss
 ist das [Freigabe-Gate](../funktionen/gates.md). Der Mindestausschlag ist pro Kanal
 einstellbar, etwa für einen stärkeren Sender.
 
+Ausführlicher zum Zusammenspiel von Anstieg, Drop und gemessener Rundenzeit:
+[Automatik-Modus im Detail: Anstieg, Drop und Zeitpunkt](automatik-modus.md).
+
 ## Feste Schwellen
 
 Pro Kanal und Gate kann statt „automatisch“ **manuell** gewählt werden: feste Eintritts- und
