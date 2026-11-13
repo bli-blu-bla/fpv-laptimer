@@ -36,7 +36,7 @@ use crate::auth::{self, Auth};
 use crate::config::{AuthConfig, UpdateConfig};
 use crate::core::{BoardView, Core, Settings, results};
 use crate::db::{By, Db, PassEdit};
-use crate::detect::DetectConfig;
+use crate::detect::{ChannelParams, DetectConfig, DetectMode, DetectionSettings};
 use crate::esp::board::{self, Event, ScanConfig, find_ports};
 use crate::esp::flash;
 use crate::events::Events;
@@ -81,6 +81,10 @@ pub struct App {
     /// that grew (the running session) is read again.
     /// Key: session id and gate (true: the arming gate).
     pub traces: Mutex<HashMap<(i64, bool), (u64, Arc<SessionTrace>)>>,
+    /// The last "compute again" of the editor (`recompute_trace`): (what was
+    /// asked, size of the level file, result). Kept apart from `traces`,
+    /// which only holds graphs with the sessions' own settings.
+    pub recomputed: Mutex<Option<(String, u64, Arc<SessionTrace>)>>,
     /// Level files worked through for the board debugging: (source, file
     /// size, result), at most 2 (`debug.rs`).
     pub debug_files: Mutex<Vec<(String, u64, Arc<crate::debug::FileAnalysis>)>>,
@@ -161,6 +165,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
             label: path.file_name().map_or_else(|| path.display().to_string(), |f| f.to_string_lossy().to_string()),
         })),
         traces: Mutex::new(HashMap::new()),
+        recomputed: Mutex::new(None),
         debug_files: Mutex::new(Vec::new()),
         firmware_dir: opts.web_dir.join("firmware"),
         flash: Mutex::new(None),
@@ -198,6 +203,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .route("/sessions/{id}/confirm", post(confirm_session))
         .route("/sessions/{id}/passes", post(add_pass))
         .route("/sessions/{id}/graph", get(get_graph))
+        .route("/sessions/{id}/recompute", get(get_recompute))
         .route("/sessions/{id}/snap", get(get_snap))
         .route("/sessions/{id}/edit", post(edit_passes))
         .route("/sessions/{id}/trim", post(trim_session))
@@ -470,25 +476,10 @@ pub fn session_trace(app: &App, id: i64) -> Result<Arc<SessionTrace>> {
 /// `session_trace` of the finish gate's boards, or (`arming`) of the
 /// arming gate's, with that gate's thresholds.
 pub fn gate_trace(app: &App, id: i64, arming: bool) -> Result<Arc<SessionTrace>> {
-    let (path, config, fixed, min_rise) = {
-        let mut core = app.core.lock().unwrap();
-        let s = core.db.session(id)?.context("Diese Session gibt es nicht.")?;
-        core.flush_levels(id)?;
-        let path = s
-            .levels_file
-            .context("Für diese Session sind keine Pegel aufgezeichnet.")?;
-        // Per channel for every possible channel (8); unused ones don't matter.
-        // Sessions from before `detection` was saved: the defaults.
-        let detection = s.config.detection.clone().unwrap_or_default();
-        (
-            PathBuf::from(path),
-            DetectConfig {
-                min_lap_us: (s.config.min_lap_s * 1e6) as i64,
-                min_rise_db: detection.min_rise_db,
-            },
-            detection.fixed(arming, 8),
-            detection.min_rise(arming, 8),
-        )
+    let (path, min_lap_s, detection) = session_detection(app, id)?;
+    let config = DetectConfig {
+        min_lap_us: (min_lap_s * 1e6) as i64,
+        min_rise_db: detection.min_rise_db,
     };
     let size = std::fs::metadata(&path)
         .with_context(|| format!("{}", path.display()))?
@@ -498,7 +489,7 @@ pub fn gate_trace(app: &App, id: i64, arming: bool) -> Result<Arc<SessionTrace>>
     {
         return Ok(Arc::clone(t));
     }
-    let t = Arc::new(trace::load(&path, config, fixed, min_rise, arming)?);
+    let t = Arc::new(trace::load(&path, config, &detection, arming, None)?);
     let mut traces = app.traces.lock().unwrap();
     // A few MB each (finish and arming gate of a session are two): keep the
     // memory small; the next request reads again.
@@ -507,6 +498,152 @@ pub fn gate_trace(app: &App, id: i64, arming: bool) -> Result<Arc<SessionTrace>>
     }
     traces.insert((id, arming), (size, Arc::clone(&t)));
     Ok(t)
+}
+
+/// A session's level file, minimum lap (s) and detection settings (sessions
+/// from before they were saved: the defaults). Takes the core lock briefly.
+fn session_detection(app: &App, id: i64) -> Result<(PathBuf, f64, DetectionSettings)> {
+    let mut core = app.core.lock().unwrap();
+    let s = core.db.session(id)?.context("Diese Session gibt es nicht.")?;
+    core.flush_levels(id)?;
+    let path = s
+        .levels_file
+        .context("Für diese Session sind keine Pegel aufgezeichnet.")?;
+    Ok((PathBuf::from(path), s.config.min_lap_s, s.config.detection.clone().unwrap_or_default()))
+}
+
+/// "Compute again" (editor): what to change for one channel; None: as the
+/// session had it. A new detection mode needs nothing here.
+struct Overrides {
+    /// "auto", "auto_relative", "classic" (`DetectMode::name`).
+    mode: Option<String>,
+    /// Fixed thresholds, dBFS (classic mode).
+    enter_db: Option<f32>,
+    exit_db: Option<f32>,
+    /// Minimum swing, dB (automatic modes).
+    min_rise_db: Option<f32>,
+    /// Minimum lap, seconds.
+    min_lap_s: Option<f64>,
+}
+
+/// One channel of a session's level file through the detector again, with
+/// the session's settings except for `o`. Returns the trace (only this
+/// channel has slots), the settings used and the session's own, and the
+/// minimum lap used and the session's. As `gate_trace`: off the async
+/// threads, no core lock while it reads. Changes nothing that is saved.
+fn recompute_trace(
+    app: &App,
+    id: i64,
+    arming: bool,
+    channel: usize,
+    o: &Overrides,
+) -> Result<(Arc<SessionTrace>, [ChannelParams; 2], [f64; 2])> {
+    let (path, session_lap_s, mut detection) = session_detection(app, id)?;
+    let session_params = detection.channel(arming, channel);
+    let mut p = session_params;
+    if let Some(name) = &o.mode {
+        p.mode = DetectMode::from_name(name).with_context(|| {
+            let names: Vec<&str> = DetectMode::ALL.iter().map(|m| m.name()).collect();
+            format!("Unbekannter Modus „{name}“ (möglich: {}).", names.join(", "))
+        })?;
+    }
+    p.enter_db = o.enter_db.unwrap_or(p.enter_db);
+    p.exit_db = o.exit_db.unwrap_or(p.exit_db);
+    p.min_rise_db = o.min_rise_db.unwrap_or(p.min_rise_db);
+    let min_lap_s = o.min_lap_s.unwrap_or(session_lap_s);
+    // `!(a..=b).contains(..)` is also true for NaN.
+    if !(-63.0..=0.0).contains(&p.enter_db) || !(-63.0..=0.0).contains(&p.exit_db) {
+        anyhow::bail!("Eintritt und Austritt müssen zwischen −63 und 0 dBFS liegen.");
+    }
+    if p.mode == DetectMode::Classic && p.exit_db >= p.enter_db {
+        anyhow::bail!("Der Austritt muss unter dem Eintritt liegen.");
+    }
+    if !(0.0..=40.0).contains(&p.min_rise_db) {
+        anyhow::bail!("Der Mindestausschlag muss zwischen 0 und 40 dB liegen.");
+    }
+    if !(0.5..=600.0).contains(&min_lap_s) {
+        anyhow::bail!("Die Mindestrunde muss zwischen 0,5 und 600 s liegen.");
+    }
+    detection.set_channel(arming, channel, p);
+    let config = DetectConfig {
+        min_lap_us: (min_lap_s * 1e6) as i64,
+        min_rise_db: detection.min_rise_db,
+    };
+    let size = std::fs::metadata(&path)
+        .with_context(|| format!("{}", path.display()))?
+        .len();
+    let key = format!("{id} {arming} {channel} {p:?} {min_lap_s}");
+    // The lock is held while the file is read: the page asks for the graph
+    // and the overview at the same time, and the second request should find
+    // the first one's result instead of reading the file again. (Only this
+    // route takes this lock; the core is not locked here.)
+    let mut cache = app.recomputed.lock().unwrap();
+    if let Some((k, s, t)) = cache.as_ref()
+        && *k == key
+        && *s == size
+    {
+        return Ok((Arc::clone(t), [p, session_params], [min_lap_s, session_lap_s]));
+    }
+    // Drop the old result first: two of them would be in memory otherwise.
+    *cache = None;
+    let t = Arc::new(trace::load(&path, config, &detection, arming, Some(channel))?);
+    *cache = Some((key, size, Arc::clone(&t)));
+    Ok((t, [p, session_params], [min_lap_s, session_lap_s]))
+}
+
+/// (Not `GraphQuery` + `Overrides` with `serde(flatten)`: in a query string
+/// that turns the numbers into text and they no longer parse.)
+#[derive(Deserialize)]
+struct RecomputeQuery {
+    // As for the graph (`GraphQuery`).
+    channel: usize,
+    from_us: Option<i64>,
+    to_us: Option<i64>,
+    points: Option<usize>,
+    gate: Option<String>,
+    // What to change (`Overrides`).
+    mode: Option<String>,
+    enter_db: Option<f32>,
+    exit_db: Option<f32>,
+    min_rise_db: Option<f32>,
+    min_lap_s: Option<f64>,
+}
+
+/// `GET /api/sessions/{id}/recompute?channel&[gate=arming]&[mode]&[enter_db]
+/// &[exit_db]&[min_rise_db]&[min_lap_s]&[from_us]&[to_us]&[points]`: the
+/// channel evaluated again with other detection settings, to look at: the
+/// graph (as `/graph`) and the passes the detector finds that way (also the
+/// ones it took back). The saved passes stay as they are.
+async fn get_recompute(State(app): State<Arc<App>>, Path(id): Path<i64>, Query(q): Query<RecomputeQuery>) -> ApiResult {
+    let o = Overrides {
+        mode: q.mode.clone(),
+        enter_db: q.enter_db,
+        exit_db: q.exit_db,
+        min_rise_db: q.min_rise_db,
+        min_lap_s: q.min_lap_s,
+    };
+    let arming = q.gate.as_deref() == Some("arming");
+    let channel = q.channel;
+    let (t, params, laps) =
+        tokio::task::spawn_blocking(move || recompute_trace(&app, id, arming, channel, &o)).await??;
+    let mut v = json!({
+        "start_us": null, "end_us": null, "graph": null,
+        "passes": t.passes(channel),
+        "params": params[0], "session_params": params[1],
+        "min_lap_s": laps[0], "session_min_lap_s": laps[1],
+    });
+    if let Some((start, end)) = t.bounds(channel) {
+        let g = t.graph(
+            channel,
+            q.from_us.unwrap_or(start),
+            q.to_us.unwrap_or(end),
+            q.points.unwrap_or(800).min(5000),
+        );
+        v["start_us"] = json!(start);
+        v["end_us"] = json!(end);
+        v["graph"] = json!(g);
+    }
+    Ok(Json(v))
 }
 
 /// Works out the level graph of every session that ends (both gates) in

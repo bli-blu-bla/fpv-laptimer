@@ -123,3 +123,110 @@ ausgewertet wird, nicht die Zeit des Durchflugs.
 Genauer als der Gipfel selbst wird die Zeit dadurch nicht: Er ist ein breiter Buckel, und für
 denselben Durchflug liegen verschiedene Boards bis 0,3–0,4 s auseinander. Die Mitte der
 1-dB-Kuppe ist dabei stabiler als der höchste Einzelwert.
+
+## 4. Experimentell: jedes Board an seinem eigenen Streckenpegel
+
+Neben „Automatisch“ gibt es den Modus **„Automatisch (experimentell)“** (`DetectMode::AutoRelative`,
+in den Einstellungen `"auto_relative"`). Er ist pro Kanal und Gate wählbar wie die anderen:
+Rennleitung → Slot antippen, oder Boards → Einrichtung → „Alle automatisch (experimentell)“.
+„Automatisch“ selbst bleibt unverändert.
+
+### Das Problem
+
+Normalerweise zählt von den Boards eines Gates in jedem Moment das lauteste (Maximum der
+Hüllkurven), und auf dieser einen Linie werden Kurs und Gipfel gelernt. Hört ein Board die
+ganze Strecke laut, stellt es den Kurs für das Gate, und die sauberen Buckel eines leiseren
+Boards bleiben unter der Schwelle.
+
+Session 57 (2026-11-13, R2, zwei Ziel-Boards): Board 1 hörte die Strecke mit −35 dBFS, seine
+Buckel am Gate stiegen nur 7–10 dB. Board 2 lag bei −43,5 dBFS mit Buckeln von 14–15,5 dB, die
+aber nur bis −26 … −28 dBFS reichten. Eintritt lag bei etwa −23 dBFS: live wurden 2 Durchflüge
+gespeichert, die Neuberechnung findet 4, geflogen wurden etwa 10.
+
+### Was der Modus anders macht
+
+Nur Schritt 3 (Boards kombinieren) ist anders, alles danach ist dieselbe Zustandsmaschine:
+
+1. Jedes Board lernt pro Kanal seinen **eigenen Kurs**, genau wie oben: Median seiner Hüllkurve
+   der letzten 3 Minuten über −46 dBFS, nach 5 s solcher Pegel.
+2. Das Board mit dem höchsten Kurs ist die **Referenz**. Jedes andere Board wird um
+   `Kurs der Referenz − eigener Kurs` angehoben, sodass alle Streckenpegel übereinander liegen.
+3. Von diesen verschobenen Hüllkurven zählt das Maximum. Darauf laufen Kurs, Gipfel, Eintritt
+   (60 %, mindestens der Mindestausschlag), Austritt, Haltezeit, Mindestrunde, Zurücknehmen und
+   der Rückblick der ersten 10 s wie gehabt.
+
+Anders gesagt: verglichen wird der **Anstieg über dem eigenen Streckenpegel**, nicht der
+absolute Pegel. Boards, die ihren Kurs noch nicht gelernt haben oder gerade unter −46 dBFS
+liegen (für sie ist der Sender aus), bleiben außen vor. Solange noch kein Board einen Kurs hat,
+gilt das gewöhnliche Maximum. Mit nur einem Board am Gate ist der Modus exakt „Automatisch“.
+
+### Was Graph und Zahlen zeigen
+
+Pegel, Schwellen und Gipfel bleiben in dBFS, und zwar **„so, wie das Referenz-Board es gesehen
+hätte“**: Anstieg über dem eigenen Kurs plus Kurs des lautesten Boards. Diese Darstellung wurde
+gewählt, weil so alles Übrige (Achsen, Schwellenlinien, Presets, Debug-Seite) unverändert
+weiterarbeitet, die Zahlen nahe an denen des normalen Modus bleiben (ein Umschalten während
+der Session verschiebt die gelernte Statistik kaum) und das zuerst angelernte Board meist auch
+das lauteste ist, die Referenz also nicht springt. Die Folgen:
+
+- **Gesamt** (Editor, Erkennungs-Panel, Debug-Seite): die kombinierte Linie der verschobenen
+  Boards mit den dazu passenden Schwellen. Der Gipfel eines Durchflugs kann dort höher liegen
+  als alles, was ein Board gemessen hat (Session 57: Board 2 misst −27,5 dBFS, angehoben um
+  6,25 dB ergibt −21,25 dBFS).
+- **Ein Board allein** (S1 / S2 …): sein gemessener Pegel; die Schwellen werden um die
+  Verschiebung dieses Boards zurückgerechnet und passen damit zu seiner Linie. Der Graph
+  liefert dafür `board_shift`, die `live`-Nachricht `finish_shifts` / `arming_shifts`, das
+  Debug-Paket die Spalten `board<n>_shift_db`.
+
+### Gegenprüfung (2026-11-13)
+
+Alt („Automatisch“) gegen neu, beide mit dem echten Detektor (`laptimer replay --mode
+auto|auto_relative --detail`), Mindestausschlag 12 dB, Mindestrunde 3 s, auf 21 Pegel-Dateien:
+den Debug-Paketen der Sessions 57 und 64, einer Aufnahme vom 2026-10-29 und den Sessions 14–36
+(2026-10-30 bis 2026-11-03; 28–35 sind Wiedergaben). „Automatisch“ liefert auf allen 21 Dateien
+Zeile für Zeile dasselbe wie vor der Änderung.
+
+| Daten | Automatisch | experimentell | Unterschied |
+|---|---|---|---|
+| Session 57, R2 (das Problem) | 4 | 9 | +5, alle im Rundenrhythmus (35–43 s), Board 2 je +14 … +15,5 dB |
+| Session 64, R2 (nach Sensortausch) | 3 | 3 | gleich, Zeiten bis 0,15 s anders |
+| Aufnahme 2026-10-29, R3 | 7 | 7 | gleich |
+| Sessions 14–36, Zielgate, alle Kanäle | 303 | 309 | +8, −2, 5 an anderer Stelle |
+| Sessions 14–35, Freigabe-Gate | 316 | 318 | +14, −12, 3 an anderer Stelle |
+
+Zum Zielgate der Sessions 14–36 im Einzelnen (als unabhängiger Anhaltspunkt dient das
+Freigabe-Gate: lag 3 s vor bis 1 s nach dem Durchflug ein Freigabe-Durchflug?):
+
+- **+8 neu:** 4 mit Freigabe (Session 17: R1 bei +25/+29 dB und +15/+17 dB, R8 +13/+11 dB;
+  Session 14: R4 +10,5 dB auf nur einem Board, fraglich), 4 ohne. Einer davon ist sehr
+  wahrscheinlich falsch: Session 21, R6 (und dieselbe Stelle in der Wiedergabe Session 30). Dort
+  stand ein Sender vor dem Start, ein Board hörte ihn konstant mit −24 dBFS, das andere mit
+  −36 dBFS, und eine kurze Spitze von +20 dB auf dem leisen Board zählt im neuen Modus. Im
+  alten deckte das laute Board sie zu.
+- **−2 weg:** beide ohne Freigabe und 5–6 s nach einem anderen Durchflug, vermutlich
+  Fehltreffer.
+- **5 an anderer Stelle** (1,2–1,6 s): In 4 Fällen meldet der alte Modus einen Vorbuckel
+  (+12 dB auf einem Board) und verwirft den eigentlichen Durchflug 1,5 s später als „zu früh“;
+  der neue meldet den eigentlichen (+21 … +28 dB auf beiden Boards). In einem Fall (Session 14,
+  R4) ist es umgekehrt.
+- Anteil mit Freigabe: alt 265 von 303, neu 270 von 309, also gleich (87 %).
+
+Am Freigabe-Gate halten sich Gewinne und Verluste die Waage (neu: 5 von 14 mit Ziel-Durchflug,
+weg: 6 von 12), dort bringt der Modus nichts Erkennbares.
+
+Die dokumentierten Problemfälle des Mindestausschlags (Session 1 mit Wellen von 4–5 dB,
+Session 4 mit Überflügen um 14 dB, die Aufnahmen vom 2026-10-22) liegen als Dateien nicht mehr
+vor und konnten nicht nachgerechnet werden. Die Unit-Tests bilden sie nach (Wellen ±2,5 dB und
+Überflüge von 9 dB auf einem leisen Board zählen nicht). Überflüge von 14 dB über dem eigenen
+Kurs eines leisen Boards würden dagegen zählen: Das ist das Risiko des Modus, gemessen am
+eigenen Kurs wirken sie stärker.
+
+**Mindestausschlag:** 12 dB bleibt der richtige Wert. In Session 57 findet der neue Modus mit
+10 und 12 dB alle 9, mit 13 dB 8, mit 14 dB nur noch 5; über alle Dateien gehen mit 14 dB elf
+Durchflüge verloren.
+
+**Einschätzung:** Der Modus löst den Fall, für den er gedacht ist (ein Board hört die Strecke
+viel lauter), und ist sonst etwa gleich gut. Er bleibt experimentell und ist nicht Standard:
+Ein Sender, der nahe an einem Board steht, macht dessen Kurs hoch, und dann zählen Spitzen auf
+dem anderen Board leichter. Zum Ausprobieren an einer vorhandenen Session eignet sich
+[Neu rechnen im Editor](../funktionen/korrigieren.md#neu-rechnen), ohne etwas zu ändern.

@@ -33,7 +33,9 @@ flowchart TD
 2. **Hüllkurve:** pro Board das Maximum über 2 Slots (20 ms), davon der Median der letzten 10
    (100 ms) gegen kurze Spitzen.
 3. **Boards kombinieren:** die höchste Hüllkurve aller Boards eines Gates. Sieht ein Board die
-   Drohne kurz schlecht, sieht sie meist ein anderes.
+   Drohne kurz schlecht, sieht sie meist ein anderes. (Der Modus „Automatisch (experimentell)“
+   verschiebt die Boards vorher auf einen gemeinsamen Streckenpegel, siehe
+   [unten](#automatisch-experimentell).)
 4. **Schwellen aus dem Flug:**
     - **Kurs** = Median der Hüllkurve, solange der Sender an ist (über −46 dBFS), über die
       letzten 3 Minuten.
@@ -69,6 +71,21 @@ einstellbar, etwa für einen stärkeren Sender.
 
 Ausführlicher zum Zusammenspiel von Anstieg, Drop und gemessener Rundenzeit:
 [Automatik-Modus im Detail: Anstieg, Drop und Zeitpunkt](automatik-modus.md).
+
+## Automatisch (experimentell)
+
+Hört ein Board die ganze Strecke viel lauter als die anderen, stellt es im normalen Modus den
+Kurs für das Gate, und die Buckel der leiseren Boards bleiben unter der Schwelle (Session 57,
+2026-11-13: 4 statt 9 Durchflüge). Der dritte Modus `auto_relative` misst deshalb jedes Board
+an seinem **eigenen** Kurs: Die Boards werden so angehoben, dass ihre Streckenpegel auf dem des
+lautesten liegen, erst dann zählt das Maximum. Ab Schritt 4 ist alles gleich. Pegel, Schwellen
+und Gipfel eines solchen Kanals stehen damit auf der Skala des lautesten Boards; für die Linie
+eines einzelnen Boards rechnet die Seite die Schwellen um dessen Verschiebung zurück.
+
+Gemessen am eigenen Kurs wirken Überflüge auf einem leisen Board stärker, und ein Sender, der
+nahe an einem Board steht, lässt Spitzen auf dem anderen leichter zählen. Der Modus ist daher
+nicht Standard. Zahlen der Gegenprüfung und die Begründung der Darstellung:
+[Automatik-Modus im Detail](automatik-modus.md#4-experimentell-jedes-board-an-seinem-eigenen-streckenpegel).
 
 ## Feste Schwellen
 
@@ -113,13 +130,30 @@ Gemessen an einer Aufnahme: Ein Tipp bis 1 s neben dem Gipfel landet auf dem Zei
 auch die Erkennung bestimmt hätte; weiter weg 0,1–0,4 s daneben oder an einem anderen Buckel.
 Deshalb zeigt die Seite die Stelle vor dem Einfügen.
 
+**Neu rechnen:** Derselbe Weg mit geänderten Einstellungen für einen Kanal
+(`GET /api/sessions/{id}/recompute?channel=…&mode=auto|auto_relative|classic&min_rise_db=…&enter_db=…&exit_db=…&min_lap_s=…`,
+dazu `gate`, `from_us`, `to_us`, `points` wie beim Graph). Die Antwort enthält den Graph und
+unter `passes` die dabei erkannten Durchflüge (`time_us`, `peak_db`, `retracted` für
+zurückgenommene), außerdem `params` (womit gerechnet wurde) und `session_params`. Gespeichert
+wird nichts; gelesen werden nur die Pegel dieses einen Kanals, die letzte Neuberechnung bleibt
+im Speicher. Ein weiterer Modus braucht dafür nichts Eigenes: Er wird in `DetectMode`
+(`detect.rs`) und in `DETECT_MODES` (`frontend/src/model.js`) ergänzt.
+
 ## Selbst ausprobieren
 
 ```sh
-laptimer replay aufnahme.csv               # Erkennung auf einer Aufnahme, alle Boards
+laptimer replay aufnahme.csv               # Erkennung auf einer Aufnahme, Boards des Zielgates
 laptimer replay aufnahme.csv --board 0     # nur ein Board
 laptimer replay aufnahme.csv --min-rise 15 # anderer Mindestausschlag
+laptimer replay aufnahme.csv --gate arming # die Boards des Freigabe-Gates (oder: all)
+laptimer replay aufnahme.csv --mode auto_relative --detail
+                                           # experimenteller Modus; je Durchflug Gipfel und
+                                           # Anstieg über dem eigenen Kurs für jedes Board
 ```
+
+Steht in der Datei eine `# roles:`-Zeile (Sessions, Aufnahmen der Debug-Seite), nimmt `replay`
+nur die Boards des gewählten Gates, Standard Zielgate; `--gate all` wirft wie früher alle
+Boards zusammen.
 
 Das Debug-Paket einer Session (Sessions → Export → Debug) enthält die Rohpegel, den Verlauf je
 10 ms (`trace.csv`) und die Ereignisse der Neuberechnung (`detector_events.csv`), auch die

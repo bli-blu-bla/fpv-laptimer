@@ -164,6 +164,15 @@ body {
   background: var(--surface);
   color: var(--accent);
 }
+/* Three or more longer labels (detection modes): wrap on a phone. */
+.seg-wrap {
+  flex-wrap: wrap;
+}
+.seg-wrap button {
+  flex: 1 1 auto;
+  padding: 0 12px;
+  white-space: nowrap;
+}
 .options {
   display: grid;
   gap: 6px;
@@ -1560,6 +1569,99 @@ body {
   stroke-width: 1;
   stroke-dasharray: 5 4;
   opacity: 0.5;
+}
+/* "Neu rechnen": the passes of the recomputation, a preview next to the saved ones. */
+.graph {
+  position: relative;
+}
+.graph-wait {
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1;
+  padding: 6px 12px;
+  border-radius: var(--r-md);
+  background: var(--bg);
+  border: 1px solid var(--holeshot);
+  color: var(--text);
+  font-size: 13px;
+  pointer-events: none;
+}
+.graph .recalc-mark {
+  pointer-events: none;
+}
+.graph .recalc-mark line {
+  stroke: var(--holeshot);
+  stroke-width: 1.5;
+  stroke-dasharray: 2 4;
+  opacity: 0;
+}
+.graph .recalc-mark.new line {
+  opacity: 0.9;
+}
+.graph .recalc-mark path {
+  fill: var(--surface-2);
+  stroke: var(--holeshot);
+  stroke-width: 2;
+}
+.graph .recalc-mark.new path {
+  fill: var(--holeshot);
+}
+.graph .recalc-mark.retracted path {
+  stroke-dasharray: 2 2;
+  opacity: 0.6;
+}
+.graph .recalc-tick {
+  stroke: var(--holeshot);
+  opacity: 0.9;
+}
+.recalc-closed {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.recalc-closed .chip-btn,
+.recalc-head,
+.recalc .btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.recalc-head {
+  flex-wrap: wrap;
+}
+.recalc-head b {
+  white-space: nowrap;
+}
+.recalc {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: var(--bg);
+  border: 1px solid color-mix(in srgb, var(--holeshot) 45%, transparent);
+}
+.recalc .seg {
+  background: var(--surface-2);
+}
+.recalc-fields,
+.recalc-buttons,
+.recalc-result {
+  display: flex;
+  gap: 8px 16px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+.recalc-result {
+  align-items: center;
+  padding-top: 10px;
+  border-top: 1px solid var(--n900);
+}
+.recalc-word {
+  color: var(--holeshot);
 }
 .graph .arming-tick {
   stroke: #f2d45c;

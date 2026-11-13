@@ -44,6 +44,12 @@ den Schwellen. Standard ist **automatisch**: Die Erkennung lernt sie aus dem Flu
 **Manuell** gestellt, zieht man Eintritts- und Austrittslinie direkt im Graph, wie bei
 RotorHazard, oder setzt sie mit „Aus Spitze“ aus dem letzten Gipfel.
 
+Dazwischen steht **Automatisch (experimentell)**: wie automatisch, aber jedes Board wird an
+seinem eigenen Streckenpegel gemessen. Das hilft, wenn ein Board die Strecke viel lauter hört
+als das andere und deshalb Durchflüge fehlen
+([Hintergrund und Messwerte](../technik/automatik-modus.md#4-experimentell-jedes-board-an-seinem-eigenen-streckenpegel)).
+Ob es einer Session geholfen hätte, zeigt [Neu rechnen](korrigieren.md#neu-rechnen) im Editor.
+
 ![Schwellen eines Kanals](../assets/screens/control-tune.png){ .shot }
 
 Passende Werte speichert man als **Preset** für den Piloten, z. B. eines pro Drohne. Setzt man

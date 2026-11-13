@@ -314,15 +314,15 @@ function useSpark(live) {
   useEffect(() => {
     if (!live) return
     /** @param {import('../components/Sparkline.jsx').SparkPoint[][]} into @param {import('../types').ChannelLive[] | null} from
-     * @param {(number | null)[][] | null | undefined} boards */
-    const add = (into, from, boards) =>
+     * @param {(number | null)[][] | null | undefined} boards @param {(number | null)[][] | null | undefined} shifts */
+    const add = (into, from, boards, shifts) =>
       from?.forEach((c, i) => {
         const h = (into[i] ??= [])
-        h.push({ level: c.level_db, enter: c.enter_db, exit: c.exit_db, boards: boards?.[i] })
+        h.push({ level: c.level_db, enter: c.enter_db, exit: c.exit_db, boards: boards?.[i], shifts: shifts?.[i] })
         if (h.length > SPARK_POINTS) h.shift()
       })
-    add(hist.current.finish, live.channels, live.finish_boards)
-    add(hist.current.arming, live.arming, live.arming_boards)
+    add(hist.current.finish, live.channels, live.finish_boards, live.finish_shifts)
+    add(hist.current.arming, live.arming, live.arming_boards, live.arming_shifts)
     setTick((t) => t + 1)
   }, [live])
   return hist.current

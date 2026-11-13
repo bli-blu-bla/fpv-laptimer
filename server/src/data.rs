@@ -471,6 +471,7 @@ async fn reset(State(app): St) -> Response {
         // reset checks again (under the same lock as the delete).
         let deleted = app.core.lock().unwrap().reset_sessions()?;
         app.traces.lock().unwrap().clear();
+        *app.recomputed.lock().unwrap() = None;
         Ok(json!({ "deleted": deleted, "backup": backup }))
     })
     .await;
@@ -629,7 +630,11 @@ session.json         Session (Config, Sitze, Zeiten), aktuelle Einstellungen, al
 levels.csv           die Rohpegel der Session (Format wie `laptimer record`), nur die
                      gewählten Kanäle; mit `laptimer replay levels.csv` neu auswertbar
 trace.csv            was der Detektor je 10-ms-Slot sah: Hüllkurve (kombiniert und je Board),
-                     Eintritts- und Austrittsschwelle (dBFS, leer = keine)
+                     Eintritts- und Austrittsschwelle (dBFS, leer = keine). Im Modus
+                     „Automatisch (experimentell)“ (auto_relative) ist level_db die
+                     kombinierte Linie der verschobenen Boards: board<n>_shift_db sagt,
+                     um wie viel dB ein Board angehoben wurde (leer = zählte nicht mit);
+                     seine eigenen Schwellen sind enter_db/exit_db minus diese Zahl
 detector_events.csv  was der Detektor meldete, auch Zurückgenommenes (retract). Neu
                      gerechnet mit den Einstellungen der Session, also nicht unbedingt
                      das, was die Session live gespeichert hat (siehe passes in session.json)
@@ -687,14 +692,24 @@ fn debug_package(app: &App, q: &DebugQuery) -> Result<(String, Vec<u8>)> {
     for b in 0..crate::detect::TRACE_BOARDS {
         trace_csv += &format!(",board{b}_db");
     }
-    trace_csv += ",enter_db,exit_db\n";
+    trace_csv += ",enter_db,exit_db";
+    for b in 0..crate::detect::TRACE_BOARDS {
+        trace_csv += &format!(",board{b}_shift_db");
+    }
+    trace_csv += "\n";
     for c in (0..8).filter(|&c| wanted(c)) {
         for p in trace.slots(c) {
             trace_csv += &format!("{c},{},{}", p.time_us + offset, db_text(code_db(p.level)));
             for b in p.boards {
                 trace_csv += &format!(",{}", db_text(code_db(b)));
             }
-            trace_csv += &format!(",{},{}\n", db_text(code_db(p.enter)), db_text(code_db(p.exit)));
+            trace_csv += &format!(",{},{}", db_text(code_db(p.enter)), db_text(code_db(p.exit)));
+            // Mode auto_relative: how far each board was shifted up (else 0).
+            for (b, s) in p.shifts.iter().enumerate() {
+                let counts = p.boards[b] > 0 && *s != crate::detect::SHIFT_NONE;
+                trace_csv += &format!(",{}", db_text(counts.then_some(*s as f32 / 4.0)));
+            }
+            trace_csv.push('\n');
         }
     }
 

@@ -183,6 +183,28 @@ export function computeLaps(passes, c, startUs) {
   return r
 }
 
+/**
+ * The detection modes in the order the page offers them. A new mode: here,
+ * `DetectMode` in types.js and `DetectMode` in the server's detect.rs; the
+ * panels (race control, Boards, "Neu rechnen" in the editor) take it from here.
+ * `manual`: fixed Enter/Exit instead of learned thresholds.
+ * @type {{id: import('./types').DetectMode, label: string, short: string, manual: boolean, help: string}[]}
+ */
+export const DETECT_MODES = [
+  { id: 'auto', label: 'Automatisch', short: 'auto', manual: false, help: 'Die Schwellen werden aus dem Flug gelernt; die Boards eines Gates zählen mit ihrem lautesten Pegel.' },
+  {
+    id: 'auto_relative',
+    label: 'Automatisch (experimentell)',
+    short: 'auto (exp.)',
+    manual: false,
+    help: 'Wie Automatisch, aber jedes Board an seinem eigenen Streckenpegel gemessen; hilft, wenn ein Board die Strecke viel lauter hört.',
+  },
+  { id: 'classic', label: 'Manuell (Enter/Exit)', short: 'manuell', manual: true, help: 'Feste Schwellen in dBFS.' },
+]
+
+/** @param {import('./types').DetectMode} mode */
+export const modeInfo = (mode) => DETECT_MODES.find((m) => m.id === mode) ?? DETECT_MODES[0]
+
 /** A channel's detection mode at a gate: its own, else the gate's.
  * @param {import('./types').DetectionSettings} d @param {'finish' | 'arming'} gate @param {number} i
  * @returns {import('./types').DetectMode} */
@@ -199,7 +221,8 @@ export function channelMinRise(d, gate, i) {
 /** A preset in a few words: "Automatisch · 12 dB" or "Manuell · −20 / −26 dB".
  * @param {import('./types').Preset} p */
 export function presetSummary(p) {
-  return p.mode === 'classic' ? `Manuell · ${p.enter_db} / ${p.exit_db} dB` : `Automatisch · ${p.min_rise_db} dB`
+  if (p.mode === 'classic') return `Manuell · ${p.enter_db} / ${p.exit_db} dB`
+  return `${p.mode === 'auto_relative' ? 'Automatisch (exp.)' : 'Automatisch'} · ${p.min_rise_db} dB`
 }
 
 /** Whether slot `i`'s finish-gate detection is no longer what preset `p` holds

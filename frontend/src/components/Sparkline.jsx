@@ -6,7 +6,7 @@ const MIN_DB = -62
 const MAX_DB = -5
 
 /**
- * @typedef {{level: number | null, enter: number | null, exit: number | null, boards?: (number | null)[]}} SparkPoint   `boards`: each board's level, by board index
+ * @typedef {{level: number | null, enter: number | null, exit: number | null, boards?: (number | null)[], shifts?: (number | null)[]}} SparkPoint   `boards`: each board's level, by board index; `shifts`: mode auto_relative, how far each board is shifted up (`Live.finish_shifts`)
  * @param {{points: SparkPoint[], color: string}} props
  */
 export default function Sparkline({ points, color }) {

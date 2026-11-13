@@ -12,7 +12,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use serde::Serialize;
 
-use crate::detect::{DetectConfig, Detector, Event, TRACE_BOARDS, TracePoint};
+use crate::detect::{DetectConfig, DetectionSettings, Detector, Event, SHIFT_NONE, TRACE_BOARDS, TracePoint};
 use crate::esp::board::Level;
 use crate::esp::frame::rssi_dbfs;
 use crate::record::parse_row;
@@ -40,19 +40,39 @@ pub struct Graph {
     pub board_names: Vec<String>,
     pub enter: Vec<Option<f32>>,
     pub exit: Vec<Option<f32>>,
+    /// Only for a channel in the mode `auto_relative` (else empty): per
+    /// line in `boards`, how many dB the board was shifted up before the
+    /// boards were combined (None: it did not count at that point). `level`,
+    /// `enter` and `exit` are on the shifted scale; for one board's own line
+    /// the thresholds are `enter`/`exit` minus its shift.
+    pub board_shift: Vec<Vec<Option<f32>>>,
+}
+
+/// A pass the detector found when the file was worked through.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct TracePass {
+    /// Wall clock µs.
+    pub time_us: i64,
+    pub peak_db: f32,
+    /// Taken back later (start-up of the learned thresholds).
+    pub retracted: bool,
 }
 
 /// Reads a level file (`core.rs` writes one per session, `laptimer record`
 /// writes the same format) and runs it through the detector: the finish-gate
 /// boards only (from the "# roles:" line; without it, all boards), or with
-/// `arming` the arming gate's, with the session's fixed thresholds in
-/// classic mode and its minimum swing per channel.
+/// `arming` the arming gate's, with that gate's settings in `detection`
+/// (per channel its mode, fixed thresholds, minimum swing: the session's, or
+/// those with something changed to try it out, `server.rs::recompute`).
+/// `only_channel`: skip the levels of all other channels (their slots stay
+/// empty); the detector works per channel, so this one comes out the same,
+/// in a fraction of the time.
 pub fn load(
     path: &Path,
     config: DetectConfig,
-    fixed: Vec<Option<(f32, f32)>>,
-    min_rise: Vec<f32>,
+    detection: &DetectionSettings,
     arming: bool,
+    only_channel: Option<usize>,
 ) -> Result<SessionTrace> {
     let file = File::open(path).with_context(|| format!("opening {}", path.display()))?;
     let mut offset_us = 0;
@@ -113,13 +133,12 @@ pub fn load(
         let Some(f) = parse_row(&line) else {
             continue; // the column names, or a line cut off at the end
         };
-        if skip.contains(&(f[0] as usize)) {
+        if skip.contains(&(f[0] as usize)) || only_channel.is_some_and(|c| c as i64 != f[1]) {
             continue;
         }
         let d = det.get_or_insert_with(|| {
             let mut d = Detector::with_trace(n_channels.max(1), config);
-            d.set_fixed(&fixed);
-            d.set_min_rise(&min_rise);
+            d.set_detection(detection, arming);
             d
         });
         let level = Level {
@@ -168,6 +187,31 @@ impl SessionTrace {
         &self.events
     }
 
+    /// The passes of a channel as the detector found them, in time order,
+    /// also the ones it took back (marked).
+    pub fn passes(&self, channel: usize) -> Vec<TracePass> {
+        let mut out: Vec<TracePass> = Vec::new();
+        for e in &self.events {
+            match e {
+                Event::Pass(p) if p.channel as usize == channel => out.push(TracePass {
+                    time_us: p.time_us + self.offset_us,
+                    peak_db: p.peak_db,
+                    retracted: false,
+                }),
+                Event::Retract(p) if p.channel as usize == channel => {
+                    let t = p.time_us + self.offset_us;
+                    if let Some(x) = out.iter_mut().find(|x| x.time_us == t && !x.retracted) {
+                        x.retracted = true;
+                    }
+                }
+                _ => {}
+            }
+        }
+        // A pass found by looking back (step 8) is reported late.
+        out.sort_by_key(|p| p.time_us);
+        out
+    }
+
     /// First and last time of a channel, wall clock µs.
     pub fn bounds(&self, channel: usize) -> Option<(i64, i64)> {
         let p = self.points(channel);
@@ -190,7 +234,11 @@ impl SessionTrace {
             board_names: Vec::new(),
             enter: Vec::new(),
             exit: Vec::new(),
+            board_shift: Vec::new(),
         };
+        // Shifts only exist in the mode `auto_relative` (else all are 0).
+        let shifted = slice.iter().any(|p| p.shifts.iter().any(|&s| s != 0));
+        let mut shifts: Vec<Vec<Option<f32>>> = vec![Vec::new(); TRACE_BOARDS];
         for chunk in slice.chunks(per) {
             // The point with the highest level stands for the chunk.
             let top = chunk.iter().max_by_key(|p| p.level).unwrap();
@@ -201,15 +249,24 @@ impl SessionTrace {
             }
             g.enter.push(db(top.enter));
             g.exit.push(db(top.exit));
+            // The shift where the thresholds are taken from (it changes at
+            // most once a second, by little).
+            for (b, out) in shifts.iter_mut().enumerate() {
+                let s = top.shifts[b];
+                out.push((s != SHIFT_NONE).then_some(s as f32 / 4.0));
+            }
         }
         // Boards that never had data are left out; the rest keep their name.
         // (The trace's board i is board i of the file, see `load`.)
         let boards = std::mem::take(&mut g.boards);
-        for (i, b) in boards.into_iter().enumerate() {
+        for (i, (b, shift)) in boards.into_iter().zip(shifts).enumerate() {
             if b.iter().any(|x| x.is_some()) {
                 let name = self.board_names.get(i).cloned().flatten();
                 g.board_names.push(name.unwrap_or_else(|| format!("B{}", i + 1)));
                 g.boards.push(b);
+                if shifted {
+                    g.board_shift.push(shift);
+                }
             }
         }
         g

@@ -38,7 +38,7 @@
  * @property {boolean} race_over  race: "Rennen beendet"
  *
  * @typedef {'finish' | 'arming' | 'off'} BoardRole
- * @typedef {'auto' | 'classic'} DetectMode
+ * @typedef {'auto' | 'auto_relative' | 'classic'} DetectMode   auto_relative: learned as auto, each board measured against its own course level (experimental); names and texts: `model.js::DETECT_MODES`
  * @typedef {{enter_db: number, exit_db: number, mode?: DetectMode | null, min_rise_db?: number | null}} Thresholds   mode / min_rise_db: none = the gate's / the common one
  * @typedef {object} DetectionSettings
  * @property {DetectMode} finish_mode   for channels without their own mode
@@ -69,6 +69,7 @@
  * @property {number} countdown_s
  * @property {number} min_lap_s
  * @property {number} consecutive
+ * @property {DetectionSettings | null} [detection]   the detection settings the session ran with (old sessions: none)
  *
  * @typedef {object} Seat
  * @property {number} channel
@@ -191,6 +192,8 @@
  * @property {Board[]} boards
  * @property {(number | null)[][]} [finish_boards]   per channel, each board's level (index as in `boards`)
  * @property {(number | null)[][] | null} [arming_boards]   the same for the arming gate
+ * @property {(number | null)[][]} [finish_shifts]   mode auto_relative: per channel, how many dB each board is shifted up before the boards are combined (null: other mode, or the board doesn't count). The channel's level and thresholds are on that shifted scale; one board's own thresholds are the channel's minus its shift
+ * @property {(number | null)[][] | null} [arming_shifts]
  *
  * @typedef {object} FlashStatus   flashing over the server (the `flash` message)
  * @property {string} port

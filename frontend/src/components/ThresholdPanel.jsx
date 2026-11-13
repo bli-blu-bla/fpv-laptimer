@@ -1,15 +1,19 @@
 // @ts-check
 // The detection of one slot, on race control (as RotorHazard's node panel):
-// pick the gate, choose automatic or manual for this channel there, watch
-// the signal of the last 30 s with the Enter and Exit lines, and in manual
-// mode move them. In automatic mode the lines are the learned ones, and the
-// minimum swing can be set for this channel. At the finish gate, what is set
+// pick the gate, choose the mode (`DETECT_MODES`: automatic, automatic
+// experimental, manual) for this channel there, watch the signal of the last
+// 30 s with the Enter and Exit lines, and in manual mode move them. In the
+// automatic modes the lines are the learned ones, and the minimum swing can
+// be set for this channel. In the experimental mode the combined line is the
+// boards shifted onto one course level (see the server's detect.rs); looking
+// at one board alone, the lines are moved back by that board's shift, so
+// that they fit its own level. At the finish gate, what is set
 // here can be kept as a preset of the pilot in this slot.
 
 import { useEffect, useRef, useState } from 'react'
 import { FloppyDiskIcon, GaugeIcon, PlusIcon, XIcon } from '@phosphor-icons/react'
 import { api, saveSettings } from '../api.js'
-import { channelMinRise, channelMode, presetChanged } from '../model.js'
+import { DETECT_MODES, channelMinRise, channelMode, modeInfo, presetChanged } from '../model.js'
 import Stepper from './Stepper.jsx'
 
 const W = 600
@@ -35,7 +39,9 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
   const [gate, setGate] = useState(/** @type {'finish' | 'arming'} */ ('finish'))
   /** One board alone (its index in `state.boards`), or null for all combined. */
   const [board, setBoard] = useState(/** @type {number | null} */ (null))
-  const manual = channelMode(d, gate, index) === 'classic'
+  const mode = channelMode(d, gate, index)
+  const manual = modeInfo(mode).manual
+  const relative = mode === 'auto_relative'
   const saved = d[gate][index] ?? DEFAULT
   // Shown at once; saved when the taps rest (Stepper `delayed`).
   const [t, setT] = useState(saved)
@@ -63,9 +69,14 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
   const allLevels = history[gate].map((p) => p.level).filter((v) => v != null)
   const peakAll = allLevels.length ? Math.max(.../** @type {number[]} */ (allLevels)) : null
   const now = points.at(-1)?.level ?? null
+  // Experimental mode, one board alone: how far it is shifted up in the
+  // combined line (null: it doesn't count yet, then there are no lines).
+  const shift = relative && single != null ? (points.at(-1)?.shifts?.[single] ?? null) : 0
+  /** A learned threshold of the combined line, for the line shown. @param {number | null | undefined} db */
+  const own = (db) => (db == null || shift == null ? null : db - shift)
   // Lines: the manual thresholds, or what the automatic mode learned.
-  const enter = manual ? t.enter_db : (points.at(-1)?.enter ?? null)
-  const exit = manual ? t.exit_db : (points.at(-1)?.exit ?? null)
+  const enter = manual ? t.enter_db : own(points.at(-1)?.enter)
+  const exit = manual ? t.exit_db : own(points.at(-1)?.exit)
   /** @param {number} db */
   const y = (db) => H - ((Math.min(MAX_DB, Math.max(MIN_DB, db)) - MIN_DB) / (MAX_DB - MIN_DB)) * H
   const n = Math.max(points.length, 2)
@@ -133,13 +144,12 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
         </button>
       </div>
 
-      <div className="seg">
-        <button className={!manual ? 'on' : ''} onClick={() => save({ mode: 'auto' })}>
-          Automatisch
-        </button>
-        <button className={manual ? 'on' : ''} onClick={() => save({ mode: 'classic' })}>
-          Manuell (Enter/Exit)
-        </button>
+      <div className="seg seg-wrap">
+        {DETECT_MODES.map((m) => (
+          <button key={m.id} className={mode === m.id ? 'on' : ''} title={m.help} onClick={() => save({ mode: m.id })}>
+            {m.label}
+          </button>
+        ))}
       </div>
 
       <div
@@ -178,7 +188,14 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
       <span className="muted small tnum">
         Jetzt {now != null ? now.toFixed(1) : '–'} · Spitze (30 s) {peak != null ? peak.toFixed(1) : '–'} dBFS
         {manual ? ' · Linien zum Verschieben ziehen' : ''}
-        {single != null ? ' · nur ' + boardLabel(state.boards[single], single) + ' (Linien gelten für alle zusammen)' : ''}
+        {single != null &&
+          ' · nur ' +
+            boardLabel(state.boards[single], single) +
+            (!relative
+              ? ' (Linien gelten für alle zusammen)'
+              : shift == null
+                ? ' (zählt noch nicht mit: sein Streckenpegel ist noch nicht gelernt)'
+                : ` (Linien für dieses Board: ${shift.toFixed(1).replace('.', ',')} dB unter denen von Gesamt)`)}
       </span>
       {gateBoards.length > 1 && (
         <div className="seg" style={{ alignSelf: 'flex-end' }} title="Pegel aller Boards des Gates (Gesamt) oder eines einzelnen">
@@ -225,6 +242,8 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
           )}
           <span className="muted small" style={{ flex: '1 1 220px' }}>
             Die Schwellen werden aus dem Flug gelernt (gestrichelt: die aktuellen). Mindestausschlag höher, wenn Überflüge zählen; niedriger, wenn echte fehlen.
+            {relative &&
+              ' Experimentell: jedes Board wird an seinem eigenen Streckenpegel gemessen; hilft, wenn ein Board die Strecke viel lauter hört. „Gesamt“ zeigt die Boards auf den Streckenpegel des lautesten angehoben, die Pegel sind dort also nicht die gemessenen eines Boards.'}
           </span>
         </div>
       )}

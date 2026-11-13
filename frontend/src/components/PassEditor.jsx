@@ -4,12 +4,20 @@
 // passes. Drag a pass to move it, tap it to delete or restore it, tap an
 // empty spot to add one (it moves to the nearest peak). Nothing is saved
 // until "Speichern"; the laps under the graph already show the result.
+//
+// "Neu rechnen" (`RecalcPanel`): the chosen channel through the detector
+// again with another mode, minimum swing, thresholds or minimum lap
+// (`GET /api/sessions/{id}/recompute`). The graph then shows that run's level
+// and thresholds, and the passes it finds as violet preview markers next to
+// the saved ones. Nothing is saved by it; "Übernehmen" puts the differences
+// into the draft like corrections made by hand.
 
 import { useEffect, useRef, useState } from 'react'
-import { ArrowCounterClockwiseIcon, CaretLeftIcon, CaretRightIcon, CrosshairIcon, FloppyDiskIcon, MagnifyingGlassMinusIcon, MagnifyingGlassPlusIcon, ScissorsIcon, TrashIcon } from '@phosphor-icons/react'
+import { ArrowCounterClockwiseIcon, ArrowsClockwiseIcon, CaretLeftIcon, CaretRightIcon, CrosshairIcon, FloppyDiskIcon, MagnifyingGlassMinusIcon, MagnifyingGlassPlusIcon, ScissorsIcon, TrashIcon } from '@phosphor-icons/react'
 import { api } from '../api.js'
 import { secs, slotColor } from '../format.js'
-import { computeLaps, notCountedReason, reasonHelp } from '../model.js'
+import { DETECT_MODES, channelMinRise, channelMode, computeLaps, modeInfo, notCountedReason, reasonHelp } from '../model.js'
+import Stepper from './Stepper.jsx'
 
 const HEIGHT = 340
 const OVERVIEW_HEIGHT = 44
@@ -22,6 +30,8 @@ const MIN_DB = -62
 const HIT_PX = 16
 /** Trimming keeps this long after the last pass (`TRIM_AFTER_US` in core.rs). */
 const TRIM_AFTER_US = 10e6
+/** "Neu rechnen": a pass found this close to a saved one is the same pass. */
+const SAME_PASS_US = 1e6
 
 /**
  * Unsaved corrections of one channel.
@@ -39,8 +49,62 @@ const TRIM_AFTER_US = 10e6
  * @property {string[]} board_names   name of each line in `boards` ("S1", or "B2")
  * @property {(number | null)[]} enter
  * @property {(number | null)[]} exit
- * @typedef {{start_us: number | null, end_us: number | null, graph: Graph | null}} GraphReply
+ * @property {(number | null)[][]} [board_shift]   mode auto_relative: per line in `boards`, how many dB the board was shifted up for the combined line (null: it did not count); its own thresholds are enter/exit minus this
+ * @typedef {{start_us: number | null, end_us: number | null, graph: Graph | null, passes?: RecalcPass[]}} GraphReply   `passes`: only from /recompute
+ *
+ * "Neu rechnen": what the channel is evaluated with, and a pass found that way.
+ * @typedef {{mode: import('../types').DetectMode, enter_db: number, exit_db: number, min_rise_db: number, min_lap_s: number}} RecalcParams
+ * @typedef {{time_us: number, peak_db: number, retracted: boolean}} RecalcPass   retracted: taken back by the detector later
  */
+
+/** What the session itself used for a channel (finish gate); sessions from
+ * before the settings were saved: the defaults.
+ * @param {import('../types').Session} s @param {number} channel @returns {RecalcParams} */
+function sessionParams(s, channel) {
+  const d = s.config.detection
+  const t = d?.finish[channel]
+  return {
+    mode: d ? channelMode(d, 'finish', channel) : 'auto',
+    enter_db: t?.enter_db ?? -25,
+    exit_db: t?.exit_db ?? -30,
+    min_rise_db: d ? channelMinRise(d, 'finish', channel) : 12,
+    min_lap_s: s.config.min_lap_s,
+  }
+}
+
+/** The query for /recompute. @param {RecalcParams} p */
+function recalcQuery(p) {
+  const fixed = modeInfo(p.mode).manual ? `&enter_db=${p.enter_db}&exit_db=${p.exit_db}` : `&min_rise_db=${p.min_rise_db}`
+  return `mode=${p.mode}${fixed}&min_lap_s=${p.min_lap_s}`
+}
+
+/** "Automatisch (experimentell) · 12 dB · Mindestrunde 3 s". @param {RecalcParams} p */
+function paramsText(p) {
+  const m = modeInfo(p.mode)
+  const num = (/** @type {number} */ v) => String(v).replace('.', ',')
+  const what = m.manual ? `Enter ${num(p.enter_db)} / Exit ${num(p.exit_db)} dB` : `Mindestausschlag ${num(p.min_rise_db)} dB`
+  return `${m.label.replace(' (Enter/Exit)', '')} · ${what} · Mindestrunde ${num(p.min_lap_s)} s`
+}
+
+/**
+ * The saved passes (as the draft has them) against the ones "Neu rechnen"
+ * found: `added` are found ones without a counting pass within 1 s,
+ * `missing` counting passes without a found one.
+ * @param {Marker[]} markers @param {RecalcPass[]} found
+ */
+function compare(markers, found) {
+  const counting = markers.filter((m) => m.kind !== 'deleted')
+  const kept = found.filter((p) => !p.retracted)
+  /** @param {number} t @param {number[]} ts */
+  const near = (t, ts) => ts.some((x) => Math.abs(x - t) < SAME_PASS_US)
+  return {
+    saved: counting.length,
+    found: kept.length,
+    added: kept.filter((p) => !near(p.time_us, counting.map((m) => m.t))).map((p) => p.time_us),
+    missing: counting.filter((m) => !near(m.t, kept.map((p) => p.time_us))),
+  }
+}
+
 
 /** What happened to a saved pass, from the change log: "gelöscht (live) · wiederhergestellt".
  * @param {import('../types').PassChange[]} changes @param {number} id */
@@ -97,6 +161,12 @@ export default function PassEditor({ detail, onSaved, onUnsaved }) {
   const [confirmTrim, setConfirmTrim] = useState(false)
   // Bumped after trimming: the graph loads again.
   const [trims, setTrims] = useState(0)
+  // "Neu rechnen" for the channel shown: what was asked (null: the session's
+  // settings), what came back, and whether the server is still at it.
+  const [recalc, setRecalc] = useState(/** @type {RecalcParams | null} */ (null))
+  const [recalcPasses, setRecalcPasses] = useState(/** @type {RecalcPass[] | null} */ (null))
+  const [recalcBusy, setRecalcBusy] = useState(false)
+  const [recalcError, setRecalcError] = useState('')
 
   const draft = drafts[channel] ?? emptyDraft()
   /** @param {(d: Draft) => Draft} f */
@@ -128,6 +198,50 @@ export default function PassEditor({ detail, onSaved, onUnsaved }) {
   // of any channel + 10 s. Only stored passes count (unsaved ones block it).
   const lastPass = Math.max(-Infinity, ...passes.filter((p) => !p.gate && !p.deleted).map((p) => p.time_us))
   const cutUs = Number.isFinite(lastPass) ? lastPass + TRIM_AFTER_US : null
+  const diff = recalc && recalcPasses ? compare(markers, recalcPasses) : null
+
+  /** Back to the session's settings (also when the channel changes). */
+  function resetRecalc() {
+    setRecalc(null)
+    setRecalcPasses(null)
+    setRecalcBusy(false)
+    setRecalcError('')
+  }
+
+  /** The graph got the recomputed channel (or the server refused).
+   * @param {GraphReply | null} reply @param {string} [message] */
+  function onRecalc(reply, message) {
+    setRecalcBusy(false)
+    if (reply) return setRecalcPasses(reply.passes ?? [])
+    // Refused (e.g. Exit above Enter): show why, the graph goes back.
+    setRecalc(null)
+    setRecalcPasses(null)
+    setRecalcError(message ?? '')
+  }
+
+  /** The differences of "Neu rechnen" into the draft, as if made by hand:
+   * found passes are added (a deleted one at that spot is restored
+   * instead), detected passes that were not found again are deleted.
+   * Passes set by hand stay. */
+  function adopt() {
+    if (!diff) return
+    setDraft((d) => {
+      const next = { ...d, adds: [...d.adds], deletes: [...d.deletes], restores: [...d.restores] }
+      diff.added.forEach((t, i) => {
+        const gone = markers.find((m) => m.kind === 'deleted' && m.id != null && Math.abs(m.t - t) < SAME_PASS_US)
+        if (gone?.id == null) next.adds.push({ key: `a${Date.now()}-${i}`, t })
+        else if (next.deletes.includes(gone.id)) next.deletes = next.deletes.filter((x) => x !== gone.id)
+        else next.restores.push(gone.id)
+      })
+      for (const m of diff.missing) {
+        if (m.detected == null) continue // set by hand: the race director knew why
+        const id = /** @type {number} */ (m.id)
+        if (next.restores.includes(id)) next.restores = next.restores.filter((x) => x !== id)
+        else next.deletes.push(id)
+      }
+      return next
+    })
+  }
 
   /** Moves a pass (stored or added) to `t`. @param {string} key @param {number} t */
   function move(key, t) {
@@ -221,6 +335,7 @@ export default function PassEditor({ detail, onSaved, onUnsaved }) {
               onClick={() => {
                 setChannel(seat.channel)
                 setSel(null)
+                resetRecalc()
               }}
             >
               <span className="opt-main" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -249,6 +364,30 @@ export default function PassEditor({ detail, onSaved, onUnsaved }) {
         onMove={move}
         onTapEmpty={add}
         cutUs={confirmTrim ? cutUs : null}
+        recalc={recalc ? recalcQuery(recalc) : null}
+        onRecalc={onRecalc}
+        preview={recalc && recalcPasses ? recalcPasses : []}
+        waiting={recalcBusy}
+      />
+
+      <RecalcPanel
+        key={channel}
+        session={sessionParams(s, channel)}
+        applied={recalc}
+        busy={recalcBusy}
+        error={recalcError}
+        diff={diff}
+        retracted={recalcPasses?.filter((p) => p.retracted).length ?? 0}
+        onApply={(p) => {
+          setRecalcError('')
+          // The same settings again: the graph already shows them (and would
+          // not ask the server again, so nothing would end the waiting).
+          if (recalc && recalcQuery(recalc) === recalcQuery(p)) return
+          setRecalcBusy(true)
+          setRecalc(p)
+        }}
+        onReset={resetRecalc}
+        onAdopt={adopt}
       />
 
       {selected && (
@@ -305,7 +444,8 @@ export default function PassEditor({ detail, onSaved, onUnsaved }) {
 
       <p className="muted small" style={{ margin: 0 }}>
         Ziehen verschiebt einen Durchflug (oder den Ausschnitt), Tippen wählt ihn aus, Tippen auf eine freie Stelle fügt einen
-        am nächsten Gipfel ein. Grün: erkannt, blau: von Hand oder verschoben, grau gestrichelt: gelöscht, gelb gepunktet: Freigabe-Gate.
+        am nächsten Gipfel ein. Grün: erkannt, blau: von Hand oder verschoben, grau gestrichelt: gelöscht, gelb gepunktet: Freigabe-Gate,
+        violette Raute unten: neu gerechnet (Vorschau).
       </p>
       {tooShort > 0 && (
         <p className="muted small" style={{ margin: 0 }}>
@@ -358,6 +498,119 @@ export default function PassEditor({ detail, onSaved, onUnsaved }) {
 }
 
 /**
+ * "Neu rechnen": evaluate the channel again with other settings, to look
+ * at. Closed until asked for; the form starts with the session's settings.
+ * @param {object} props
+ * @param {RecalcParams} props.session   what the session used
+ * @param {RecalcParams | null} props.applied   what the graph shows now (null: the session's)
+ * @param {boolean} props.busy
+ * @param {string} props.error
+ * @param {ReturnType<typeof compare> | null} props.diff
+ * @param {number} props.retracted   passes the detector took back in this run
+ * @param {(p: RecalcParams) => void} props.onApply
+ * @param {() => void} props.onReset
+ * @param {() => void} props.onAdopt
+ */
+function RecalcPanel({ session, applied, busy, error, diff, retracted, onApply, onReset, onAdopt }) {
+  const [open, setOpen] = useState(false)
+  const [form, setForm] = useState(session)
+  /** @param {Partial<RecalcParams>} part */
+  const set = (part) => setForm((f) => ({ ...f, ...part }))
+  const manual = modeInfo(form.mode).manual
+  const badFixed = manual && form.exit_db >= form.enter_db
+  // Only detected passes are deleted by "Übernehmen" (see `adopt`).
+  const removable = diff ? diff.missing.filter((m) => m.detected != null).length : 0
+  if (!open)
+    return (
+      <div className="recalc-closed">
+        <button className="chip-btn" onClick={() => setOpen(true)}>
+          <ArrowsClockwiseIcon size={16} /> Neu rechnen …
+        </button>
+        <span className="muted small">Diesen Kanal mit anderem Modus oder Mindestausschlag neu auswerten. Ändert nichts Gespeichertes.</span>
+      </div>
+    )
+  return (
+    <div className="recalc">
+      <div className="recalc-head">
+        <ArrowsClockwiseIcon size={16} />
+        <b>Neu rechnen</b>
+        <span className="muted small">Vorschau, ändert nichts Gespeichertes</span>
+        <button
+          className="btn btn-ghost"
+          style={{ marginLeft: 'auto' }}
+          onClick={() => {
+            setOpen(false)
+            if (applied) onReset()
+          }}
+        >
+          Schließen
+        </button>
+      </div>
+      <div className="seg seg-wrap">
+        {DETECT_MODES.map((m) => (
+          <button key={m.id} className={form.mode === m.id ? 'on' : ''} title={m.help} onClick={() => set({ mode: m.id })}>
+            {m.label}
+          </button>
+        ))}
+      </div>
+      <span className="muted small">{modeInfo(form.mode).help}</span>
+      <div className="recalc-fields">
+        {manual ? (
+          <>
+            <Stepper label="Enter" value={form.enter_db} unit="dB" step={0.5} min={-60} max={0} onSet={(v) => set({ enter_db: v })} />
+            <Stepper label="Exit" value={form.exit_db} unit="dB" step={0.5} min={-60} max={0} onSet={(v) => set({ exit_db: v })} />
+          </>
+        ) : (
+          <Stepper label="Mindestausschlag" value={form.min_rise_db} unit="dB" step={1} min={3} max={30} onSet={(v) => set({ min_rise_db: v })} />
+        )}
+        <Stepper label="Mindestrunde" value={form.min_lap_s} unit="s" step={0.5} min={0.5} max={60} onSet={(v) => set({ min_lap_s: v })} />
+      </div>
+      {badFixed && <span className="error small">Exit muss unter Enter liegen.</span>}
+      <div className="recalc-buttons">
+        <button className="btn btn-primary" disabled={busy || badFixed} onClick={() => onApply(form)}>
+          <ArrowsClockwiseIcon size={16} /> {busy ? 'Rechne …' : 'Neu rechnen'}
+        </button>
+        <button
+          className="btn btn-secondary"
+          disabled={busy || (!applied && JSON.stringify(form) === JSON.stringify(session))}
+          onClick={() => {
+            setForm(session)
+            onReset()
+          }}
+        >
+          Zurück zu den Session-Einstellungen
+        </button>
+      </div>
+      {busy && <span className="small">Rechne neu … die Pegel-Datei läuft noch einmal durch die Erkennung (auf dem Pi einige Sekunden).</span>}
+      {error && <span className="error small">{error}</span>}
+      <span className="muted small">
+        Der Graph zeigt: {applied ? <b className="recalc-word">Neuberechnung</b> : 'Session-Einstellungen'} · {paramsText(applied ?? session)}
+      </span>
+      {applied && diff && !busy && (
+        <div className="recalc-result">
+          <span className="tnum">
+            gespeichert <b>{diff.saved}</b> · neu gerechnet <b className="recalc-word">{diff.found}</b>: +{diff.added.length} / −{diff.missing.length}
+            {retracted > 0 && <span className="muted"> · {retracted} zurückgenommen</span>}
+          </span>
+          <button
+            className="btn btn-secondary"
+            disabled={diff.added.length + removable === 0}
+            title="Neu gefundene einfügen, nicht mehr gefundene erkannte löschen – als Entwurf, gespeichert wird erst mit „Speichern“"
+            onClick={onAdopt}
+          >
+            In den Entwurf übernehmen (+{diff.added.length} / −{removable})
+          </button>
+          <span className="muted small" style={{ flexBasis: '100%' }}>
+            + neu gefunden, − gespeichert, aber nicht wieder gefunden (innerhalb 1 s gilt als derselbe). Von Hand gesetzte bleiben beim Übernehmen. Die
+            Freigabe-Regel und Start/Ziel des Rennens gelten hier nicht: gezeigt wird, was der Detektor am Zielgate meldet.
+          </span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
  * The graph: overview strip, then the zoomable detail with the passes.
  * @param {object} props
  * @param {number} props.sessionId
@@ -371,8 +624,12 @@ export default function PassEditor({ detail, onSaved, onUnsaved }) {
  * @param {(key: string, t: number) => void} props.onMove
  * @param {(t: number) => void} props.onTapEmpty
  * @param {number | null} props.cutUs   where trimming would cut (shown while asking)
+ * @param {string | null} props.recalc   "Neu rechnen": the query with the changed settings (null: the session's)
+ * @param {(reply: GraphReply | null, message?: string) => void} props.onRecalc   its result arrived, or the server's refusal
+ * @param {RecalcPass[]} props.preview   the passes of "Neu rechnen", shown as preview markers
+ * @param {boolean} props.waiting   the server is recomputing
  */
-function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected, onSelect, onMove, onTapEmpty, cutUs }) {
+function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected, onSelect, onMove, onTapEmpty, cutUs, recalc, onRecalc, preview, waiting }) {
   const box = useRef(/** @type {HTMLDivElement | null} */ (null))
   const width = useWidth(box)
   const [overview, setOverview] = useState(/** @type {GraphReply | null} */ (null))
@@ -388,18 +645,34 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
   /** What a pointer press is doing: moving a pass, or the visible range. */
   const drag = useRef(/** @type {{x: number, moved: boolean, key: string | null, from: number, to: number} | null} */ (null))
 
+  // The session's graph, or the channel recomputed with other settings
+  // (same reply, plus the passes found).
+  const source = recalc ? `/sessions/${sessionId}/recompute?channel=${channel}&${recalc}` : `/sessions/${sessionId}/graph?channel=${channel}`
+
   useEffect(() => {
-    api(`/sessions/${sessionId}/graph?channel=${channel}&points=${Math.round(width)}`)
+    // `stale`: a newer request was sent meanwhile, drop this answer.
+    let stale = false
+    api(`${source}&points=${Math.round(width)}`)
       .then((/** @type {GraphReply} */ r) => {
+        if (stale) return
         setOverview(r)
         if (r.start_us != null && r.end_us != null) {
           const [s, e] = [r.start_us, r.end_us]
           setRange((old) => old ?? [s, Math.min(e, s + 40e6)])
         }
+        if (recalc) onRecalc(r)
       })
-      .catch((e) => setError(e.message))
+      .catch((e) => {
+        if (stale) return
+        // A refused recomputation goes back to the session's graph.
+        if (recalc) onRecalc(null, e.message)
+        else setError(e.message)
+      })
+    return () => {
+      stale = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId, channel, Math.round(width / 100)])
+  }, [source, Math.round(width / 100)])
 
   useEffect(() => {
     setHasArming(false)
@@ -421,15 +694,20 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
 
   useEffect(() => {
     if (!range) return
+    let stale = false
     const id = setTimeout(() => {
       // The server takes whole µs: computed ranges have fractions.
       const [a, b] = range.map(Math.round)
-      api(`/sessions/${sessionId}/graph?channel=${channel}&from_us=${a}&to_us=${b}&points=${Math.round(width)}`)
-        .then((/** @type {GraphReply} */ r) => setDetail(r.graph))
-        .catch((e) => setError(e.message))
+      api(`${source}&from_us=${a}&to_us=${b}&points=${Math.round(width)}`)
+        .then((/** @type {GraphReply} */ r) => !stale && setDetail(r.graph))
+        // (A refused recomputation is reported by the overview's request.)
+        .catch((e) => !stale && !recalc && setError(e.message))
     }, 60) // while dragging, ask once the range rests
-    return () => clearTimeout(id)
-  }, [sessionId, channel, range, width])
+    return () => {
+      stale = true
+      clearTimeout(id)
+    }
+  }, [source, range, width, recalc])
 
   // Asking whether to trim: bring the cut into view (at 70 % of the width).
   useEffect(() => {
@@ -491,6 +769,17 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
     return ((e.clientX - r.left) / r.width) * width
   }
   const visible = markers.filter((m) => m.t >= from - span * 0.02 && m.t <= to + span * 0.02)
+  // Mode auto_relative, one board alone: the thresholds belong to the
+  // combined line of the shifted boards; minus the board's shift they fit
+  // its own level (no line where the board did not count).
+  const shifts = single >= 0 ? detail?.board_shift?.[single] : undefined
+  /** @param {(number | null)[]} vs */
+  const own = (vs) => (shifts ? vs.map((v, i) => (v == null || shifts[i] == null ? null : v - /** @type {number} */ (shifts[i]))) : vs)
+  // "Neu rechnen": found passes without a counting saved one within 1 s are new.
+  const counting = markers.filter((m) => m.kind !== 'deleted')
+  const previews = preview
+    .filter((p) => p.time_us >= from && p.time_us <= to)
+    .map((p) => ({ ...p, isNew: !p.retracted && !counting.some((m) => Math.abs(m.t - p.time_us) < SAME_PASS_US) }))
 
   /** @param {React.PointerEvent<SVGSVGElement>} e */
   function down(e) {
@@ -534,7 +823,8 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
 
   return (
     <div className="graph" ref={box}>
-      <Overview reply={overview} width={width} range={range} markers={markers} cutUs={cutUs} onPick={(t) => setRange(clamp(t - span / 2, t + span / 2))} />
+      {waiting && <div className="graph-wait">Rechne neu …</div>}
+      <Overview reply={overview} width={width} range={range} markers={markers} preview={preview} cutUs={cutUs} onPick={(t) => setRange(clamp(t - span / 2, t + span / 2))} />
       <svg width="100%" viewBox={`0 0 ${width} ${HEIGHT}`} className="detail" onPointerDown={down} onPointerMove={move} onPointerUp={up}>
         {[-60, -50, -40, -30, -20, -10, 0]
           .filter((d) => d < maxDb)
@@ -557,8 +847,8 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
               detail.boards.map((b, i) => (
                 <path key={i} d={line(detail.time_us, b, x, y)} className="board" />
               ))}
-            <path d={line(detail.time_us, detail.enter, x, y)} className="threshold" />
-            <path d={line(detail.time_us, detail.exit, x, y)} className="threshold exit" />
+            <path d={line(detail.time_us, own(detail.enter), x, y)} className="threshold" />
+            <path d={line(detail.time_us, own(detail.exit), x, y)} className="threshold exit" />
             <path d={line(detail.time_us, single < 0 ? detail.level : detail.boards[single], x, y)} className="combined" />
           </>
         )}
@@ -579,6 +869,17 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
           .map((t) => (
             <line key={'arm' + t} x1={x(t)} x2={x(t)} y1={PAD_TOP} y2={plotH} className="arming-tick" />
           ))}
+        {previews.map((p) => (
+          // Below the saved markers (drawn after): where both agree, only the
+          // diamond at the bottom shows; a new one has its own dashed line.
+          <g key={'re' + p.time_us} className={'recalc-mark' + (p.retracted ? ' retracted' : p.isNew ? ' new' : '')}>
+            <line x1={x(p.time_us)} x2={x(p.time_us)} y1={PAD_TOP - 8} y2={plotH - 14} />
+            <path d={`M${x(p.time_us)},${plotH - 15}l6,6l-6,6l-6,-6z`} />
+            <title>
+              Neu gerechnet: {secs(p.time_us - t0)} s, Gipfel {p.peak_db.toFixed(1)} dBFS{p.retracted ? ' (vom Detektor zurückgenommen)' : p.isNew ? ' (neu)' : ''}
+            </title>
+          </g>
+        ))}
         {visible.map((m) => {
           const lap = lapEnds.get(m.key)
           return (
@@ -622,6 +923,11 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
         <span className="muted small tnum">
           {secs(from - t0)}–{secs(to - t0)} s
         </span>
+        {detail?.board_shift?.length ? (
+          <span className="muted small" title="Modus „Automatisch (experimentell)“: Gesamt zeigt die Boards auf den Streckenpegel des lautesten angehoben. Bei einem einzelnen Board sind die Schwellen um dessen Verschiebung zurückgerechnet, passend zu seinem Pegel.">
+            {single < 0 ? 'Gesamt: Boards auf einen Streckenpegel verschoben' : 'Schwellen für dieses Board umgerechnet'}
+          </span>
+        ) : null}
         {names.length > 1 && (
           <div className="seg" style={{ marginLeft: 'auto' }} title="Pegel aller Boards des Gates (Gesamt) oder eines einzelnen">
             {[null, ...names].map((n) => (
@@ -638,9 +944,9 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
 
 /**
  * The whole session as a strip; the visible range marked. Tap to go there.
- * @param {{reply: GraphReply, width: number, range: [number, number], markers: Marker[], cutUs: number | null, onPick: (t: number) => void}} props
+ * @param {{reply: GraphReply, width: number, range: [number, number], markers: Marker[], preview: RecalcPass[], cutUs: number | null, onPick: (t: number) => void}} props
  */
-function Overview({ reply, width, range, markers, cutUs, onPick }) {
+function Overview({ reply, width, range, markers, preview, cutUs, onPick }) {
   const g = reply.graph
   if (!g || reply.start_us == null || reply.end_us == null) return null
   const [s, e] = [reply.start_us, reply.end_us]
@@ -664,7 +970,13 @@ function Overview({ reply, width, range, markers, cutUs, onPick }) {
       {markers
         .filter((m) => m.kind !== 'deleted')
         .map((m) => (
-          <line key={m.key} x1={x(m.t)} x2={x(m.t)} y1={0} y2={OVERVIEW_HEIGHT} className="pass-tick" />
+          <line key={m.key} x1={x(m.t)} x2={x(m.t)} y1={0} y2={preview.length ? OVERVIEW_HEIGHT / 2 : OVERVIEW_HEIGHT} className="pass-tick" />
+        ))}
+      {/* "Neu rechnen": saved passes in the upper half, found ones in the lower. */}
+      {preview
+        .filter((p) => !p.retracted)
+        .map((p) => (
+          <line key={'re' + p.time_us} x1={x(p.time_us)} x2={x(p.time_us)} y1={OVERVIEW_HEIGHT / 2} y2={OVERVIEW_HEIGHT} className="recalc-tick" />
         ))}
       {cutUs != null && cutUs < e && (
         <g className="cut">

@@ -30,6 +30,29 @@
 //!    31.0 s, thresholds at 33.2 s). So until then each channel keeps its last
 //!    10 s, and when its first thresholds come, goes through them once: a pass
 //!    found there is reported late, with its real time.
+//!
+//! **Experimental mode `AutoRelative`** ("Automatisch (experimentell)"): step
+//! 3 differs, everything else is the same. A board that hears the whole
+//! course loudly has a high course level and humps that rise little above it;
+//! with the plain maximum it sets the course for the gate, and the clean
+//! humps of a quieter board stay below the threshold (session 57,
+//! 2026-11-13). So each board is measured against its own course level:
+//! - per board and channel the course is learned as in step 4 (median of the
+//!   last 3 minutes above -46 dBFS, after 5 s of them);
+//! - the board with the highest course is the reference; every other board
+//!   is shifted up by (reference course - its own course), so that all
+//!   course levels lie on top of each other;
+//! - the maximum of these shifted envelopes goes on to steps 4-8, unchanged.
+//!
+//! So the level, the thresholds and the pass peaks of such a channel stay in
+//! dBFS, "as the reference board would have seen it": rise above the own
+//! course + the reference board's course. One board alone gives exactly the
+//! plain automatic mode. Boards that have not learned their course yet, or
+//! that are below -46 dBFS right now (transmitter off for them), are left
+//! out; while no board has a course, the plain maximum is used (nothing is
+//! detected then anyway, and step 8 can look back through it). For the graph
+//! of one board alone, `TracePoint::shifts` / `Detector::board_shifts` say
+//! how far it was shifted: its thresholds are the channel's minus that.
 
 use std::collections::VecDeque;
 
@@ -87,6 +110,30 @@ pub enum DetectMode {
     Auto,
     /// Fixed per channel, as RotorHazard's EnterAt/ExitAt.
     Classic,
+    /// Learned as `Auto`, but each board measured against its own course
+    /// level (experimental, see the head of this file).
+    AutoRelative,
+}
+
+impl DetectMode {
+    /// Every mode, for lists and error texts. A new mode: here, in
+    /// `Detector::set_detection` (what the detector does with it) and in
+    /// `frontend/src/model.js::DETECT_MODES` (its name on the page).
+    pub const ALL: [DetectMode; 3] = [DetectMode::Auto, DetectMode::AutoRelative, DetectMode::Classic];
+
+    /// The name in the JSON and in query parameters ("auto_relative").
+    pub fn name(self) -> &'static str {
+        match self {
+            DetectMode::Auto => "auto",
+            DetectMode::Classic => "classic",
+            DetectMode::AutoRelative => "auto_relative",
+        }
+    }
+
+    /// From its name; None for anything else.
+    pub fn from_name(name: &str) -> Option<DetectMode> {
+        DetectMode::ALL.into_iter().find(|m| m.name() == name)
+    }
 }
 
 /// One channel's detection: its mode (None: the gate's), its fixed
@@ -111,6 +158,18 @@ impl Default for Thresholds {
             min_rise_db: None,
         }
     }
+}
+
+/// One channel's settings, resolved (`DetectionSettings::channel`): what the
+/// detector uses for it. Also what "compute again" in the editor changes.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct ChannelParams {
+    pub mode: DetectMode,
+    /// Fixed thresholds, dBFS (only used in classic mode).
+    pub enter_db: f32,
+    pub exit_db: f32,
+    /// Minimum swing, dB (only used in the automatic modes).
+    pub min_rise_db: f32,
 }
 
 /// The detection settings of the finish and the arming gate: per gate a
@@ -151,20 +210,58 @@ impl Default for DetectionSettings {
 }
 
 impl DetectionSettings {
-    /// For `Detector::set_fixed`: per channel, (enter, exit) if the channel
-    /// is in classic mode (its own mode, else the gate's), None if automatic.
-    pub fn fixed(&self, arming: bool, n_channels: usize) -> Vec<Option<(f32, f32)>> {
+    /// Per channel its mode: its own, else the gate's.
+    pub fn modes(&self, arming: bool, n_channels: usize) -> Vec<DetectMode> {
         let (gate_mode, list) = if arming {
             (self.arming_mode, &self.arming)
         } else {
             (self.finish_mode, &self.finish)
         };
         (0..n_channels)
-            .map(|c| {
+            .map(|c| list.get(c).and_then(|t| t.mode).unwrap_or(gate_mode))
+            .collect()
+    }
+
+    /// For `Detector::set_fixed`: per channel, (enter, exit) if the channel
+    /// is in classic mode (its own mode, else the gate's), None if automatic.
+    pub fn fixed(&self, arming: bool, n_channels: usize) -> Vec<Option<(f32, f32)>> {
+        let list = if arming { &self.arming } else { &self.finish };
+        self.modes(arming, n_channels)
+            .into_iter()
+            .enumerate()
+            .map(|(c, mode)| {
                 let t = list.get(c).copied().unwrap_or_default();
-                (t.mode.unwrap_or(gate_mode) == DetectMode::Classic).then_some((t.enter_db, t.exit_db))
+                (mode == DetectMode::Classic).then_some((t.enter_db, t.exit_db))
             })
             .collect()
+    }
+
+    /// One channel's settings with nothing left open: its mode and minimum
+    /// swing (its own, else the gate's / the common one), its thresholds.
+    pub fn channel(&self, arming: bool, c: usize) -> ChannelParams {
+        let list = if arming { &self.arming } else { &self.finish };
+        let t = list.get(c).copied().unwrap_or_default();
+        ChannelParams {
+            mode: t.mode.unwrap_or(if arming { self.arming_mode } else { self.finish_mode }),
+            enter_db: t.enter_db,
+            exit_db: t.exit_db,
+            min_rise_db: t.min_rise_db.unwrap_or(self.min_rise_db),
+        }
+    }
+
+    /// Gives one channel exactly these settings (as its own; the other
+    /// channels and the gate's mode stay).
+    pub fn set_channel(&mut self, arming: bool, c: usize, p: ChannelParams) {
+        let list = if arming { &mut self.arming } else { &mut self.finish };
+        while list.len() <= c {
+            list.push(Thresholds::default());
+        }
+        list[c] = Thresholds {
+            enter_db: p.enter_db,
+            exit_db: p.exit_db,
+            mode: Some(p.mode),
+            min_rise_db: Some(p.min_rise_db),
+        };
     }
 
     /// For `Detector::set_min_rise`: per channel, its own minimum swing or
@@ -217,7 +314,8 @@ pub enum Event {
 /// What the display shows per channel.
 #[derive(Debug, Clone, Copy, Default, serde::Serialize)]
 pub struct ChannelStatus {
-    /// Latest combined envelope, dBFS.
+    /// Latest combined envelope, dBFS (`AutoRelative`: of the shifted
+    /// boards, see the head of this file; the thresholds fit it).
     pub level_db: Option<f32>,
     /// None while warming up.
     pub enter_db: Option<f32>,
@@ -253,7 +351,15 @@ pub struct TracePoint {
     pub boards: [u8; TRACE_BOARDS],
     pub enter: u8,
     pub exit: u8,
+    /// `AutoRelative`: how far each board was shifted up (codes, 0.25 dB)
+    /// before the maximum; `SHIFT_NONE`: the board was left out (no course
+    /// learned yet). Other modes: 0. A board's own thresholds are `enter`
+    /// and `exit` minus its shift.
+    pub shifts: [u8; TRACE_BOARDS],
 }
+
+/// `TracePoint::shifts`: this board did not count in this slot.
+pub const SHIFT_NONE: u8 = 255;
 
 struct BoardState {
     latest_us: i64,
@@ -271,6 +377,18 @@ struct BoardChannel {
     recent_env: VecDeque<u8>,
     /// The latest envelope (for showing each board's level).
     last: Option<u8>,
+    /// The latest slot gave an envelope (`last` is from this slot).
+    fresh: bool,
+    /// This board's own levels of the last 3 minutes, for its course
+    /// (`AutoRelative`). Always kept, so that switching a channel to that
+    /// mode during a session works at once. `Option` only because
+    /// `Default` can't make a `LevelStats`; filled on the first level.
+    stats: Option<LevelStats>,
+    /// This board's course (code), once learned; refreshed every second.
+    course: Option<u8>,
+    /// `AutoRelative`: the shift used in the latest slot (codes); None:
+    /// left out.
+    shift: Option<u8>,
 }
 
 impl Detector {
@@ -313,6 +431,35 @@ impl Detector {
     pub fn set_detection(&mut self, d: &DetectionSettings, arming: bool) {
         self.set_fixed(&d.fixed(arming, self.n_channels));
         self.set_min_rise(&d.min_rise(arming, self.n_channels));
+        let relative: Vec<bool> = d
+            .modes(arming, self.n_channels)
+            .into_iter()
+            .map(|m| m == DetectMode::AutoRelative)
+            .collect();
+        self.set_relative(&relative);
+    }
+
+    /// Per channel: measure each board against its own course level
+    /// (`DetectMode::AutoRelative`). No entry: no.
+    pub fn set_relative(&mut self, relative: &[bool]) {
+        for (c, ch) in self.channels.iter_mut().enumerate() {
+            ch.relative = relative.get(c).copied().unwrap_or(false);
+        }
+    }
+
+    /// `AutoRelative`: how far each board is shifted up on this channel
+    /// right now, dB, by board index. None: not in that mode, or the board
+    /// does not count (no data here, no course learned yet). A board's own
+    /// thresholds are the channel's (`status`) minus this.
+    pub fn board_shifts(&self, channel: usize) -> Vec<Option<f32>> {
+        let relative = self.channels.get(channel).is_some_and(|c| c.relative);
+        self.boards
+            .iter()
+            .map(|b| {
+                let shift = b.channels.get(channel).and_then(|c| c.shift)?;
+                relative.then_some(shift as f32 / 4.0)
+            })
+            .collect()
     }
 
     /// One board's current level: the highest envelope of its channels, dBFS.
@@ -414,17 +561,28 @@ impl Detector {
         let mut events = Vec::new();
         let Some(mut slot) = self.next_slot else { return events };
         while (slot + 1) * SLOT_US <= until_us {
+            // Each board's course: refreshed once a second, as the thresholds.
+            let refresh = slot % 100 == 0;
             for c in 0..self.n_channels {
                 // The combined envelope: the highest of the boards'.
                 let mut combined: Option<u8> = None;
                 let mut per_board = [0u8; TRACE_BOARDS];
                 for (i, b) in self.boards.iter_mut().enumerate() {
-                    if let Some(e) = b.channels[c].finish_slot(slot) {
+                    let bc = &mut b.channels[c];
+                    let e = bc.finish_slot(slot);
+                    if refresh {
+                        bc.course = bc.stats.as_ref().and_then(|s| s.course());
+                    }
+                    if let Some(e) = e {
                         combined = Some(combined.map_or(e, |x| x.max(e)));
                         if i < TRACE_BOARDS {
                             per_board[i] = e;
                         }
                     }
+                }
+                let mut shifts = [0u8; TRACE_BOARDS];
+                if self.channels[c].relative {
+                    combined = relative_level(&mut self.boards, c, combined, &mut shifts);
                 }
                 let time_us = slot * SLOT_US - ENVELOPE_DELAY_US;
                 self.channels[c].step(time_us, combined, &self.config, &mut events);
@@ -437,6 +595,7 @@ impl Detector {
                         boards: per_board,
                         enter: code(ch.enter),
                         exit: code(ch.exit),
+                        shifts,
                     });
                 }
             }
@@ -447,9 +606,54 @@ impl Detector {
     }
 }
 
+/// `AutoRelative`, one slot of channel `c`: the boards' envelopes of this
+/// slot (`BoardChannel::last`), each shifted so that its course lies on the
+/// highest course of the boards (the reference), and of those the maximum.
+/// `plain` is the plain maximum, returned while that can't be done.
+/// Notes each board's shift in `shifts` (for the trace) and in the board.
+fn relative_level(boards: &mut [BoardState], c: usize, plain: Option<u8>, shifts: &mut [u8; TRACE_BOARDS]) -> Option<u8> {
+    let on = db_code(ON_DB);
+    // The reference: the highest course among the boards that know theirs.
+    let reference = boards.iter().filter_map(|b| b.channels[c].course).max();
+    let mut level: Option<u8> = None;
+    for (i, b) in boards.iter_mut().enumerate() {
+        let bc = &mut b.channels[c];
+        // `zip`: Some only if both are (a board without a course is left out).
+        bc.shift = reference.zip(bc.course).map(|(r, own)| r - own);
+        if i < TRACE_BOARDS {
+            shifts[i] = bc.shift.unwrap_or(SHIFT_NONE);
+        }
+        // Only boards that hear the transmitter right now: a quiet board's
+        // noise, shifted up, would look like "transmitter on" to the
+        // channel's statistics and pull its course down.
+        if let (Some(shift), Some(e)) = (bc.shift, bc.last)
+            && bc.fresh
+            && e >= on
+        {
+            let shifted = e.saturating_add(shift);
+            level = Some(level.map_or(shifted, |x| x.max(shifted)));
+        }
+    }
+    // No board counts (none has a course yet, or the transmitter is off):
+    // the plain maximum. Below -46 dBFS it is ignored by the statistics; in
+    // the first seconds it is what the plain automatic mode would see.
+    level.or(plain)
+}
+
 impl BoardChannel {
     /// The envelope after `slot`, or None while there is too little data.
+    /// Also feeds the board's own statistics.
     fn finish_slot(&mut self, slot: i64) -> Option<u8> {
+        let e = self.envelope(slot);
+        self.fresh = e.is_some();
+        if let Some(e) = e {
+            // `get_or_insert_with`: makes the statistics on the first level.
+            self.stats.get_or_insert_with(LevelStats::new).add(e);
+        }
+        e
+    }
+
+    fn envelope(&mut self, slot: i64) -> Option<u8> {
         // Drop anything older (can only happen if a board's clock jumped).
         while self.pending.front().is_some_and(|(s, _)| *s < slot) {
             self.pending.pop_front();
@@ -504,6 +708,9 @@ struct ChannelDetector {
     /// The last slots (time, level) until the first learned thresholds, to
     /// look back through then (step 8); None once that is done.
     lookback: Option<VecDeque<(i64, u8)>>,
+    /// `DetectMode::AutoRelative`: the level this channel gets is the
+    /// maximum of the boards shifted to a common course (`relative_level`).
+    relative: bool,
 }
 
 impl ChannelDetector {
@@ -523,6 +730,7 @@ impl ChannelDetector {
             started: false,
             fixed: None,
             lookback: Some(VecDeque::new()),
+            relative: false,
         }
     }
 
@@ -739,6 +947,16 @@ impl LevelStats {
         let course = self.percentile(on_from, 0.5)?;
         let high = self.percentile(on_from, 0.995)?;
         Some((course as f32, high as f32))
+    }
+
+    /// Only the course (one board's, `AutoRelative`), as a code.
+    fn course(&self) -> Option<u8> {
+        let on_from = db_code(ON_DB) as usize;
+        let on: u32 = self.counts[on_from..].iter().sum();
+        if on < WARMUP_SLOTS {
+            return None;
+        }
+        self.percentile(on_from, 0.5).map(|c| c as u8)
     }
 
     /// The code below which `fraction` of the levels from code `from` up lie.
@@ -980,6 +1198,157 @@ mod tests {
         d.finish[0].min_rise_db = Some(8.0);
         assert_eq!(d.min_rise(false, 2), vec![8.0, MIN_RISE_DB]);
         assert_eq!(d.min_rise(true, 1), vec![MIN_RISE_DB]);
+    }
+
+    /// Two boards with their own levels: `level_at(board, t)` in dBFS,
+    /// every 2 ms, noise in every 5th capture. Returns the passes left and
+    /// the detector (for its status).
+    fn simulate_boards(relative: bool, seconds: f64, level_at: impl Fn(usize, f64) -> f64) -> (Vec<Pass>, Detector) {
+        let mut det = Detector::new(1, DetectConfig::default());
+        det.set_relative(&[relative]);
+        let mut events = Vec::new();
+        let mut k = 0u64;
+        let mut t = 0.0;
+        while t < seconds {
+            for board in 0..2 {
+                let db = if k % 5 == 0 { -56.0 } else { level_at(board, t) };
+                let host_us = (t * 1e6) as i64;
+                let l = Level {
+                    host_us,
+                    board_us: host_us as u64,
+                    channel: 0,
+                    rssi: db_code(db as f32),
+                    flags: 0,
+                };
+                det.push(board, &[l]);
+            }
+            k += 1;
+            t += 0.002;
+            if k % 5 == 0 {
+                events.extend(det.advance());
+            }
+        }
+        events.extend(det.flush());
+        (final_passes(&events), det)
+    }
+
+    /// A hump of `rise` dB at `at` (s), about half a second wide.
+    fn hump(t: f64, at: f64, rise: f64) -> f64 {
+        rise * (-((t - at) / 0.2).powi(2)).exp()
+    }
+
+    #[test]
+    fn relative_a_loud_board_does_not_hide_a_quiet_one() {
+        // As session 57: board 0 hears the whole course loudly (-35 dBFS)
+        // and rises only 8 dB at the gate, except at 30 and 60 s (19 dB).
+        // Board 1 is quiet (-44 dBFS) with a clean hump of 17 dB every time,
+        // which only reaches -27 dBFS.
+        let passes = [10.0, 20.0, 30.0, 40.0, 50.0, 60.0, 70.0];
+        let level = |board: usize, t: f64| {
+            let mut db: f64 = if board == 0 { -35.0 } else { -44.0 };
+            for p in passes {
+                let strong = p == 30.0 || p == 60.0;
+                db += hump(t, p, if board == 1 { 17.0 } else if strong { 19.0 } else { 8.0 });
+            }
+            db
+        };
+        // The plain maximum: board 0 sets the course, 12 dB above it is
+        // -23 dBFS, and only its two strong passes count.
+        let (plain, _) = simulate_boards(false, 78.0, level);
+        assert_eq!(plain.len(), 2, "{plain:?}");
+        // Each board against its own course: all seven.
+        let (found, det) = simulate_boards(true, 78.0, level);
+        let times: Vec<f64> = found.iter().map(|p| p.time_us as f64 / 1e6).collect();
+        assert_eq!(found.len(), passes.len(), "found {times:?}");
+        for (f, p) in times.iter().zip(passes) {
+            assert!((f - p).abs() < 0.03, "pass at {p} found at {f}");
+        }
+        // Board 0 is the reference (shift 0), board 1 is shifted by the
+        // difference of the courses (9 dB); the peaks are "as board 0":
+        // -44 + 17 + 9 = -18 dBFS.
+        let shifts = det.board_shifts(0);
+        assert_eq!(shifts[0], Some(0.0));
+        assert!((shifts[1].unwrap() - 9.0).abs() <= 0.5, "{shifts:?}");
+        assert!((found[0].peak_db + 18.0).abs() < 1.0, "{found:?}");
+    }
+
+    #[test]
+    fn relative_wiggles_and_flybys_do_not_count() {
+        // Board 0 loud and steady. Board 1 quiet, its course wanders ±2.5 dB
+        // (waves of 4-5 dB, session 1), and every 7 s a flyby lifts it 9 dB
+        // above its course: measured against its own course that is more
+        // than against board 0's, but still below the minimum swing.
+        let flybys = [8.0, 15.0, 22.0, 29.0, 36.0, 43.0, 50.0];
+        let wiggly = |board: usize, t: f64| {
+            if board == 0 {
+                return -35.0;
+            }
+            let mut db = -44.0 + 2.5 * (t * 0.9).sin();
+            for f in flybys {
+                db += hump(t, f, 9.0);
+            }
+            db
+        };
+        let (found, _) = simulate_boards(true, 56.0, wiggly);
+        assert!(found.is_empty(), "{found:?}");
+        // With real passes (20 dB on both boards) in between: only those.
+        let passes = [11.5, 25.5, 39.5, 53.5];
+        let (found, _) = simulate_boards(true, 60.0, |board, t| {
+            let mut db = wiggly(board, t);
+            for p in passes {
+                db += hump(t, p, 20.0);
+            }
+            db
+        });
+        let times: Vec<f64> = found.iter().map(|p| p.time_us as f64 / 1e6).collect();
+        assert_eq!(found.len(), passes.len(), "found {times:?}");
+        for (f, p) in times.iter().zip(passes) {
+            assert!((f - p).abs() < 0.03, "pass at {p} found at {f}");
+        }
+    }
+
+    #[test]
+    fn relative_with_one_board_is_the_plain_mode() {
+        // One board is its own reference (shift 0): nothing changes.
+        let run = |relative: bool| {
+            let mut det = Detector::new(1, DetectConfig::default());
+            det.set_relative(&[relative]);
+            let mut events = Vec::new();
+            for k in 0..30_000u64 {
+                let t = k as f64 * 0.002;
+                let mut db = -38.0 + 3.0 * (t * 0.7).sin();
+                for p in [9.0, 18.0, 27.0, 36.0, 45.0, 54.0] {
+                    db += hump(t, p, 18.0);
+                }
+                let host_us = (t * 1e6) as i64;
+                let l = Level { host_us, board_us: 0, channel: 0, rssi: db_code(db as f32), flags: 0 };
+                det.push(0, &[l]);
+                events.extend(det.advance());
+            }
+            events.extend(det.flush());
+            events
+        };
+        let plain = run(false);
+        assert_eq!(final_passes(&plain).len(), 6);
+        assert_eq!(plain, run(true));
+    }
+
+    #[test]
+    fn modes_in_the_settings() {
+        // The names in the JSON; a channel's own mode wins over the gate's.
+        let d: DetectionSettings = serde_json::from_str(
+            r#"{"finish_mode":"auto_relative","finish":[{"enter_db":-20,"exit_db":-26,"mode":"classic"},{"enter_db":-20,"exit_db":-26}]}"#,
+        )
+        .unwrap();
+        assert_eq!(d.modes(false, 3), vec![DetectMode::Classic, DetectMode::AutoRelative, DetectMode::AutoRelative]);
+        assert_eq!(d.modes(true, 1), vec![DetectMode::Auto]);
+        // Only classic channels have fixed thresholds.
+        assert_eq!(d.fixed(false, 3), vec![Some((-20.0, -26.0)), None, None]);
+        for m in DetectMode::ALL {
+            assert_eq!(serde_json::to_value(m).unwrap(), serde_json::json!(m.name()));
+            assert_eq!(DetectMode::from_name(m.name()), Some(m));
+        }
+        assert_eq!(DetectMode::from_name("x"), None);
     }
 
     #[test]

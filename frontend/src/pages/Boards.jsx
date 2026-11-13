@@ -13,7 +13,7 @@ import BoardTest from '../components/BoardTest.jsx'
 import FirmwarePanel from '../components/FirmwarePanel.jsx'
 import SourcePanel from '../components/SourcePanel.jsx'
 import Tabs from '../components/Tabs.jsx'
-import { channelMode } from '../model.js'
+import { channelMode, modeInfo } from '../model.js'
 
 /** The bar spans this range, dBFS. */
 const BAR_MIN = -64
@@ -259,8 +259,8 @@ function Gate({ icon, title, gate, state, boards, note }) {
       <div className="panel-body" style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {s.channels.map((c, i) => (
-            <span key={i} className="tag" style={channelMode(d, gate, i) === 'classic' ? { background: 'var(--accent-800)' } : undefined}>
-              {c.name} · {channelMode(d, gate, i) === 'classic' ? 'manuell' : 'auto'}
+            <span key={i} className="tag" style={channelMode(d, gate, i) === 'classic' ? { background: 'var(--accent-800)' } : undefined} title={modeInfo(channelMode(d, gate, i)).label}>
+              {c.name} · {modeInfo(channelMode(d, gate, i)).short}
             </span>
           ))}
         </div>
@@ -268,11 +268,17 @@ function Gate({ icon, title, gate, state, boards, note }) {
           <button className="btn btn-secondary" onClick={() => all('auto')}>
             Alle automatisch
           </button>
+          <button className="btn btn-secondary" title={modeInfo('auto_relative').help} onClick={() => all('auto_relative')}>
+            Alle automatisch (experimentell)
+          </button>
           <button className="btn btn-secondary" onClick={() => all('classic')}>
             Alle manuell
           </button>
         </div>
         <span className="muted small">Einzelne Kanäle und ihre Enter/Exit-Schwellen: in der Rennleitung den Slot antippen.</span>
+        <span className="muted small">
+          Automatisch (experimentell): {modeInfo('auto_relative').help.replace('Wie Automatisch, aber j', 'J')} Braucht mindestens zwei Boards am Gate.
+        </span>
         {note && (
           <span className={note.error ? 'error small' : 'small'} style={note.error ? undefined : { color: 'var(--accent-300)' }}>
             {note.text}

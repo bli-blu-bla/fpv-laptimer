@@ -1415,9 +1415,17 @@ impl Core {
             let finish_boards: Vec<Vec<Option<f32>>> = (0..n).map(|c| self.finish.board_levels(c)).collect();
             let arming_boards: Option<Vec<Vec<Option<f32>>>> =
                 self.has_arming().then(|| (0..n).map(|c| self.arming.board_levels(c)).collect());
+            // Mode "auto_relative": per channel, how far each board is shifted
+            // up (dB; null: not in that mode or the board doesn't count). The
+            // channel's level and thresholds are on the shifted scale; one
+            // board's own thresholds are the channel's minus its shift.
+            let finish_shifts: Vec<Vec<Option<f32>>> = (0..n).map(|c| self.finish.board_shifts(c)).collect();
+            let arming_shifts: Option<Vec<Vec<Option<f32>>>> =
+                self.has_arming().then(|| (0..n).map(|c| self.arming.board_shifts(c)).collect());
             let msg = json!({
                 "type": "live", "now_us": now, "channels": channels, "arming": arming, "boards": self.boards,
                 "finish_boards": finish_boards, "arming_boards": arming_boards,
+                "finish_shifts": finish_shifts, "arming_shifts": arming_shifts,
             });
             let _ = self.tx.send(msg.to_string());
         }

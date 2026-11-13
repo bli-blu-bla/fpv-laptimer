@@ -56,8 +56,8 @@ Umstecken und Flashen.
 
 ![Boards einrichten](../assets/screens/boards.png){ .shot }
 
-Beide Gates haben ihre eigene Erkennung: automatisch gelernte Schwellen oder feste Werte, pro
-Kanal einstellbar. Fällt das Freigabe-Board aus, gilt die Regel nicht, und das Ziel zählt
+Beide Gates haben ihre eigene Erkennung: automatisch gelernte Schwellen (auch in der
+experimentellen Variante) oder feste Werte, pro Kanal einstellbar. Fällt das Freigabe-Board aus, gilt die Regel nicht, und das Ziel zählt
 wie ohne Freigabe-Gate.
 
 ## Gut zu wissen

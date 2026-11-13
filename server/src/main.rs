@@ -139,6 +139,17 @@ enum Command {
         /// Minimum swing of a pass above the course level, dB.
         #[arg(long, default_value_t = detect::MIN_RISE_DB)]
         min_rise: f32,
+        /// The boards of this gate (the file's "# roles:"): finish, arming
+        /// or all (every board, whatever its role).
+        #[arg(long, default_value = "finish")]
+        gate: String,
+        /// auto, or auto_relative (experimental: each board measured
+        /// against its own course level).
+        #[arg(long, default_value = "auto")]
+        mode: String,
+        /// Per pass each board's peak and its rise above its own course.
+        #[arg(long)]
+        detail: bool,
     },
 }
 
@@ -224,12 +235,20 @@ fn main() -> Result<()> {
         }),
         Command::Rollback => install::rollback(),
         Command::Uninstall => install::uninstall(),
-        Command::Replay { csv, board, min_lap, min_rise } => {
+        Command::Replay { csv, board, min_lap, min_rise, gate, mode, detail } => {
             let config = detect::DetectConfig {
                 min_lap_us: (min_lap * 1e6) as i64,
                 min_rise_db: min_rise,
             };
-            replay::run(&csv, board, config)
+            let mode = match detect::DetectMode::from_name(&mode) {
+                Some(m) if m != detect::DetectMode::Classic => m,
+                _ => anyhow::bail!("--mode: auto oder auto_relative"),
+            };
+            if !["finish", "arming", "all"].contains(&gate.as_str()) {
+                anyhow::bail!("--gate: finish, arming oder all");
+            }
+            let opts = replay::Options { only_board: board, gate, mode, detail, config };
+            replay::run(&csv, &opts)
         }
     }
 }

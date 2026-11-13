@@ -4,7 +4,8 @@
 
 **Boards → Einrichtung** zeigt alle angesteckten ESP32-C5 mit Live-Pegel, Rolle (Ziel,
 Freigabe, Aus) und Namen. Später eingesteckte Boards findet **Boards neu suchen**. Darunter
-stehen beide Gates mit dem Erkennungsmodus jedes Kanals und „Alle automatisch / Alle manuell“.
+stehen beide Gates mit dem Erkennungsmodus jedes Kanals und „Alle automatisch / Alle automatisch
+(experimentell) / Alle manuell“.
 
 ![Boards einrichten](../assets/screens/boards.png){ .shot }
 
