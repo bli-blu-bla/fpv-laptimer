@@ -1,13 +1,13 @@
 // @ts-check
 // Who flies in a slot, from a tap on the name in its card: a list of the
 // pilots (with many: search and a filter "Alle / Ohne Slot / Heute dabei"), "Kein Pilot" (the slot is free: not in the session),
-// or a guest's name typed in. A tap takes effect at once and closes the
+// a guest under the channel's name, or a guest's name typed in. A tap takes effect at once and closes the
 // dialog; a pilot from another slot swaps with this slot's pilot (presets
 // go with them). A pilot with several presets stays open to choose one;
 // the server gives a pilot with exactly one preset that one.
 
 import { useState } from 'react'
-import { CheckIcon, MagnifyingGlassIcon, ProhibitIcon } from '@phosphor-icons/react'
+import { BroadcastIcon, CheckIcon, MagnifyingGlassIcon, ProhibitIcon } from '@phosphor-icons/react'
 import { saveSettings } from '../api.js'
 import { secs, slotColor } from '../format.js'
 import { presetSummary } from '../model.js'
@@ -42,6 +42,8 @@ export default function PilotDialog({ state, stats, index, onClose }) {
 
   const current = seat.enabled && !seat.label.trim() ? seat.pilot_id : null
   const free = !seat.enabled
+  /** Slot flies, but without a pilot or name: the card shows the channel's name. */
+  const anon = seat.enabled && !seat.pilot_id && !seat.label.trim()
 
   /** @param {import('../types').SeatSetting[]} next @param {boolean} close */
   async function save(next, close) {
@@ -67,6 +69,7 @@ export default function PilotDialog({ state, stats, index, onClose }) {
     save(next, presets.length <= 1)
   }
   const pickNone = () => save(seats.map((x, j) => (j === index ? { ...x, pilot_id: null, preset_id: null, label: '', enabled: false } : x)), true)
+  const pickAnon = () => save(seats.map((x, j) => (j === index ? { ...x, pilot_id: null, preset_id: null, label: '', enabled: true } : x)), true)
   function pickGuest() {
     const name = guest.trim()
     if (!name) return
@@ -131,6 +134,16 @@ export default function PilotDialog({ state, stats, index, onClose }) {
             <span className="hint">Slot frei: zählt nicht für Rangliste und Ansagen</span>
           </span>
           {free && <CheckIcon size={18} className="check" />}
+        </button>
+        <button className={'pick-row' + (anon ? ' on' : '')} onClick={pickAnon}>
+          <span className="avatar-sm none">
+            <BroadcastIcon size={16} />
+          </span>
+          <span className="text">
+            <span className="pick-name">Gast „{ch.name}“</span>
+            <span className="hint">Slot fliegt ohne Namen, angezeigt und angesagt als Kanal</span>
+          </span>
+          {anon && <CheckIcon size={18} className="check" />}
         </button>
 
         <span className="kicker" style={{ padding: '12px 10px 4px' }}>

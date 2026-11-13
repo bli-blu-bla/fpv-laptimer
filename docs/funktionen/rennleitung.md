@@ -27,7 +27,8 @@ Ergebnis verloren, das noch jemand prüfen wollte.
 
 ## Piloten und Kanäle
 
-Name in der Karte antippen: Pilot wählen, aus der Liste oder als Gast ohne Profil. Ein Pilot,
+Name in der Karte antippen: Pilot wählen, aus der Liste oder als Gast ohne Profil, mit eigenem
+Namen oder unter dem Namen des Kanals (z. B. „R6“). „Kein Pilot“ schaltet den Slot ab. Ein Pilot,
 der in einem anderen Slot sitzt, wird getauscht. **Kanal** antippen: Band und Kanal wählen, mit
 Hinweis, wenn Kanäle sich stören (IMD).
 
