@@ -87,7 +87,7 @@ jobs:
 
   macos:
     needs: web
-    runs-on: macos-14 # Apple silicon; builds for Intel too
+    runs-on: macos-15 # Apple silicon; builds for Intel too
     steps:
       - uses: actions/checkout@v7
         with:
