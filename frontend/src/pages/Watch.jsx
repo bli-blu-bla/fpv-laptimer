@@ -6,7 +6,7 @@
 import { useEffect, useState } from 'react'
 import { api, useNow } from '../api.js'
 import { clock, sessionKind } from '../format.js'
-import { slotsOf, standings } from '../model.js'
+import { slotsByMhz, standings } from '../model.js'
 import Lane from '../components/Lane.jsx'
 import Ranking from '../components/Ranking.jsx'
 
@@ -57,7 +57,7 @@ export default function Watch({ server, state }) {
       </div>
 
       <div className="lanes">
-        {slotsOf(state)
+        {slotsByMhz(state)
           .filter((slot) => (s ? s.seats.some((x) => x.channel === slot.index) : slot.enabled))
           .map((slot) => {
             const i = s ? s.seats.findIndex((x) => x.channel === slot.index) : -1

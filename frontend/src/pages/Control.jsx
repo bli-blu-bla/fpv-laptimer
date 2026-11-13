@@ -9,7 +9,7 @@ import { ArrowCounterClockwiseIcon, CheckIcon, FlagCheckeredIcon, GearSixIcon, I
 import { api, useNow } from '../api.js'
 import { showLogin, useAuth } from '../auth.js'
 import { clock, endRule, sessionKind, START_MODES } from '../format.js'
-import { channelMode, slotsOf, standings } from '../model.js'
+import { channelMode, slotsByMhz, slotsOf, standings } from '../model.js'
 import ChannelDialog from '../components/ChannelDialog.jsx'
 import Dialog from '../components/Dialog.jsx'
 import Lane from '../components/Lane.jsx'
@@ -206,7 +206,7 @@ export default function Control({ server, state, stats }) {
       )}
 
       <div className="lanes" style={phase === 'done' ? { display: 'none' } : undefined}>
-        {slotsOf(state).map((slot) => {
+        {slotsByMhz(state).map((slot) => {
           const i = session ? session.seats.findIndex((x) => x.channel === slot.index) : -1
           const seat = i >= 0 ? session?.seats[i] : undefined
           const off = session ? !seat : !slot.enabled

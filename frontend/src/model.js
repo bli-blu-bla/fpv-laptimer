@@ -35,6 +35,11 @@ export function slotsOf(state) {
   })
 }
 
+/** The slots for the cards: by frequency, low to high (R1 left, R8 right).
+ * Indexes stay, so colours and slot numbers don't change.
+ * @param {import('./types').State} state @returns {Slot[]} */
+export const slotsByMhz = (state) => slotsOf(state).sort((a, b) => a.mhz - b.mhz || a.index - b.index)
+
 /**
  * @typedef {object} Standing
  * @property {number | null} pos     1, 2, …; null before the first lap
