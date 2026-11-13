@@ -96,10 +96,20 @@ pub fn start_replay(path: &Path, origin: Instant, tx: Sender<Event>) -> Result<(
     let mut levels: Vec<(usize, Level)> = Vec::new();
     let mut infos: Vec<String> = Vec::new();
     let mut roles: Vec<BoardRole> = Vec::new();
+    // Board names from the "# board i {json}" lines, by index.
+    let mut board_names: Vec<Option<String>> = Vec::new();
     for line in BufReader::new(File::open(path).with_context(|| format!("opening {}", path.display()))?).lines() {
         let line = line?;
         if let Some(rest) = line.strip_prefix("# board ") {
             infos.push(rest.to_string());
+            if let Some((_, j)) = rest.split_once(' ')
+                && let Ok(b) = serde_json::from_str::<crate::debug::DebugBoard>(j)
+            {
+                if board_names.len() <= b.index {
+                    board_names.resize(b.index + 1, None);
+                }
+                board_names[b.index] = b.name.filter(|n| !n.trim().is_empty());
+            }
             continue;
         }
         if let Some(rest) = line.strip_prefix("# roles:") {
@@ -133,7 +143,9 @@ pub fn start_replay(path: &Path, origin: Instant, tx: Sender<Event>) -> Result<(
             port: format!("Wiedergabe {file}"),
             id: format!("replay-{i}"),
             info: infos.get(i).cloned().unwrap_or_else(|| format!("Board {} der Aufnahme", i + 1)),
-            name: None,
+            // The recorded board's name ("S1"), so that a session played from
+            // it keeps it in its own file.
+            name: board_names.get(i).cloned().flatten(),
             role: roles.get(i).copied(),
         })
         .collect();

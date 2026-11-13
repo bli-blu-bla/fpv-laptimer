@@ -189,6 +189,8 @@
  * @property {ChannelLive[]} channels   the finish gate
  * @property {ChannelLive[] | null} arming   the arming gate, if a board watches it
  * @property {Board[]} boards
+ * @property {(number | null)[][]} [finish_boards]   per channel, each board's level (index as in `boards`)
+ * @property {(number | null)[][] | null} [arming_boards]   the same for the arming gate
  *
  * @typedef {object} FlashStatus   flashing over the server (the `flash` message)
  * @property {string} port

@@ -316,6 +316,15 @@ impl Detector {
     }
 
     /// One board's current level: the highest envelope of its channels, dBFS.
+    /// Each board's latest envelope on one channel, dBFS, by board index
+    /// (None: the board has no data there, e.g. it is on another gate).
+    pub fn board_levels(&self, channel: usize) -> Vec<Option<f32>> {
+        self.boards
+            .iter()
+            .map(|b| b.channels.get(channel).and_then(|c| c.last).map(rssi_dbfs))
+            .collect()
+    }
+
     pub fn board_level(&self, board: usize) -> Option<f32> {
         let b = self.boards.get(board)?;
         b.channels.iter().filter_map(|c| c.last).max().map(rssi_dbfs)

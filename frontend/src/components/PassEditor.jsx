@@ -36,6 +36,7 @@ const TRIM_AFTER_US = 10e6
  * @property {number[]} time_us
  * @property {(number | null)[]} level
  * @property {(number | null)[][]} boards
+ * @property {string[]} board_names   name of each line in `boards` ("S1", or "B2")
  * @property {(number | null)[]} enter
  * @property {(number | null)[]} exit
  * @typedef {{start_us: number | null, end_us: number | null, graph: Graph | null}} GraphReply
@@ -382,6 +383,8 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
   const [hasArming, setHasArming] = useState(false)
   const [showArming, setShowArming] = useState(false)
   const [armDetail, setArmDetail] = useState(/** @type {Graph | null} */ (null))
+  /** Which level to show: null = all (combined, boards faint), or one board by name. */
+  const [board, setBoard] = useState(/** @type {string | null} */ (null))
   /** What a pointer press is doing: moving a pass, or the visible range. */
   const drag = useRef(/** @type {{x: number, moved: boolean, key: string | null, from: number, to: number} | null} */ (null))
 
@@ -468,6 +471,10 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
   /** @param {number} f */
   const pan = (f) => setRange(clamp(from + span * f, to + span * f))
 
+  const names = detail?.board_names ?? []
+  /** Index of the board shown alone, or -1 for all (also if it has no data here). */
+  const single = board == null ? -1 : names.indexOf(board)
+
   const plotW = width - PAD_LEFT
   const plotH = HEIGHT - PAD_BOTTOM
   const levels = /** @type {number[]} */ ([...(detail?.level ?? []), ...(armDetail?.level ?? [])].filter((v) => v != null))
@@ -546,12 +553,13 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
         ))}
         {detail && (
           <>
-            {detail.boards.map((b, i) => (
-              <path key={i} d={line(detail.time_us, b, x, y)} className="board" />
-            ))}
+            {single < 0 &&
+              detail.boards.map((b, i) => (
+                <path key={i} d={line(detail.time_us, b, x, y)} className="board" />
+              ))}
             <path d={line(detail.time_us, detail.enter, x, y)} className="threshold" />
             <path d={line(detail.time_us, detail.exit, x, y)} className="threshold exit" />
-            <path d={line(detail.time_us, detail.level, x, y)} className="combined" />
+            <path d={line(detail.time_us, single < 0 ? detail.level : detail.boards[single], x, y)} className="combined" />
           </>
         )}
         {armDetail && (
@@ -614,6 +622,15 @@ function EditGraph({ sessionId, channel, t0, markers, arming, lapEnds, selected,
         <span className="muted small tnum">
           {secs(from - t0)}–{secs(to - t0)} s
         </span>
+        {names.length > 1 && (
+          <div className="seg" style={{ marginLeft: 'auto' }} title="Pegel aller Boards des Gates (Gesamt) oder eines einzelnen">
+            {[null, ...names].map((n) => (
+              <button key={n ?? ''} style={{ padding: '0 12px', whiteSpace: 'nowrap' }} className={(n === null ? single < 0 : names[single] === n) ? 'on' : ''} onClick={() => setBoard(n)}>
+                {n ?? 'Gesamt'}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

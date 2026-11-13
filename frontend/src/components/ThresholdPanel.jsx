@@ -33,6 +33,8 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
   const s = state.settings
   const d = s.detection
   const [gate, setGate] = useState(/** @type {'finish' | 'arming'} */ ('finish'))
+  /** One board alone (its index in `state.boards`), or null for all combined. */
+  const [board, setBoard] = useState(/** @type {number | null} */ (null))
   const manual = channelMode(d, gate, index) === 'classic'
   const saved = d[gate][index] ?? DEFAULT
   // Shown at once; saved when the taps rest (Stepper `delayed`).
@@ -51,9 +53,15 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
     saveSettings(s, { detection: { ...d, [gate]: list } })
   }
 
-  const points = history[gate]
+  // The boards on this gate, to look at one alone ("S1", or the end of the MAC).
+  const gateBoards = state.boards.map((b, i) => ({ i, b })).filter(({ b }) => b.role === gate && !b.failed)
+  const single = board != null && gateBoards.some(({ i }) => i === board) ? board : null
+  const points = single == null ? history[gate] : history[gate].map((p) => ({ ...p, level: p.boards?.[single] ?? null }))
   const levels = points.map((p) => p.level).filter((v) => v != null)
   const peak = levels.length ? Math.max(.../** @type {number[]} */ (levels)) : null
+  // "Aus Spitze" sets the thresholds of all boards combined: from their peak.
+  const allLevels = history[gate].map((p) => p.level).filter((v) => v != null)
+  const peakAll = allLevels.length ? Math.max(.../** @type {number[]} */ (allLevels)) : null
   const now = points.at(-1)?.level ?? null
   // Lines: the manual thresholds, or what the automatic mode learned.
   const enter = manual ? t.enter_db : (points.at(-1)?.enter ?? null)
@@ -170,7 +178,20 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
       <span className="muted small tnum">
         Jetzt {now != null ? now.toFixed(1) : '–'} · Spitze (30 s) {peak != null ? peak.toFixed(1) : '–'} dBFS
         {manual ? ' · Linien zum Verschieben ziehen' : ''}
+        {single != null ? ' · nur ' + boardLabel(state.boards[single], single) + ' (Linien gelten für alle zusammen)' : ''}
       </span>
+      {gateBoards.length > 1 && (
+        <div className="seg" style={{ alignSelf: 'flex-end' }} title="Pegel aller Boards des Gates (Gesamt) oder eines einzelnen">
+          <button style={{ padding: '0 12px', whiteSpace: 'nowrap' }} className={single == null ? 'on' : ''} onClick={() => setBoard(null)}>
+            Gesamt
+          </button>
+          {gateBoards.map(({ i, b }) => (
+            <button key={b.id} style={{ padding: '0 12px', whiteSpace: 'nowrap' }} className={single === i ? 'on' : ''} onClick={() => setBoard(i)}>
+              {boardLabel(b, i)}
+            </button>
+          ))}
+        </div>
+      )}
 
       {manual ? (
         <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'flex-end' }}>
@@ -178,9 +199,9 @@ export default function ThresholdPanel({ state, index, color, callsign, history,
           <Stepper label="Exit" value={t.exit_db} unit="dB" step={0.5} min={-60} max={0} delayed onSet={(v) => save({ exit_db: v })} />
           <button
             className="btn btn-secondary"
-            disabled={peak == null}
+            disabled={peakAll == null}
             title="Enter 4 dB unter die Spitze der letzten 30 s, Exit 9 dB darunter: einmal durchs Gate fliegen, dann tippen"
-            onClick={() => peak != null && save({ enter_db: Math.round((peak - 4) * 2) / 2, exit_db: Math.round((peak - 9) * 2) / 2 })}
+            onClick={() => peakAll != null && save({ enter_db: Math.round((peakAll - 4) * 2) / 2, exit_db: Math.round((peakAll - 9) * 2) / 2 })}
           >
             <GaugeIcon size={16} /> Aus Spitze
           </button>
@@ -286,3 +307,7 @@ function PresetRow({ state, index }) {
     </div>
   )
 }
+
+/** A board's name ("S1"), or "B<n>" by its number, as in the editor's graph.
+ * @param {import('../types').Board} b @param {number} i */
+const boardLabel = (b, i) => b.name || `B${i + 1}`

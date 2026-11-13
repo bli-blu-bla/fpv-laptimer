@@ -1369,8 +1369,15 @@ impl Core {
             let channels: Vec<ChannelStatus> = (0..self.settings.channels.len())
                 .map(|c| self.finish.status(c))
                 .collect();
-            let msg =
-                json!({ "type": "live", "now_us": now, "channels": channels, "arming": arming, "boards": self.boards });
+            // Per channel, each board's level (index as in `boards`): to look
+            // at one board alone in the detection panel.
+            let finish_boards: Vec<Vec<Option<f32>>> = (0..n).map(|c| self.finish.board_levels(c)).collect();
+            let arming_boards: Option<Vec<Vec<Option<f32>>>> =
+                self.has_arming().then(|| (0..n).map(|c| self.arming.board_levels(c)).collect());
+            let msg = json!({
+                "type": "live", "now_us": now, "channels": channels, "arming": arming, "boards": self.boards,
+                "finish_boards": finish_boards, "arming_boards": arming_boards,
+            });
             let _ = self.tx.send(msg.to_string());
         }
     }

@@ -23,6 +23,8 @@ pub struct SessionTrace {
     channels: Vec<Vec<TracePoint>>,
     /// What the detector reported (passes and retractions), host time.
     events: Vec<Event>,
+    /// Board names by their index in the file (`# board i {json}`), if any.
+    board_names: Vec<Option<String>>,
 }
 
 /// A time range of one channel, ready to draw. Times are wall clock µs,
@@ -31,8 +33,11 @@ pub struct SessionTrace {
 pub struct Graph {
     pub time_us: Vec<i64>,
     pub level: Vec<Option<f32>>,
-    /// Per board.
+    /// Per board (only boards with data).
     pub boards: Vec<Vec<Option<f32>>>,
+    /// The name of each line in `boards`: the board's name ("S1"), or
+    /// "B<n>" (its number in the file) without one.
+    pub board_names: Vec<String>,
     pub enter: Vec<Option<f32>>,
     pub exit: Vec<Option<f32>>,
 }
@@ -58,6 +63,7 @@ pub fn load(
     let mut skip: Vec<usize> = Vec::new();
     let mut has_gate = false; // a board on this gate in "# roles:"
     let mut events: Vec<Event> = Vec::new();
+    let mut board_names: Vec<Option<String>> = Vec::new();
     // One buffer for all lines (`lines()` would allocate one per line).
     let mut reader = BufReader::with_capacity(1 << 16, file);
     let mut line = String::new();
@@ -80,6 +86,16 @@ pub fn load(
                 .filter_map(|(b, _)| b.parse().ok())
                 .collect();
             has_gate = rest.split_whitespace().any(|r| r.split_once('=').is_some_and(|(_, role)| role == gate));
+            continue;
+        }
+        // "# board 0 {json}": the board's id and name (since 2026-10-31).
+        if let Some((_, j)) = line.strip_prefix("# board ").and_then(|r| r.split_once(' '))
+            && let Ok(b) = serde_json::from_str::<crate::debug::DebugBoard>(j)
+        {
+            if board_names.len() <= b.index {
+                board_names.resize(b.index + 1, None);
+            }
+            board_names[b.index] = b.name.filter(|n| !n.trim().is_empty());
             continue;
         }
         if line.starts_with('#') {
@@ -125,7 +141,7 @@ pub fn load(
         }
         None => Vec::new(),
     };
-    Ok(SessionTrace { offset_us, channels, events })
+    Ok(SessionTrace { offset_us, channels, events, board_names })
 }
 
 fn db(code: u8) -> Option<f32> {
@@ -171,6 +187,7 @@ impl SessionTrace {
             time_us: Vec::new(),
             level: Vec::new(),
             boards: vec![Vec::new(); TRACE_BOARDS],
+            board_names: Vec::new(),
             enter: Vec::new(),
             exit: Vec::new(),
         };
@@ -185,8 +202,16 @@ impl SessionTrace {
             g.enter.push(db(top.enter));
             g.exit.push(db(top.exit));
         }
-        // Boards that never had data are left out.
-        g.boards.retain(|b| b.iter().any(|x| x.is_some()));
+        // Boards that never had data are left out; the rest keep their name.
+        // (The trace's board i is board i of the file, see `load`.)
+        let boards = std::mem::take(&mut g.boards);
+        for (i, b) in boards.into_iter().enumerate() {
+            if b.iter().any(|x| x.is_some()) {
+                let name = self.board_names.get(i).cloned().flatten();
+                g.board_names.push(name.unwrap_or_else(|| format!("B{}", i + 1)));
+                g.boards.push(b);
+            }
+        }
         g
     }
 
@@ -312,6 +337,7 @@ mod tests {
             offset_us: 1_000_000,
             channels: vec![pts],
             events: Vec::new(),
+            board_names: Vec::new(),
         }
     }
 

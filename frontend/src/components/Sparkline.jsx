@@ -6,7 +6,7 @@ const MIN_DB = -62
 const MAX_DB = -5
 
 /**
- * @typedef {{level: number | null, enter: number | null, exit: number | null}} SparkPoint
+ * @typedef {{level: number | null, enter: number | null, exit: number | null, boards?: (number | null)[]}} SparkPoint   `boards`: each board's level, by board index
  * @param {{points: SparkPoint[], color: string}} props
  */
 export default function Sparkline({ points, color }) {
