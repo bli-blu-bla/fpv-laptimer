@@ -4,11 +4,12 @@
 // thresholds). The manual thresholds themselves are set on race control,
 // slot by slot, as on RotorHazard.
 
-import { ArrowsClockwiseIcon, BugIcon, CpuIcon, FlagCheckeredIcon, PencilSimpleIcon, ShieldCheckIcon } from '@phosphor-icons/react'
+import { ArrowsClockwiseIcon, BugIcon, CpuIcon, FlagCheckeredIcon, PencilSimpleIcon, ShieldCheckIcon, StethoscopeIcon } from '@phosphor-icons/react'
 import { useState } from 'react'
 import { api, saveSettings } from '../api.js'
 import { useHashPart } from '../route.js'
 import BoardDebug from '../components/BoardDebug.jsx'
+import BoardTest from '../components/BoardTest.jsx'
 import FirmwarePanel from '../components/FirmwarePanel.jsx'
 import SourcePanel from '../components/SourcePanel.jsx'
 import Tabs from '../components/Tabs.jsx'
@@ -31,7 +32,7 @@ export default function Boards({ state, live, flash }) {
   /** @param {string} id @param {import('../types').BoardRole} role */
   const setRole = (id, role) => save({ board_roles: { ...s.board_roles, [id]: role } })
   const count = (/** @type {import('../types').BoardRole} */ role) => boards.filter((b) => b.role === role && !b.failed).length
-  const [tab, setTab] = useHashPart(1, /** @type {const} */ (['setup', 'debug']), 'setup')
+  const [tab, setTab] = useHashPart(1, /** @type {const} */ (['setup', 'debug', 'test']), 'setup')
   const [scanning, setScanning] = useState(false)
   const [scanError, setScanError] = useState('')
 
@@ -51,7 +52,15 @@ export default function Boards({ state, live, flash }) {
   const tabs = /** @type {const} */ ([
     ['setup', 'Einrichtung', CpuIcon],
     ['debug', 'Debug', BugIcon],
+    ['test', 'Sensortest', StethoscopeIcon],
   ])
+  if (tab === 'test')
+    return (
+      <>
+        <Tabs tabs={tabs} value={tab} onChange={setTab} />
+        <BoardTest state={state} />
+      </>
+    )
   if (tab === 'debug')
     return (
       <>

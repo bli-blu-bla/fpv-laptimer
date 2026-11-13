@@ -211,6 +211,7 @@ pub fn run(opts: ServeOptions) -> Result<()> {
         .route("/boards/rescan", post(rescan_boards))
         .route("/source", get(get_source).put(set_source))
         .route("/boards/name", post(name_board))
+        .route("/boards/test", get(get_board_test).post(start_board_test))
         .route("/firmware", get(get_firmware))
         .route("/firmware/flash", post(flash_board))
         .route("/announce/test", post(announce_test))
@@ -885,6 +886,23 @@ struct NameRequest {
 
 /// Saves a name on a board. The board's port is busy while it scans, so all
 /// boards stop for that moment and start again (as with a rescan).
+#[derive(Deserialize)]
+struct BoardTestRequest {
+    kind: crate::boardtest::TestKind,
+    seconds: Option<f64>,
+}
+
+/// Sensor test (`boardtest.rs`): start it; the page then asks GET for the result.
+async fn start_board_test(State(app): State<Arc<App>>, Json(req): Json<BoardTestRequest>) -> ApiResult {
+    let mut core = app.core.lock().unwrap();
+    core.start_board_test(req.kind, req.seconds.unwrap_or(10.0))?;
+    Ok(Json(core.board_test_json()))
+}
+
+async fn get_board_test(State(app): State<Arc<App>>) -> ApiResult {
+    Ok(Json(app.core.lock().unwrap().board_test_json()))
+}
+
 async fn name_board(State(app): State<Arc<App>>, Json(req): Json<NameRequest>) -> ApiResult {
     if app.replaying() {
         return Err(anyhow::anyhow!("Während der Wiedergabe einer Aufnahme gibt es keine Boards.").into());

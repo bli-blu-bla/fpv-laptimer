@@ -281,6 +281,8 @@ pub struct Core {
     /// (`debug.rs`), and the recording in progress.
     pub debug: Analysis,
     pub recording: Option<Recording>,
+    /// The sensor test (Boards → Sensortest), running or the last result.
+    pub board_test: Option<crate::boardtest::BoardTest>,
     /// The recording played instead of the boards (`server.rs`, `/api/source`):
     /// `{source, label, channels}`, in the `state` message.
     pub replay: Option<serde_json::Value>,
@@ -314,6 +316,7 @@ impl Core {
         Core {
             debug: Analysis::new(debug_setup(&settings), Vec::new(), origin_unix_us, Some(debug::LIVE_KEEP_US)),
             recording: None,
+            board_test: None,
             replay: None,
             replay_rewind: None,
             db,
@@ -362,6 +365,8 @@ impl Core {
     /// The boards are (re)started: new board list, fresh detectors.
     pub fn boards_started(&mut self, boards: Vec<BoardView>) {
         self.boards = boards;
+        // Board numbers may have changed: an old test result no longer fits.
+        self.board_test = None;
         self.apply_roles();
         (self.finish, self.arming) = detectors(&self.settings);
         self.rebuild_debug();
@@ -450,6 +455,36 @@ impl Core {
         self.origin
     }
 
+    /// Starts the sensor test: `seconds` of every board's levels.
+    pub fn start_board_test(&mut self, kind: crate::boardtest::TestKind, seconds: f64) -> Result<()> {
+        if self.active.is_some() {
+            bail!("Erst die laufende Session beenden.");
+        }
+        if self.boards.iter().all(|b| b.failed.is_some()) {
+            bail!("Keine Boards – nichts zu testen.");
+        }
+        if !(3.0..=120.0).contains(&seconds) {
+            bail!("Die Testdauer muss zwischen 3 und 120 s liegen.");
+        }
+        let host_us = self.origin.elapsed().as_micros() as i64;
+        let stats = self.boards.iter().map(|b| b.stats).collect();
+        self.board_test = Some(crate::boardtest::BoardTest::new(kind, host_us, seconds, self.settings.channels.len(), stats));
+        Ok(())
+    }
+
+    /// The sensor test's progress and numbers; null before the first.
+    pub fn board_test_json(&self) -> serde_json::Value {
+        let Some(t) = &self.board_test else { return serde_json::Value::Null };
+        let host_us = self.origin.elapsed().as_micros() as i64;
+        let boards: Vec<_> = self
+            .boards
+            .iter()
+            .map(|b| (b.id.clone(), b.name.clone(), serde_json::to_value(b.role).unwrap_or_default(), b.failed.clone()))
+            .collect();
+        let channels: Vec<(String, u32)> = self.settings.channels.iter().map(|c| (c.name.clone(), c.mhz)).collect();
+        t.json(host_us, &boards, &channels)
+    }
+
     pub fn session_running(&self) -> bool {
         self.active.is_some()
     }
@@ -463,6 +498,9 @@ impl Core {
                     b.count += levels.len() as u64;
                 }
                 self.write_levels(board, &levels)?;
+                if let Some(t) = self.board_test.as_mut() {
+                    t.push(board, &levels);
+                }
                 self.debug.push(board, &levels);
                 self.debug.advance();
                 if let Some(r) = self.recording.as_mut()
@@ -490,6 +528,9 @@ impl Core {
             BoardEvent::Stats { board, stats } => {
                 if let Some(b) = self.boards.get_mut(board) {
                     b.stats = Some(stats);
+                }
+                if let Some(t) = self.board_test.as_mut() {
+                    t.stats(board, stats);
                 }
             }
             BoardEvent::Failed { board, error } => {

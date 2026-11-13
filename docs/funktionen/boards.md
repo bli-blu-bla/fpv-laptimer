@@ -45,6 +45,27 @@ Quellen:
 Die Debug-Ansicht hat ihre eigenen Detektoren mit denselben Einstellungen; sie ändert nichts
 an den Runden.
 
+## Sensortest
+
+Benimmt sich ein Board seltsam, prüft **Boards → Sensortest**, ob es am Board selbst liegt.
+Der Test liest ein paar Sekunden lang mit, was alle Boards ohnehin melden (die Boards laufen
+weiter, nichts wird umgestellt), und stellt sie pro Kanal nebeneinander. Ein Board lässt sich
+nur im Vergleich beurteilen; am besten mit mindestens zwei Boards testen.
+
+- **Ohne Sender:** Alle Sender aus, auch DJI-Brillen. Gemessen wird der Rauschboden. Ein
+  beschädigter Eingang zeigt sich als Boden mehr als 3 dB über den anderen Boards oder als
+  unruhiger Boden, eine Störlinie als einzelner Kanal deutlich über den übrigen. Empfangen
+  mehrere Boards auf einem Kanal ein Signal, war wohl doch ein Sender an; der Kanal wird dann
+  nicht bewertet.
+- **Mit Referenz-Sender:** Ein Sender (am besten ein analoger VTX mit fester Leistung) an einer
+  festen Stelle 2–5 m entfernt, alle Boards gleich ausgerichtet. Ein Board, das mehr als 6 dB
+  schwächer empfängt als das beste, ist auffällig. Danach die Boards die Plätze tauschen lassen
+  und noch einmal testen: Was am Board liegt, wandert mit, was am Platz liegt, nicht.
+
+Daneben prüft er bei jedem Test Messrate, Lücken, verlorene Werte und fehlerhafte Pakete (CRC,
+oft Kabel oder USB-Port). Ein Board, das auf der Strecke lauter ist als die anderen, ist nicht
+unbedingt kaputt: Oft liegt es an Platz, Höhe oder Antenne.
+
 ## Debug-Paket
 
 Für eine genauere Analyse (oder einen Fehlerbericht) exportiert **Sessions → ⤓ → Debug**

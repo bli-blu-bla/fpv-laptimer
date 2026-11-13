@@ -3,6 +3,7 @@
 
 mod api;
 mod auth;
+mod boardtest;
 mod clock;
 mod config;
 mod core;
