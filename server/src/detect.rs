@@ -20,6 +20,11 @@
 //!    crossing right after it (a dip in the middle of the gate) can still be
 //!    merged into it. Crossings closer than the minimum lap to the previous
 //!    pass are one pass.
+//!    6b. **Replacing:** a crossing at most 2 s after the reported pass and
+//!    at least 6 dB stronger replaces it (`Event::Retract`, then the new
+//!    pass): the reported one was a hump before the gate (in all 16 such
+//!    cases in sessions 14-23 the arming pass lay between the two). Only at
+//!    the finish gate (`set_replace`).
 //! 7. **Start-up:** until a pilot has 3 passes, the peak is only estimated, and
 //!    the course's highest moments can count as a pass. Once 3 passes give a
 //!    real peak, the early passes that would not have reached the threshold
@@ -96,6 +101,10 @@ const MIN_CONTRAST: f32 = 3.0 * 4.0;
 pub const MIN_RISE_DB: f32 = 12.0;
 /// A pass is reported this long after its crossing ended.
 const HOLD_US: i64 = 1_000_000;
+/// A pass this much stronger, at most this long after the reported one,
+/// replaces it (step 6b): the reported one was a hump before the gate.
+const REPLACE_WITHIN_US: i64 = 2_000_000;
+const REPLACE_STRONGER_DB: f32 = 6.0;
 /// Slots a channel keeps until its first learned thresholds (step 8), 10 s.
 const LOOKBACK_SLOTS: usize = 1000;
 /// A board that sent nothing for this long no longer holds the others back.
@@ -437,6 +446,19 @@ impl Detector {
             .map(|m| m == DetectMode::AutoRelative)
             .collect();
         self.set_relative(&relative);
+        // Step 6b only at the finish gate: there the time is the lap. At the
+        // arming gate an earlier pass arms just as well (1 s slack), and a
+        // replacement there only changes what is learned (session 23: an
+        // arming pass then no longer reached the threshold).
+        self.set_replace(!arming);
+    }
+
+    /// Step 6b (replacing a reported pass by a much stronger one right
+    /// after it) on or off; on by default.
+    pub fn set_replace(&mut self, on: bool) {
+        for ch in &mut self.channels {
+            ch.replace = on;
+        }
     }
 
     /// Per channel: measure each board against its own course level
@@ -700,6 +722,12 @@ struct ChannelDetector {
     /// A pass waiting for HOLD_US, and when its crossing ended.
     pending: Option<(Pass, i64)>,
     last_reported_us: Option<i64>,
+    /// The last reported pass (for step 6b), and the one the pending pass
+    /// will replace, if any.
+    last_pass: Option<Pass>,
+    replaces: Option<Pass>,
+    /// Step 6b on (the finish gate).
+    replace: bool,
     /// Passes reported during start-up (step 7), until it is over.
     provisional: Vec<Pass>,
     started: bool,
@@ -726,6 +754,9 @@ impl ChannelDetector {
             crossing: Vec::new(),
             pending: None,
             last_reported_us: None,
+            last_pass: None,
+            replaces: None,
+            replace: true,
             provisional: Vec::new(),
             started: false,
             fixed: None,
@@ -825,6 +856,20 @@ impl ChannelDetector {
             .last_reported_us
             .is_some_and(|t| pass.time_us - t < config.min_lap_us)
         {
+            // Step 6b: a much stronger pass shortly after the reported one
+            // replaces it. Measured 2026-11-13 on sessions 14-23: the reported
+            // one was a weaker hump 0.7-1.7 s before the real pass (the
+            // arming pass lay between the two in all 16 cases). A pilot
+            // flying through again is not caught: turning back takes longer,
+            // and two clean passes are about equally strong.
+            if self.replace
+                && let Some(last) = self.last_pass
+                && pass.time_us - last.time_us <= REPLACE_WITHIN_US
+                && pass.peak_db >= last.peak_db + REPLACE_STRONGER_DB
+            {
+                self.pending = Some((pass, time_us));
+                self.replaces = Some(last);
+            }
             return; // too soon after the reported pass
         }
         // A new pass. (A pending one that is too old was reported by
@@ -839,7 +884,16 @@ impl ChannelDetector {
             return;
         }
         self.pending = None;
+        // Step 6b: first take back the pass this one replaces.
+        if let Some(old) = self.replaces.take() {
+            out.push(Event::Retract(old));
+            if let Some(i) = self.peaks.iter().rposition(|&c| c == db_code(old.peak_db)) {
+                self.peaks.remove(i);
+            }
+            self.provisional.retain(|p| p.time_us != old.time_us);
+        }
         self.last_reported_us = Some(pass.time_us);
+        self.last_pass = Some(pass);
         self.peaks.push_back(db_code(pass.peak_db));
         if self.peaks.len() > PEAK_HISTORY {
             self.peaks.pop_front();
@@ -874,6 +928,7 @@ impl ChannelDetector {
             keep
         });
         self.last_reported_us = self.provisional.last().map(|p| p.time_us);
+        self.last_pass = self.provisional.last().copied();
         if self.peaks.len() >= MIN_PEAKS {
             self.started = true;
             self.provisional.clear();
@@ -1088,6 +1143,64 @@ mod tests {
         for (f, p) in times.iter().zip(passes) {
             assert!((f - p).abs() < 0.03, "pass at {p} found at {f}");
         }
+    }
+
+    /// Like `simulate_events`, but each hump with its own peak (dBFS):
+    /// (time s, peak dBFS). Course -45 dBFS, both boards alike.
+    fn simulate_humps(humps: &[(f64, f64)], seconds: f64) -> Vec<Event> {
+        let mut det = Detector::new(1, DetectConfig::default());
+        let mut found = Vec::new();
+        let mut k = 0u64;
+        let mut t = 0.0;
+        while t < seconds {
+            let mut db: f64 = -45.0;
+            for &(at, peak) in humps {
+                db = db.max(peak - 30.0 * (1.0 - (-((t - at) / 0.2).powi(2)).exp()));
+            }
+            let rssi = db_code(db as f32);
+            let host_us = (t * 1e6) as i64;
+            for board in 0..2 {
+                det.push(board, &[Level { host_us, board_us: host_us as u64, channel: 0, rssi, flags: 0 }]);
+            }
+            k += 1;
+            t += 0.002;
+            if k % 5 == 0 {
+                found.extend(det.advance());
+            }
+        }
+        found.extend(det.flush());
+        found
+    }
+
+    /// Five clean passes at -15 dBFS every 10 s, plus `extra`.
+    fn laps_with(extra: &[(f64, f64)]) -> Vec<f64> {
+        let mut humps: Vec<(f64, f64)> = [10.0, 20.0, 30.0, 40.0, 50.0].iter().map(|&t| (t, -15.0)).collect();
+        humps.extend_from_slice(extra);
+        let events = simulate_humps(&humps, 56.0);
+        final_passes(&events).iter().map(|p| p.time_us as f64 / 1e6).collect()
+    }
+
+    #[test]
+    fn a_hump_before_the_gate_is_replaced_by_the_pass() {
+        // Step 6b: a weak hump (-24 dBFS) 1.4 s before the pass at 40 s is
+        // reported first; the pass, 9 dB stronger, replaces it.
+        let times = laps_with(&[(38.6, -24.0)]);
+        assert_eq!(times.len(), 5, "{times:?}");
+        assert!(times.iter().any(|t| (t - 40.0).abs() < 0.03), "{times:?}");
+        assert!(!times.iter().any(|t| (t - 38.6).abs() < 0.1), "{times:?}");
+    }
+
+    #[test]
+    fn flying_through_again_keeps_the_first() {
+        // The pilot flies through at 40 s and again 1.5 s later, just as
+        // strong: the first counts, the second is too soon.
+        let times = laps_with(&[(41.5, -15.0)]);
+        assert_eq!(times.len(), 5, "{times:?}");
+        assert!(times.iter().any(|t| (t - 40.0).abs() < 0.03), "{times:?}");
+        // Stronger, but more than 2 s later: also not replaced.
+        let times = laps_with(&[(42.3, -9.0)]);
+        assert!(times.iter().any(|t| (t - 40.0).abs() < 0.03), "{times:?}");
+        assert!(!times.iter().any(|t| (t - 42.3).abs() < 0.1), "{times:?}");
     }
 
     #[test]

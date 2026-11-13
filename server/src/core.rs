@@ -595,6 +595,26 @@ impl Core {
             DetectEvent::Retract(p) => {
                 let time_us = self.wall_us(p.time_us);
                 self.db.remove_auto_pass(session_id, p.channel, time_us)?;
+                // A pass taken back mid-session (step 6b: replaced by a
+                // stronger one right after it) must not stay the "last
+                // counted" of the arming rule: the pass replacing it would be
+                // rejected. Back to the counted pass before it, if any.
+                let c = p.channel as usize;
+                if self.last_counted.get(c).copied().flatten() == Some(time_us) {
+                    let row = &self.active.as_ref().unwrap().row;
+                    let t0 = if row.config.race { row.start_us } else { row.created_us };
+                    let before = self
+                        .db
+                        .passes(session_id)?
+                        .into_iter()
+                        .filter(|q| q.channel == p.channel && q.gate == 0 && !q.deleted && q.time_us >= t0 && q.time_us < time_us)
+                        .map(|q| q.time_us)
+                        .max();
+                    self.last_counted[c] = before;
+                }
+                if self.unarmed.get(c).copied().flatten().is_some_and(|(_, t)| t == time_us) {
+                    self.unarmed[c] = None;
+                }
                 self.refresh(false)?;
                 self.events.emit("passes_changed", json!({ "session_id": session_id }));
             }

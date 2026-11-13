@@ -81,6 +81,9 @@ pub fn run(path: &Path, opts: &Options) -> Result<()> {
                 Detector::new(n_channels, opts.config)
             };
             d.set_relative(&vec![opts.mode == DetectMode::AutoRelative; n_channels]);
+            // As live: replacing a pass by a stronger one (step 6b) only at
+            // the finish gate.
+            d.set_replace(opts.gate != "arming");
             d
         });
         let level = Level {

@@ -38,10 +38,12 @@ Darum läuft jeder Durchflug in fünf Phasen ab (`server/src/detect.rs`):
    wird der gesammelte Verlauf ausgewertet.
 5. **1 s Haltezeit (`HOLD_US`):** Nach dem Drop unter `exit` wartet der Detektor noch 1 Sekunde,
    bevor er den Durchflug endgültig meldet. Fällt das Signal mitten im Gate kurz ab (etwa durch
-   eine Antennen-Nullstelle) und steigt wieder, entsteht ein zweiter Abschnitt. Liegen beide
-   näher als die Mindestrunde (Standard 3 s) beieinander, bleibt **einer** übrig: der mit dem
-   höheren Gipfel, samt seiner Zeit; der andere wird verworfen. Die Haltezeit sorgt dafür, dass
-   der zweite Abschnitt noch vor der Meldung kommt.
+   eine Antennen-Nullstelle) und steigt wieder, entsteht ein zweiter Abschnitt. Kommt er noch
+   in der Haltezeit, bleibt **einer** übrig: der mit dem höheren Gipfel, samt seiner Zeit.
+   Kommt er danach, aber näher als die Mindestrunde (Standard 3 s), ist der erste schon
+   gemeldet und der zweite wird verworfen, außer am Zielgate: Ist er höchstens 2 s später
+   und mindestens 6 dB stärker, ersetzt er den gemeldeten (der war ein Buckel vor dem Gate,
+   siehe [Durchflug-Erkennung](erkennung.md#schritte-pro-kanal), Schritt 6).
 
 Bevor ein Kanal überhaupt gelernte Schwellen hat (nach 5 s Sender über −46 dBFS), wird nichts
 erkannt; die letzten 10 s werden dann nachträglich ausgewertet. Wie frühe Fehltreffer im Anlauf

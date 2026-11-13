@@ -50,6 +50,15 @@ flowchart TD
 6. **Zusammenlegen:** Gemeldet wird erst 1 s nach dem Austritt. Fällt der Pegel mitten im Gate
    kurz ab und steigt wieder, wird das so noch ein Durchflug. Näher als die Mindestrunde
    (Standard 3 s) am vorigen ist es derselbe.
+    - **Ersetzen (nur Zielgate):** Kommt höchstens 2 s nach einem schon gemeldeten Durchflug
+      einer, der mindestens 6 dB stärker ist, ersetzt er ihn: Der gemeldete wird
+      zurückgenommen, der stärkere zählt. Der gemeldete war dann ein Buckel *vor* dem Gate.
+      Gemessen 2026-11-13 an den Sessions 14–23: 16 solche Fälle, 0,8–1,7 s auseinander, und
+      in allen lag der Freigabe-Durchflug zwischen den beiden; die Zeit lag also um diesen
+      Abstand zu früh. Wer unsicher ist und gleich noch einmal durchfliegt, bleibt beim ersten:
+      Umdrehen dauert länger als 2 s, und zwei saubere Durchflüge sind etwa gleich stark. Am
+      Freigabe-Gate nicht, dort zählt ein früherer Durchflug genauso (1 s Spielraum), und ein
+      Ersetzen verstellte nur das Gelernte.
 7. **Anlauf und Zurücknehmen:** Bis ein Pilot drei Durchflüge hat, ist der Gipfel nur
    geschätzt, und die höchsten Momente der Strecke können zählen. Sobald drei echte Gipfel da
    sind, prüft der Detektor die frühen Durchflüge noch einmal und nimmt die zurück, die die
